@@ -89,6 +89,8 @@ releases, evaluation gates, and operational runbooks.
 - Preserve user changes and existing conventions.
 - Ask only when a missing answer materially changes architecture, public APIs, or security.
 - Do not push, publish, deploy, or open a PR unless the user explicitly requests it.
+- When the user authorizes a push, publish directly to `main` by default. Use another branch or open a
+  pull request only when the user explicitly requests that workflow.
 - Keep orchestration independent of any model or host.
 - Do not execute arbitrary shell strings; use explicit commands, arguments, cwd, and timeouts.
 - Validate every path against the declared target root and apply exact write allowlists.
