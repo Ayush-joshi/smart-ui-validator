@@ -384,7 +384,7 @@ Exit criteria:
 - Terminal question/answer workflow and non-interactive behavior for CI.
 - Candidate, confirmed, rejected, superseded, and expired memory states.
 - Scope and precedence enforcement.
-- Agent Memory adapter using the hardened fork, with a local fallback for tests.
+- Agent Memory adapter using the hardened public GitHub repository dependency (`github:Ayush-joshi/agent-memory#main`) without requiring npm package publication, with a local fallback for tests.
 - L0-L3 mapping and artifact references without binary prompt bloat.
 - `memory list`, `show`, `explain`, `confirm`, `correct`, `forget`, `export`, and
   `import` commands.
@@ -793,11 +793,7 @@ MEMORY ARCHITECTURE
 
 AGENT MEMORY INTEGRATION
 
-1. Inspect the available hardened Agent Memory fork before integrating it. Use
-   its actual public APIs; do not invent imports. If the fork is not accessible
-   from this workspace, ask me for its local path or repository/package
-   reference only when needed, and continue building the provider contract and
-   test implementation meanwhile.
+1. Connect to the public `agent-memory` repository via GitHub dependency in `package.json` (e.g. `"agent-memory": "github:Ayush-joshi/agent-memory#main"`) or local monorepo path (`file:../agent-memory`) during development without requiring npm package publishing. Inspect the public exports and API contracts before building the adapter. Use its actual public APIs; do not invent imports.
 2. Implement the integration as an adapter so core orchestration never imports
    Agent Memory internals directly.
 3. Map raw interaction/evidence references to L0, atomic preferences and facts
