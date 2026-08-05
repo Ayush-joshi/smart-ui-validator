@@ -9,6 +9,7 @@ import {
   LocalImageDesignProvider,
   LocalPolicy,
   MockCodingProvider,
+  HeuristicRepairProvider,
   PlaywrightBrowserProvider,
   ReactFrameworkAdapter,
   SmartUiOrchestrator,
@@ -53,6 +54,7 @@ describe('Phase 1 vertical slice', () => {
     const orchestrator = new SmartUiOrchestrator({
       framework: new ReactFrameworkAdapter(),
       coding: new MockCodingProvider(),
+      repair: new HeuristicRepairProvider(),
       browser: new PlaywrightBrowserProvider(),
       artifacts: store,
       policy: new LocalPolicy({ targetRoot: fixtureRoot, dryRun: true }),
@@ -64,6 +66,7 @@ describe('Phase 1 vertical slice', () => {
       contract,
       url,
     });
+    console.log('DEBUG RUN RECORD:', JSON.stringify(result.record, null, 2));
     expect(result.record.status).toBe('dry-run');
     expect(result.record.changedFiles).toEqual([]);
     expect(result.record.artifacts.some((item) => item.mediaType === 'image/png')).toBe(true);

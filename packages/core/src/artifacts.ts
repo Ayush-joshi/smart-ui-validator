@@ -33,6 +33,10 @@ export class LocalArtifactStore implements ArtifactStore {
     return ref;
   }
 
+  async read(relativePath: string): Promise<Uint8Array> {
+    return readFile(join(this.root, relativePath));
+  }
+
   async readManifest(): Promise<ArtifactRef[]> {
     try {
       const raw = JSON.parse(await readFile(this.manifestPath, 'utf8')) as Manifest;

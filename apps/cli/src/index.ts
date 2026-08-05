@@ -8,6 +8,8 @@ import {
   LocalImageDesignProvider,
   LocalPolicy,
   MockCodingProvider,
+  HeuristicRepairProvider,
+  compareImages,
   PlaywrightBrowserProvider,
   ReactFrameworkAdapter,
   SmartUiError,
@@ -81,6 +83,7 @@ program
     const orchestrator = new SmartUiOrchestrator({
       framework: new ReactFrameworkAdapter(),
       coding: new MockCodingProvider(),
+      repair: new HeuristicRepairProvider(),
       browser: new PlaywrightBrowserProvider(),
       artifacts: store,
       policy,
@@ -94,6 +97,113 @@ program
     });
     print(result, options.json);
     if (result.record.status === 'failed') process.exitCode = 4;
+  });
+
+program
+  .command('validate')
+  .requiredOption('--target <path>', 'React repository root')
+  .requiredOption('--design <path>', 'DesignContract JSON file')
+  .requiredOption('--route <url>', 'fully qualified fixture URL')
+  .option('--artifacts <path>', 'artifact directory (defaults under target)')
+  .option('--json', 'emit JSON')
+  .action(async (options: ValidateCliOptions) => {
+    const target = userPath(options.target);
+    const artifactRoot = options.artifacts
+      ? userPath(options.artifacts)
+      : join(target, '.smart-ui', 'artifacts');
+    const store = new LocalArtifactStore(artifactRoot);
+    const contract = designContractSchema.parse(
+      JSON.parse(await readFile(userPath(options.design), 'utf8')),
+    );
+    const policy = new LocalPolicy({
+      targetRoot: target,
+      writableFiles: [],
+      dryRun: true,
+      maxExecutionTimeMs: 60_000,
+    });
+    // Dummy repair provider that returns nothing to stop at validation pass 0
+    const dummyRepair = {
+      name: 'dummy-repair',
+      proposeRepair: async () => [],
+    };
+    const orchestrator = new SmartUiOrchestrator({
+      framework: new ReactFrameworkAdapter(),
+      coding: new MockCodingProvider(),
+      repair: dummyRepair,
+      browser: new PlaywrightBrowserProvider(),
+      artifacts: store,
+      policy,
+      reporter: new HtmlReporter(store),
+    });
+    const result = await orchestrator.run({
+      targetRoot: target,
+      designContractPath: userPath(options.design),
+      contract,
+      url: options.route,
+    });
+    print(result, options.json);
+    if (result.record.score !== undefined && result.record.score < 100) {
+      process.exitCode = 3;
+    }
+  });
+
+program
+  .command('fix')
+  .requiredOption('--target <path>', 'React repository root')
+  .requiredOption('--design <path>', 'DesignContract JSON file')
+  .requiredOption('--route <url>', 'fully qualified fixture URL')
+  .option('--artifacts <path>', 'artifact directory (defaults under target)')
+  .option('--allow-write <path...>', 'target-relative files a coding provider may write', [])
+  .option('--dry-run', 'record proposed work without source writes')
+  .option('--json', 'emit JSON')
+  .action(async (options: RunCliOptions) => {
+    const target = userPath(options.target);
+    const artifactRoot = options.artifacts
+      ? userPath(options.artifacts)
+      : join(target, '.smart-ui', 'artifacts');
+    const store = new LocalArtifactStore(artifactRoot);
+    const contract = designContractSchema.parse(
+      JSON.parse(await readFile(userPath(options.design), 'utf8')),
+    );
+    const policy = new LocalPolicy({
+      targetRoot: target,
+      writableFiles: options.allowWrite,
+      dryRun: options.dryRun ?? false,
+      maxExecutionTimeMs: 60_000,
+    });
+    const orchestrator = new SmartUiOrchestrator({
+      framework: new ReactFrameworkAdapter(),
+      coding: new MockCodingProvider(),
+      repair: new HeuristicRepairProvider(),
+      browser: new PlaywrightBrowserProvider(),
+      artifacts: store,
+      policy,
+      reporter: new HtmlReporter(store),
+    });
+    const result = await orchestrator.run({
+      targetRoot: target,
+      designContractPath: userPath(options.design),
+      contract,
+      url: options.route,
+    });
+    print(result, options.json);
+    if (result.record.status === 'failed') process.exitCode = 4;
+  });
+
+program
+  .command('compare')
+  .argument('<design>', 'Design contract JSON or reference image path')
+  .argument('<implementation>', 'Implementation screenshot PNG path')
+  .option('--out <path>', 'output heatmap path', 'diff-heatmap.png')
+  .option('--json', 'emit JSON')
+  .action(async (designPath, implPath, options) => {
+    const designBytes = await readFile(userPath(designPath));
+    const implBytes = await readFile(userPath(implPath));
+    const result = await compareImages(designBytes, implBytes);
+    if (options.out) {
+      await writeFile(userPath(options.out), result.heatmap);
+    }
+    print({ diffPercent: result.diffPercent, heatmap: options.out }, options.json);
   });
 
 program
@@ -145,6 +255,13 @@ interface RunCliOptions {
   artifacts?: string;
   allowWrite: string[];
   dryRun?: boolean;
+  json?: boolean;
+}
+interface ValidateCliOptions {
+  target: string;
+  design: string;
+  route: string;
+  artifacts?: string;
   json?: boolean;
 }
 interface ReportOptions {

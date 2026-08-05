@@ -6,6 +6,8 @@ import { SmartUiError } from './errors.js';
 import type { ArtifactStore, DesignProvider } from './providers.js';
 import { designContractSchema, type DesignContract } from './schemas.js';
 
+import type { DesignElement } from './schemas.js';
+
 export interface LocalImageInput {
   imagePath: string;
   name?: string;
@@ -16,6 +18,7 @@ export interface LocalImageInput {
     theme?: 'light' | 'dark';
     locale?: string;
     ambiguities?: string[];
+    elements?: Array<Partial<DesignElement>>;
   };
 }
 
@@ -59,6 +62,7 @@ export class LocalImageDesignProvider implements DesignProvider<LocalImageInput>
         sourceHash,
       },
       ambiguities: input.spec?.ambiguities ?? [],
+      elements: input.spec?.elements ?? [],
     });
   }
 }
