@@ -1,5 +1,5 @@
 const secretAssignment =
-  /\b(api[_-]?key|access[_-]?token|refresh[_-]?token|authorization|cookie|password|secret)\b\s*[:=]\s*([^\s,;]+)/gi;
+  /\b(api[_-]?key|access[_-]?token|refresh[_-]?token|token|authorization|cookie|password|secret)\b\s*[:=]\s*([^\s,;]+)/gi;
 const bearerToken = /\bBearer\s+[A-Za-z0-9._~+/-]+=*/gi;
 const sensitiveHeader = /\b(authorization|cookie)\b\s*[:=]\s*[^\r\n,;]+/gi;
 

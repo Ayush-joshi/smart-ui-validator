@@ -73,6 +73,20 @@ opt-in and is not verified by the recorded/mock CI contract tests.
 
 ### Phase 3 — Interaction and governed memory
 
+Status: Implemented and verified on 2026-08-06. The governed local provider, interaction boundary,
+CLI lifecycle commands, optional orchestrator recall, and safety tests are implemented. The linked
+Agent Memory fork now exposes its public host-neutral and SQLite store APIs; the live adapter persists
+and rehydrates compact governed records through its public `VectorStore`.
+
+Phase 3 verification passed Prettier, ESLint, TypeScript typecheck, production build, 61
+unit/integration tests, 2 real-Chromium end-to-end tests, and a built CLI Agent Memory persistence
+flow. Local plaintext, experimental Node SQLite, dual-write interruption, and unsupported multi-tenant
+operation remain documented limitations for Phase 4.
+
+The Phase 3 production dependency audit reports no known vulnerabilities. Playwright is pinned to
+1.55.1, the fixture uses Vite 8.2.0 with `@vitejs/plugin-react` 6.0.5, and the root narrowly overrides
+the AI SDK provider utility's transitive `undici` to 6.28.0.
+
 Add meaningful questions, `InteractionProvider`, `MemoryProvider`, scoped preference precedence,
 candidate/confirmed/rejected/superseded/expired states, Agent Memory integration, correction and
 forgetting commands, consent, retention, and poisoning/isolation tests.

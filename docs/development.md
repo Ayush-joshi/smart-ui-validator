@@ -1,5 +1,8 @@
 # Development
 
+Use Node.js 22.16 or newer and pnpm 10. The Agent Memory dependency establishes the Node runtime
+floor; its SQLite-backed tests currently emit Node's experimental SQLite warning.
+
 ## Quality gates
 
 ```bash
@@ -47,6 +50,18 @@ executable/argument tuple are allowlisted.
     "maxFailedRequests": 200,
     "maxArtifactBytes": 20000000,
     "maxDiagnosticCharacters": 80000
+  },
+  "memory": {
+    "enabled": false,
+    "learningEnabled": false,
+    "backend": "local",
+    "storePath": ".smart-ui/memory.json",
+    "agentMemoryDatabasePath": ".smart-ui/agent-memory.sqlite",
+    "maxRecords": 12,
+    "maxCharactersPerMemory": 800,
+    "maxTotalCharacters": 6000,
+    "telemetryEnabled": false,
+    "remoteBackendEnabled": false
   },
   "policy": {
     "allowedPaths": ["src/styles.css"],

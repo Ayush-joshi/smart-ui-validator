@@ -3,10 +3,12 @@ import { readFile, writeFile } from 'node:fs/promises';
 import { extname, join, resolve } from 'node:path';
 import { Command, Option } from 'commander';
 import {
+  AgentMemoryProvider,
   HeuristicRepairProvider,
   HtmlReporter,
   LocalArtifactStore,
   LocalImageDesignProvider,
+  LocalMemoryProvider,
   LocalPolicy,
   MockCodingProvider,
   PlaywrightBrowserProvider,
@@ -17,15 +19,19 @@ import {
   designContractSchema,
   loadConfig,
   runRecordSchema,
+  resolveMemoryPath,
 } from '@smart-ui/core';
+import { registerMemoryCommands } from './memory-cli.js';
 
 const program = new Command()
   .name('smart-ui')
   .description('Normalize, validate, and repair UI implementations with deterministic evidence')
-  .version('0.2.0')
+  .version('0.3.0')
   .showSuggestionAfterError();
 
 const invocationRoot = process.env['INIT_CWD'] ?? process.cwd();
+
+registerMemoryCommands(program, invocationRoot);
 
 program
   .command('inspect')
@@ -138,6 +144,12 @@ function addRunCommand(name: string, description: string): void {
     .option('--allow-write <path...>', 'additional exact target-relative writable files', [])
     .option('--max-passes <count>', 'maximum repair patches for this run', parsePassCount)
     .option('--dry-run', 'record one proposed patch without source writes')
+    .option('--memory', 'enable scoped advisory memory recall')
+    .option('--tenant <id>', 'explicit tenant identity', 'local')
+    .option('--user <id>', 'explicit user identity', 'default')
+    .option('--project <id>', 'project identity')
+    .option('--component <id>', 'component identity')
+    .option('--session <id>', 'session identity')
     .option('--json', 'emit JSON')
     .action(async (options: RunCliOptions) => {
       const result = await execute(options, true);
@@ -174,6 +186,16 @@ async function execute(
   const cancel = () => controller.abort();
   process.once('SIGINT', cancel);
   try {
+    const memoryEnabled = 'memory' in options && (options.memory ?? config.memory.enabled);
+    const localMemory = memoryEnabled
+      ? new LocalMemoryProvider(resolveMemoryPath(target, config.memory.storePath))
+      : undefined;
+    const memoryProvider =
+      localMemory && config.memory.backend === 'agent-memory'
+        ? new AgentMemoryProvider(localMemory, {
+            databasePath: resolveMemoryPath(target, config.memory.agentMemoryDatabasePath),
+          })
+        : localMemory;
     return await new SmartUiOrchestrator({
       framework: new ReactFrameworkAdapter(),
       coding: new MockCodingProvider(),
@@ -182,12 +204,27 @@ async function execute(
       artifacts: store,
       policy,
       reporter: new HtmlReporter(store),
+      ...(memoryProvider ? { memory: memoryProvider } : {}),
     }).run({
       targetRoot: target,
       designContractPath: userPath(options.design),
       contract,
       url: options.route,
       repairEnabled,
+      ...(memoryEnabled
+        ? {
+            memoryContext: {
+              tenantId: 'tenant' in options ? options.tenant : 'local',
+              userId: 'user' in options ? options.user : 'default',
+              repositoryId: target,
+              ...('project' in options && options.project ? { projectId: options.project } : {}),
+              ...('component' in options && options.component
+                ? { componentId: options.component }
+                : {}),
+              ...('session' in options && options.session ? { sessionId: options.session } : {}),
+            },
+          }
+        : {}),
       ...('maxPasses' in options && options.maxPasses !== undefined
         ? { maxRepairPasses: options.maxPasses }
         : {}),
@@ -249,6 +286,12 @@ interface RunCliOptions {
   maxPasses?: number;
   dryRun?: boolean;
   json?: boolean;
+  memory?: boolean;
+  tenant: string;
+  user: string;
+  project?: string;
+  component?: string;
+  session?: string;
 }
 
 interface ValidateCliOptions {

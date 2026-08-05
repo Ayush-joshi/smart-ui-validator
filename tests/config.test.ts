@@ -7,6 +7,7 @@ describe('Phase 2 configuration', () => {
     expect(config.validation.geometryTolerancePx).toBe(2);
     expect(config.validation.maxRepairPasses).toBe(5);
     expect(config.policy.blockExternalNetwork).toBe(true);
+    expect(config.memory.backend).toBe('local');
   });
 
   it('fails closed on unknown or unsafe values', () => {

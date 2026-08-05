@@ -75,6 +75,32 @@ export const configSchema = z
         maxArtifactBytes: 20_000_000,
         maxDiagnosticCharacters: 80_000,
       }),
+    memory: z
+      .object({
+        enabled: z.boolean().default(false),
+        learningEnabled: z.boolean().default(false),
+        backend: z.enum(['local', 'agent-memory']).default('local'),
+        storePath: z.string().min(1).default('.smart-ui/memory.json'),
+        agentMemoryDatabasePath: z.string().min(1).default('.smart-ui/agent-memory.sqlite'),
+        maxRecords: z.number().int().positive().max(100).default(12),
+        maxCharactersPerMemory: z.number().int().positive().max(8_000).default(800),
+        maxTotalCharacters: z.number().int().positive().max(50_000).default(6_000),
+        telemetryEnabled: z.boolean().default(false),
+        remoteBackendEnabled: z.boolean().default(false),
+      })
+      .strict()
+      .default({
+        enabled: false,
+        learningEnabled: false,
+        backend: 'local',
+        storePath: '.smart-ui/memory.json',
+        agentMemoryDatabasePath: '.smart-ui/agent-memory.sqlite',
+        maxRecords: 12,
+        maxCharactersPerMemory: 800,
+        maxTotalCharacters: 6_000,
+        telemetryEnabled: false,
+        remoteBackendEnabled: false,
+      }),
     policy: z
       .object({
         allowedPaths: z.array(z.string().min(1)).default([]),

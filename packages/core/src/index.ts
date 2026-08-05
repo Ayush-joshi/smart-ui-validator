@@ -20,3 +20,7 @@ export * from './repair-provider.js';
 export * from './dom-extractor.js';
 export * from './heuristic-repair.js';
 export * from './security.js';
+export * from './interaction.js';
+export * from './memory.js';
+export * from './preference-learning.js';
+export * from './agent-memory-provider.js';

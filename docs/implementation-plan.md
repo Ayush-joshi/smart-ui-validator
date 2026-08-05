@@ -2,7 +2,7 @@
 
 ## Product and four-phase implementation plan
 
-Status: Active roadmap — Phases 1 and 2 implemented and verified on 2026-08-06
+Status: Active roadmap — Phases 1 through 3 implemented and verified on 2026-08-06
 
 Target project: this `smart-ui-validator` repository
 
@@ -373,6 +373,11 @@ Phase 3 entry constraints established by the correction review:
 
 ### Phase 3 — Interactive preference learning and Agent Memory
 
+Status: Completed and verified on 2026-08-06. Governed local memory, interaction, CLI lifecycle
+operations, optional bounded recall, and safety tests are implemented. The installed Agent Memory
+fork exposes its public host-neutral and SQLite store APIs; integration tests verify persistence,
+rehydration, L0/L1 mapping, scoped recall, and deletion through the public `VectorStore`.
+
 Deliver a conversational decision layer and governed long-term memory. The agent
 asks only meaningful questions, remembers confirmed patterns at the correct
 scope, retrieves them within a strict context budget, explains why a memory was
@@ -393,6 +398,36 @@ Exit criteria:
   memories.
 - Token and retrieval-budget measurements.
 - End-to-end demonstration that an accepted preference improves a later run.
+
+Completion record:
+
+- Versioned governed records enforce explicit identity, scope selectors, lifecycle, consent,
+  sensitivity, retention, evidence, conflicts, supersession, expiry, and provenance.
+- Interactive and non-interactive providers enforce the three-question default budget, explicit safe
+  CI defaults, confirmation before promotion, and complete interaction decision payloads in run
+  decisions.
+- Local recall filters identity/scope/lifecycle before deterministic precedence and caps record count,
+  per-record characters, total characters, and estimated tokens. Binary/base64 evidence is rejected;
+  artifact hashes remain compact references.
+- CLI lifecycle operations cover proposal, listing, showing, explanation, confirmation, rejection,
+  correction, forgetting, versioned export/import with dry-run, and session purging.
+- The hardened Agent Memory fork at commit `da87697` exposes `TdaiCore`, `VectorStore`, configuration,
+  store interfaces, and standalone adapters. The adapter uses only those public exports. A live SQLite
+  integration test verifies initialization, L0/L1 persistence, process-restart rehydration, scoped
+  recall, and verified deletion. The interactive later-run reuse demonstration also uses this backend.
+- Security tests cover cross-user/repository isolation, current-design/instruction precedence,
+  rejected/stale/superseded exclusion, poisoning rejection, secret redaction, recall budgets, export,
+  correction history, and deletion.
+- Verification passed Prettier, ESLint, TypeScript typecheck, production build, 61 unit/integration
+  tests, and 2 real-Chromium desktop/mobile end-to-end tests. A built CLI flow persisted and reloaded a
+  scoped candidate through Agent Memory SQLite.
+- The production advisory audit reports no known vulnerabilities after updating Playwright to 1.55.1,
+  moving the fixture to Vite 8.2.0 and `@vitejs/plugin-react` 6.0.5, and narrowly overriding the AI
+  SDK provider utility's `undici` dependency to 6.28.0.
+- Supported deployment remains local and single-user. The JSON governance store is single-writer,
+  both local stores are plaintext, Node reports its SQLite API as experimental, and interruption
+  between mirrored JSON/SQLite writes is a documented recovery risk. Multi-tenant controls remain
+  Phase 4 work.
 
 ### Phase 4 — Production frameworks, MCP distribution, and enterprise readiness
 

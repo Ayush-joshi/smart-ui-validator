@@ -16,6 +16,7 @@ import type {
   ProposedChange,
   Reporter,
 } from './providers.js';
+import type { MemoryContext, MemoryProvider, RecallBudget } from './memory.js';
 import type { RepairProposalInput, RepairProvider } from './repair-provider.js';
 import {
   passRecordSchema,
@@ -36,6 +37,8 @@ export interface RunOptions {
   repairEnabled?: boolean;
   maxRepairPasses?: number;
   signal?: AbortSignal;
+  memoryContext?: MemoryContext;
+  memoryBudget?: RecallBudget;
 }
 
 export interface OrchestratorDependencies {
@@ -47,6 +50,7 @@ export interface OrchestratorDependencies {
   artifacts: ArtifactStore;
   policy: PolicyProvider;
   reporter: Reporter;
+  memory?: MemoryProvider;
 }
 
 interface FileSnapshot {
@@ -106,6 +110,29 @@ export class SmartUiOrchestrator {
         kind: 'framework',
         message: `Detected ${inspection.framework} with ${inspection.buildSystem ?? 'unknown build system'}`,
       });
+
+      if (this.dependencies.memory && options.memoryContext) {
+        const recallStart = performance.now();
+        const recall = await this.dependencies.memory.recall(
+          options.memoryContext,
+          options.memoryBudget ?? {
+            maxRecords: config.memory.maxRecords,
+            maxCharactersPerMemory: config.memory.maxCharactersPerMemory,
+            maxTotalCharacters: config.memory.maxTotalCharacters,
+          },
+        );
+        timings.memoryRecall = performance.now() - recallStart;
+        decisions.push({
+          kind: 'memory-recall',
+          message: JSON.stringify({
+            advisoryOnly: true,
+            memoryIds: recall.records.map((record) => record.id),
+            characters: recall.characters,
+            estimatedTokens: recall.estimatedTokens,
+            excluded: recall.excluded,
+          }),
+        });
+      }
 
       const reference = await this.readReference(options.contract, config);
       const comparator = new SmartUiComparator(config);
@@ -376,7 +403,7 @@ export class SmartUiOrchestrator {
       timingsMs: timings,
       warnings: [...options.contract.ambiguities, ...options.contract.sourceEvidence.uncertainties],
       failures,
-      provenance: { tool: 'smart-ui', version: '0.2.0' },
+      provenance: { tool: 'smart-ui', version: '0.3.0' },
       passes,
       ...(finalScore === undefined ? {} : { score: finalScore }),
       stoppedReason,
@@ -407,6 +434,7 @@ export class SmartUiOrchestrator {
       ...record,
       artifacts: uniqueArtifacts([...record.artifacts, recordArtifact]),
     });
+    await this.dependencies.memory?.close?.();
     return { record: deepFreeze(record), report: reportPath };
   }
 
