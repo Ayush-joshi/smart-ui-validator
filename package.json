@@ -1,6 +1,6 @@
 {
   "name": "smart-ui-validator",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "packageManager": "pnpm@10.15.0",
   "engines": {
@@ -10,7 +10,7 @@
     "build": "pnpm -r build",
     "lint": "eslint .",
     "typecheck": "pnpm -r typecheck",
-    "test": "vitest run",
+    "test": "vitest run --exclude tests/e2e/**",
     "test:e2e": "vitest run tests/e2e",
     "format:check": "prettier --check .",
     "fixture:dev": "pnpm --filter @smart-ui/react-fixture dev",

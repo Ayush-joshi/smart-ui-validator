@@ -1,153 +1,263 @@
+import { access, mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
-  SmartUiOrchestrator,
+  HeuristicRepairProvider,
+  HtmlReporter,
   LocalArtifactStore,
   LocalPolicy,
   MockCodingProvider,
-  HtmlReporter,
-  HeuristicRepairProvider,
-  designContractSchema,
+  SmartUiOrchestrator,
+  type BrowserEvidence,
+  type BrowserProvider,
+  type ProposedChange,
+  type RepairProvider,
 } from '../packages/core/src/index.js';
-import type { BrowserProvider, BrowserEvidence } from '../packages/core/src/providers.js';
-import { mkdtemp, readFile, writeFile, mkdir } from 'node:fs/promises';
-import { join } from 'node:path';
-import { tmpdir } from 'node:os';
+import { browserElement, contract, designElement, evidence, PNG_BYTES } from './helpers.js';
 
-describe('Repair Coordinator Loop', () => {
-  it('should run repair loop, apply patches, and roll back on regression', async () => {
-    const tempDir = await mkdtemp(join(tmpdir(), 'smart-ui-repair-test-'));
-    const store = new LocalArtifactStore(tempDir);
-
-    // Setup a dummy css file in target root
-    const targetRoot = await mkdtemp(join(tmpdir(), 'smart-ui-target-root-'));
-    const cssPath = join(targetRoot, 'src/styles.css');
-    await mkdir(join(targetRoot, 'src'), { recursive: true }).catch(() => {});
-    await writeFile(cssPath, '.card { background: #ff0000; }', 'utf8');
-
-    const contract = designContractSchema.parse({
-      schemaVersion: '1.0',
-      id: 'repair-test',
-      name: 'Card Repair',
-      viewport: { width: 800, height: 600, deviceScaleFactor: 1 },
-      theme: 'light',
-      locale: 'en-US',
-      component: { name: 'Card', route: '/' },
-      reference: { hash: 'sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855', mediaType: 'image/png', relativePath: 'ref.png', byteLength: 0 },
-      provenance: { provider: 'test', source: 'test', capturedAt: new Date().toISOString(), sourceHash: 'sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855' },
-      ambiguities: [],
-      elements: [
-        {
-          validationId: 'card-root',
-          type: 'frame',
-          x: 100,
-          y: 100,
-          width: 300,
-          height: 200,
-          backgroundColor: '#3d63dd', // Target background color is blue
-        }
-      ],
-    });
-
-    // Mock browser provider that reads the target css file and returns elements accordingly
-    const mockBrowser: BrowserProvider = {
-      name: 'mock-browser',
-      async capture(): Promise<BrowserEvidence> {
-        let currentBg = '#ff0000';
-        try {
-          const css = await readFile(cssPath, 'utf8');
-          if (css.includes('#3d63dd')) {
-            currentBg = '#3d63dd';
-          }
-        } catch {
-          // Ignore
-        }
-        return {
-          screenshot: new Uint8Array(0),
-          consoleErrors: [],
-          failedRequests: [],
-          elements: [
-            {
-              validationId: 'card-root',
-              tagName: 'div',
-              selector: 'div',
-              x: 100,
-              y: 100,
-              width: 300,
-              height: 200,
-              color: '#000000',
-              backgroundColor: currentBg,
-              borderColor: 'transparent',
-              borderWidth: 0,
-              borderRadius: 0,
-              opacity: 1,
-              boxShadow: 'none',
-              padding: { top: 0, right: 0, bottom: 0, left: 0 },
-              margin: { top: 0, right: 0, bottom: 0, left: 0 },
-              gap: undefined,
-              fontFamily: 'Arial',
-              fontSize: 14,
-              fontWeight: 'normal',
-              lineHeight: 'normal',
-              letterSpacing: 'normal',
-              text: '',
-              textWrap: true,
-              role: 'generic',
-              accessibleName: '',
-              accessibleState: {},
-              keyboardReachable: false,
-              focusVisible: false,
-            }
-          ]
-        };
-      }
-    };
-
-    const orchestrator = new SmartUiOrchestrator({
-      framework: {
-        framework: 'react',
-        inspect: async () => ({
-          root: targetRoot,
-          framework: 'react',
-          buildSystem: 'vite',
-          packageManager: 'pnpm',
-          styling: ['css'],
-          testFrameworks: [],
-          componentLocations: [],
-        })
+describe('bounded repair coordinator', () => {
+  it('runs a controlled repair that measurably converges', async () => {
+    const harness = await createHarness();
+    const css = join(harness.targetRoot, 'src/styles.css');
+    await mkdir(join(harness.targetRoot, 'src'), { recursive: true });
+    await writeFile(css, '.card { background: #ff0000; }');
+    const browser: BrowserProvider = {
+      name: 'file-aware-browser',
+      capture: async () => {
+        const current = await readFile(css, 'utf8');
+        return evidence([
+          browserElement({ backgroundColor: current.includes('#3d63dd') ? '#3d63dd' : '#ff0000' }),
+        ]);
       },
-      coding: new MockCodingProvider(),
+    };
+    const result = await harness.run({
+      browser,
       repair: new HeuristicRepairProvider(),
-      browser: mockBrowser,
-      artifacts: store,
-      policy: new LocalPolicy({
-        targetRoot,
-        writableFiles: ['src/styles.css'],
-        dryRun: false,
-      }),
-      reporter: new HtmlReporter(store),
+      writableFiles: ['src/styles.css'],
+      design: [designElement({ backgroundColor: '#3d63dd' })],
     });
+    expect(result.record.stoppedReason).toBe('success');
+    expect(result.record.passes.map((pass) => pass.score)).toEqual([expect.any(Number), 100]);
+    expect(result.record.passes[0]!.score).toBeLessThan(100);
+    expect(result.record.changedFiles).toEqual(['src/styles.css']);
+    expect(await readFile(css, 'utf8')).toContain('#3d63dd');
+    expect(Object.isFrozen(result.record.passes[0])).toBe(true);
+    expect(Object.isFrozen(result.record.passes[0]?.findings)).toBe(true);
+  });
 
-    // Write a dummy config file with no commands to avoid regressions
-    const configPath = join(targetRoot, 'smart-ui.config.json');
-    await writeFile(configPath, JSON.stringify({
-      validation: { maxRepairPasses: 3 },
-      commands: { format: null, typecheck: null, test: null }
-    }), 'utf8');
-
-    const result = await orchestrator.run({
-      targetRoot,
-      designContractPath: 'generated-in-test',
-      contract,
-      url: 'http://localhost',
+  it('stops and reverts repeated identical findings', async () => {
+    const harness = await createHarness();
+    const file = join(harness.targetRoot, 'src/value.txt');
+    await mkdir(join(harness.targetRoot, 'src'), { recursive: true });
+    await writeFile(file, 'user-content');
+    const result = await harness.run({
+      browser: scriptedBrowser([mismatching(), mismatching(), mismatching()]),
+      repair: fixedRepair([{ relativePath: 'src/value.txt', content: 'patch', rationale: 'test' }]),
+      writableFiles: ['src/value.txt'],
     });
+    expect(result.record.stoppedReason).toBe('repeated-findings');
+    expect(result.record.passes.some((pass) => pass.reverted)).toBe(true);
+    expect(result.record.changedFiles).toEqual([]);
+    expect(await readFile(file, 'utf8')).toBe('user-content');
+  });
 
+  it('stops on a different patch that does not improve the score', async () => {
+    const harness = await createHarness();
+    const result = await harness.run({
+      browser: scriptedBrowser([
+        evidence([browserElement({ backgroundColor: '#ff0000' })]),
+        evidence([]),
+        evidence([browserElement({ backgroundColor: '#ff0000' })]),
+      ]),
+      repair: fixedRepair([{ relativePath: 'src/value.txt', content: 'patch', rationale: 'test' }]),
+      writableFiles: ['src/value.txt'],
+      design: [designElement({ backgroundColor: '#3d63dd' })],
+    });
+    expect(result.record.stoppedReason).toBe('no-improvement');
+    await expect(access(join(harness.targetRoot, 'src/value.txt'))).rejects.toMatchObject({
+      code: 'ENOENT',
+    });
+  });
+
+  it('stops on a repeated patch hash after an improving pass', async () => {
+    const harness = await createHarness();
+    const change = { relativePath: 'src/value.txt', content: 'same patch', rationale: 'test' };
+    const result = await harness.run({
+      browser: scriptedBrowser([
+        evidence([browserElement({ x: 99, width: 120, backgroundColor: '#ff0000' })]),
+        evidence([browserElement({ x: 10, width: 120, backgroundColor: '#3d63dd' })]),
+      ]),
+      repair: fixedRepair([change]),
+      writableFiles: ['src/value.txt'],
+      design: [designElement({ backgroundColor: '#3d63dd' })],
+    });
+    expect(result.record.stoppedReason).toBe('repeated-patch');
+  });
+
+  it('stops at the configured patch limit after validating the last patch', async () => {
+    const harness = await createHarness({ validation: { maxRepairPasses: 1 } });
+    const result = await harness.run({
+      browser: scriptedBrowser([
+        evidence([browserElement({ x: 99, width: 120, backgroundColor: '#ff0000' })]),
+        evidence([browserElement({ x: 10, width: 120, backgroundColor: '#3d63dd' })]),
+      ]),
+      repair: fixedRepair([{ relativePath: 'src/value.txt', content: 'patch', rationale: 'test' }]),
+      writableFiles: ['src/value.txt'],
+      design: [designElement({ backgroundColor: '#3d63dd' })],
+    });
+    expect(result.record.stoppedReason).toBe('maximum-passes');
+    expect(result.record.changedFiles).toEqual(['src/value.txt']);
+  });
+
+  it('records no-changes and validation-only terminal states', async () => {
+    const harness = await createHarness();
+    const noChanges = await harness.run({
+      browser: scriptedBrowser([mismatching()]),
+      repair: fixedRepair([]),
+    });
+    expect(noChanges.record.stoppedReason).toBe('no-changes');
+    const validation = await harness.run({
+      browser: scriptedBrowser([mismatching()]),
+      repair: fixedRepair([]),
+      repairEnabled: false,
+    });
+    expect(validation.record.stoppedReason).toBe('validation-only');
+  });
+
+  it('rolls back existing and newly created files when repository checks regress', async () => {
+    const harness = await createHarness({
+      policy: {
+        allowedCommands: [{ executable: 'node', args: ['-e', 'process.exit(1)'] }],
+      },
+      commands: { typecheck: { executable: 'node', args: ['-e', 'process.exit(1)'] } },
+    });
+    const existing = join(harness.targetRoot, 'src/existing.txt');
+    await mkdir(join(harness.targetRoot, 'src'), { recursive: true });
+    await writeFile(existing, 'pre-existing user work');
+    const result = await harness.run({
+      browser: scriptedBrowser([mismatching()]),
+      repair: fixedRepair([
+        { relativePath: 'src/existing.txt', content: 'broken', rationale: 'test rollback' },
+        { relativePath: 'src/new.txt', content: 'broken', rationale: 'test rollback' },
+      ]),
+      writableFiles: ['src/existing.txt', 'src/new.txt'],
+      allowedCommands: [{ executable: 'node', args: ['-e', 'process.exit(1)'] }],
+    });
+    expect(result.record.stoppedReason).toBe('test-regression');
+    expect(await readFile(existing, 'utf8')).toBe('pre-existing user work');
+    await expect(access(join(harness.targetRoot, 'src/new.txt'))).rejects.toMatchObject({
+      code: 'ENOENT',
+    });
+  });
+
+  it('fails closed on policy violations without writing', async () => {
+    const harness = await createHarness();
+    const result = await harness.run({
+      browser: scriptedBrowser([mismatching()]),
+      repair: fixedRepair([
+        { relativePath: 'src/blocked.txt', content: 'no', rationale: 'blocked' },
+      ]),
+    });
+    expect(result.record.status).toBe('failed');
+    expect(result.record.stoppedReason).toBe('policy-violation');
+    await expect(access(join(harness.targetRoot, 'src/blocked.txt'))).rejects.toMatchObject({
+      code: 'ENOENT',
+    });
+  });
+
+  it('honors cancellation before browser or repair work', async () => {
+    const harness = await createHarness();
+    const controller = new AbortController();
+    controller.abort();
+    const browser: BrowserProvider = {
+      name: 'must-not-run',
+      capture: async () => {
+        throw new Error('capture should not run');
+      },
+    };
+    const result = await harness.run({
+      browser,
+      repair: fixedRepair([]),
+      signal: controller.signal,
+    });
     expect(result.record.status).toBe('succeeded');
-    expect(result.record.passes).toHaveLength(2); // pass 0 (checks wrong bg), pass 1 (fixes bg and achieves 100%)
-    expect(result.record.passes[0]?.score).toBeLessThan(100);
-    expect(result.record.passes[1]?.score).toBe(100);
-
-    // Verify file content was updated to blue background
-    const finalCss = await readFile(cssPath, 'utf8');
-    expect(finalCss).toContain('#3d63dd');
+    expect(result.record.stoppedReason).toBe('canceled');
+    expect(result.record.passes).toEqual([]);
   });
 });
+
+async function createHarness(config: Record<string, unknown> = {}) {
+  const targetRoot = await mkdtemp(join(tmpdir(), 'smart-ui-target-'));
+  const artifactRoot = await mkdtemp(join(tmpdir(), 'smart-ui-artifacts-'));
+  if (Object.keys(config).length > 0) {
+    await writeFile(join(targetRoot, 'smart-ui.config.json'), JSON.stringify(config));
+  }
+  const store = new LocalArtifactStore(artifactRoot);
+  const reference = await store.put(PNG_BYTES, 'image/png', 'target.png');
+  return {
+    targetRoot,
+    async run(options: {
+      browser: BrowserProvider;
+      repair: RepairProvider;
+      writableFiles?: string[];
+      allowedCommands?: Array<{ executable: string; args: string[] }>;
+      design?: ReturnType<typeof designElement>[];
+      repairEnabled?: boolean;
+      signal?: AbortSignal;
+    }) {
+      const orchestrator = new SmartUiOrchestrator({
+        framework: {
+          framework: 'react',
+          inspect: async () => ({
+            root: targetRoot,
+            framework: 'react',
+            buildSystem: 'vite',
+            packageManager: 'pnpm',
+            styling: ['css'],
+            testFrameworks: [],
+            componentLocations: ['src'],
+          }),
+        },
+        coding: new MockCodingProvider(),
+        repair: options.repair,
+        browser: options.browser,
+        artifacts: store,
+        policy: new LocalPolicy({
+          targetRoot,
+          writableFiles: options.writableFiles ?? [],
+          allowedCommands: options.allowedCommands ?? [],
+          allowedEndpoints: ['http://127.0.0.1:4173'],
+        }),
+        reporter: new HtmlReporter(store),
+      });
+      return orchestrator.run({
+        targetRoot,
+        designContractPath: 'test-contract.json',
+        contract: contract(
+          reference,
+          options.design ?? [designElement({ backgroundColor: '#3d63dd' })],
+        ),
+        url: 'http://127.0.0.1:4173',
+        ...(options.repairEnabled === undefined ? {} : { repairEnabled: options.repairEnabled }),
+        ...(options.signal ? { signal: options.signal } : {}),
+      });
+    },
+  };
+}
+
+function mismatching(): BrowserEvidence {
+  return evidence([browserElement({ backgroundColor: '#ff0000' })]);
+}
+
+function scriptedBrowser(sequence: BrowserEvidence[]): BrowserProvider {
+  let index = 0;
+  return {
+    name: 'scripted-browser',
+    capture: async () => sequence[Math.min(index++, sequence.length - 1)]!,
+  };
+}
+
+function fixedRepair(changes: ProposedChange[]): RepairProvider {
+  return { name: 'fixed-repair', proposeRepair: async () => changes };
+}

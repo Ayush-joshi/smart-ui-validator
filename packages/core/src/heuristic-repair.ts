@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import type { RepairProvider, RepairProposalInput } from './repair-provider.js';
 import type { ProposedChange } from './providers.js';
+import { parseColor } from './color.js';
 
 export class HeuristicRepairProvider implements RepairProvider {
   readonly name = 'heuristic-repair-provider';
@@ -10,15 +11,21 @@ export class HeuristicRepairProvider implements RepairProvider {
     const changes: ProposedChange[] = [];
 
     for (const finding of input.findings) {
-      if (finding.category === 'appearance' && finding.suggestedRepairCategory === 'background_color') {
+      if (
+        finding.category === 'appearance' &&
+        finding.suggestedRepairCategory === 'backgroundColor'
+      ) {
         const cssPath = 'src/styles.css';
         const absoluteCssPath = resolve(input.inspection.root, cssPath);
         try {
           let cssContent = await readFile(absoluteCssPath, 'utf8');
           const expected = finding.expected as string;
           const actual = finding.actual as string;
-          if (cssContent.includes(actual)) {
-            cssContent = cssContent.replace(actual, expected);
+          const matched = colorRepresentations(actual).find((candidate) =>
+            cssContent.includes(candidate),
+          );
+          if (matched) {
+            cssContent = cssContent.replace(matched, expected);
             changes.push({
               relativePath: cssPath,
               content: cssContent,
@@ -32,5 +39,17 @@ export class HeuristicRepairProvider implements RepairProvider {
     }
 
     return changes;
+  }
+}
+
+function colorRepresentations(value: string): string[] {
+  try {
+    const color = parseColor(value);
+    const hex = `#${[color.r, color.g, color.b]
+      .map((channel) => Math.round(channel).toString(16).padStart(2, '0'))
+      .join('')}`;
+    return [...new Set([value, hex])];
+  } catch {
+    return [value];
   }
 }

@@ -5,7 +5,11 @@ describe('LocalPolicy', () => {
   const policy = new LocalPolicy({
     targetRoot: '/tmp/smart-ui-target',
     writableFiles: ['src/Card.tsx'],
-    allowedCommands: { pnpm: ['test', 'typecheck'] },
+    allowedCommands: [
+      { executable: 'pnpm', args: ['test'] },
+      { executable: 'pnpm', args: ['typecheck'] },
+    ],
+    allowedEndpoints: ['http://127.0.0.1:4173'],
   });
 
   it('rejects traversal outside the target', () => {
@@ -17,8 +21,14 @@ describe('LocalPolicy', () => {
     expect(() => policy.assertWritable('src/Other.tsx')).toThrow(/not allowlisted/);
   });
 
-  it('enforces command and argument prefixes', () => {
+  it('enforces exact command and argument allowlisting', () => {
     expect(() => policy.assertCommand('pnpm', ['test'])).not.toThrow();
-    expect(() => policy.assertCommand('sh', ['-c', 'anything'])).toThrow(/not allowlisted/);
+    expect(() => policy.assertCommand('pnpm', ['test', '--watch'])).toThrow(/allowlisted/);
+    expect(() => policy.assertCommand('sh', ['-c', 'anything'])).toThrow(/allowlisted/);
+  });
+
+  it('enforces endpoint allowlisting', () => {
+    expect(() => policy.assertEndpoint('http://127.0.0.1:4173/page')).not.toThrow();
+    expect(() => policy.assertEndpoint('https://example.com')).toThrow(/not allowlisted/);
   });
 });

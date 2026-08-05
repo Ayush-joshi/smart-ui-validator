@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
-import { basename, join, relative, resolve } from 'node:path';
+import { lstat, mkdir, readFile, realpath, rename, writeFile } from 'node:fs/promises';
+import { basename, isAbsolute, join, relative, resolve } from 'node:path';
+import { SmartUiError } from './errors.js';
 import type { ArtifactStore } from './providers.js';
 import type { ArtifactRef } from './schemas.js';
 
@@ -17,11 +18,26 @@ export class LocalArtifactStore implements ArtifactStore {
     const digest = createHash('sha256').update(bytes).digest('hex');
     const extension = extensionFor(mediaType);
     const file = join(this.root, 'objects', digest.slice(0, 2), `${digest}${extension}`);
-    await mkdir(join(this.root, 'objects', digest.slice(0, 2)), { recursive: true });
+    const parent = join(this.root, 'objects', digest.slice(0, 2));
+    await mkdir(parent, { recursive: true });
+    await assertRealContained(this.root, parent, label);
     try {
       await writeFile(file, bytes, { flag: 'wx' });
     } catch (error) {
       if (!isAlreadyExists(error)) throw error;
+    }
+    if ((await lstat(file)).isSymbolicLink()) {
+      throw new SmartUiError(
+        'POLICY_VIOLATION',
+        `Artifact object cannot be a symbolic link: ${label}`,
+      );
+    }
+    const stored = await readFile(file);
+    if (createHash('sha256').update(stored).digest('hex') !== digest) {
+      throw new SmartUiError(
+        'PROVIDER_FAILURE',
+        `Artifact object failed its content hash check: ${label}`,
+      );
     }
     const ref: ArtifactRef = {
       hash: `sha256:${digest}`,
@@ -34,7 +50,22 @@ export class LocalArtifactStore implements ArtifactStore {
   }
 
   async read(relativePath: string): Promise<Uint8Array> {
-    return readFile(join(this.root, relativePath));
+    const path = resolve(this.root, relativePath);
+    const rel = relative(this.root, path);
+    if (rel.startsWith('..') || isAbsolute(rel)) {
+      throw new SmartUiError(
+        'POLICY_VIOLATION',
+        `Artifact path escapes store root: ${relativePath}`,
+      );
+    }
+    if ((await lstat(path)).isSymbolicLink()) {
+      throw new SmartUiError(
+        'POLICY_VIOLATION',
+        `Artifact path cannot be a symbolic link: ${relativePath}`,
+      );
+    }
+    const realPath = await assertRealContained(this.root, path, relativePath);
+    return readFile(realPath);
   }
 
   async readManifest(): Promise<ArtifactRef[]> {
@@ -65,6 +96,18 @@ export class LocalArtifactStore implements ArtifactStore {
     await writeFile(temp, `${JSON.stringify(manifest, null, 2)}\n`);
     await rename(temp, this.manifestPath);
   }
+}
+
+async function assertRealContained(root: string, path: string, label: string): Promise<string> {
+  const [realRoot, realPath] = await Promise.all([realpath(root), realpath(path)]);
+  const realRelative = relative(realRoot, realPath);
+  if (realRelative.startsWith('..') || isAbsolute(realRelative)) {
+    throw new SmartUiError(
+      'POLICY_VIOLATION',
+      `Artifact path escapes store root through a link: ${label}`,
+    );
+  }
+  return realPath;
 }
 
 interface Manifest {

@@ -19,3 +19,4 @@ export * from './merge.js';
 export * from './repair-provider.js';
 export * from './dom-extractor.js';
 export * from './heuristic-repair.js';
+export * from './security.js';

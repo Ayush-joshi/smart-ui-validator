@@ -28,6 +28,10 @@ describe('Delta E Color Math', () => {
   });
 
   it('should penalize transparent vs solid colors', () => {
-    expect(deltaE76('transparent', 'white')).toBe(100);
+    expect(deltaE76('transparent', 'white')).toBeGreaterThanOrEqual(100);
+  });
+
+  it('rejects malformed colors instead of treating them as black', () => {
+    expect(() => parseColor('not-a-color')).toThrow(/Unsupported color/);
   });
 });

@@ -36,17 +36,35 @@ export function parseColor(colorStr: string): RGBA {
     }
   }
 
-  const rgbMatch = resolved.match(/^rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?\)$/);
+  const rgbMatch = resolved.match(
+    /^rgba?\(\s*(\d+(?:\.\d+)?%?)\s*[, ]\s*(\d+(?:\.\d+)?%?)\s*[, ]\s*(\d+(?:\.\d+)?%?)(?:\s*[,/]\s*([\d.]+%?))?\s*\)$/,
+  );
   if (rgbMatch) {
     return {
-      r: parseInt(rgbMatch[1]!, 10),
-      g: parseInt(rgbMatch[2]!, 10),
-      b: parseInt(rgbMatch[3]!, 10),
-      a: rgbMatch[4] !== undefined ? parseFloat(rgbMatch[4]!) : 1,
+      r: parseChannel(rgbMatch[1]!),
+      g: parseChannel(rgbMatch[2]!),
+      b: parseChannel(rgbMatch[3]!),
+      a: rgbMatch[4] !== undefined ? parseAlpha(rgbMatch[4]) : 1,
     };
   }
 
-  return { r: 0, g: 0, b: 0, a: 1 };
+  throw new Error(`Unsupported color value: ${colorStr}`);
+}
+
+function parseChannel(value: string): number {
+  const parsed = value.endsWith('%')
+    ? (Number.parseFloat(value) / 100) * 255
+    : Number.parseFloat(value);
+  if (!Number.isFinite(parsed) || parsed < 0 || parsed > 255)
+    throw new Error(`Invalid RGB channel: ${value}`);
+  return parsed;
+}
+
+function parseAlpha(value: string): number {
+  const parsed = value.endsWith('%') ? Number.parseFloat(value) / 100 : Number.parseFloat(value);
+  if (!Number.isFinite(parsed) || parsed < 0 || parsed > 1)
+    throw new Error(`Invalid alpha channel: ${value}`);
+  return parsed;
 }
 
 function pivotRgb(n: number): number {
@@ -92,7 +110,6 @@ export function deltaE76(color1: string, color2: string): number {
   const c2 = parseColor(color2);
 
   if (c1.a === 0 && c2.a === 0) return 0;
-  if ((c1.a === 0 && c2.a > 0) || (c2.a === 0 && c1.a > 0)) return 100;
 
   const lab1 = rgbToLab(c1.r, c1.g, c1.b);
   const lab2 = rgbToLab(c2.r, c2.g, c2.b);
@@ -101,5 +118,6 @@ export function deltaE76(color1: string, color2: string): number {
   const da = lab1.a - lab2.a;
   const db = lab1.b - lab2.b;
 
-  return Math.sqrt(dL * dL + da * da + db * db);
+  const dAlpha = (c1.a - c2.a) * 100;
+  return Math.sqrt(dL * dL + da * da + db * db + dAlpha * dAlpha);
 }

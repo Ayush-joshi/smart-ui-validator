@@ -1,11 +1,14 @@
 import { isAbsolute, relative, resolve } from 'node:path';
 import { SmartUiError } from './errors.js';
 import type { PolicyProvider } from './providers.js';
+import type { CommandSpec } from './config.js';
+import { isUrlAllowed } from './security.js';
 
 export interface LocalPolicyOptions {
   targetRoot: string;
   writableFiles?: readonly string[];
-  allowedCommands?: Readonly<Record<string, readonly string[]>>;
+  allowedCommands?: readonly CommandSpec[];
+  allowedEndpoints?: readonly string[];
   dryRun?: boolean;
   maxExecutionTimeMs?: number;
 }
@@ -14,17 +17,19 @@ export class LocalPolicy implements PolicyProvider {
   readonly targetRoot: string;
   readonly dryRun: boolean;
   readonly maxExecutionTimeMs: number;
+  readonly writableFiles: readonly string[];
   private readonly writable: Set<string>;
-  private readonly commands: Readonly<Record<string, readonly string[]>>;
+  private readonly commands: readonly CommandSpec[];
+  private readonly endpoints: readonly string[];
 
   constructor(options: LocalPolicyOptions) {
     this.targetRoot = resolve(options.targetRoot);
     this.dryRun = options.dryRun ?? false;
     this.maxExecutionTimeMs = options.maxExecutionTimeMs ?? 60_000;
-    this.writable = new Set(
-      (options.writableFiles ?? []).map((path) => this.resolveContained(path)),
-    );
-    this.commands = options.allowedCommands ?? {};
+    this.writableFiles = [...(options.writableFiles ?? [])];
+    this.writable = new Set(this.writableFiles.map((path) => this.resolveContained(path)));
+    this.commands = options.allowedCommands ?? [];
+    this.endpoints = options.allowedEndpoints ?? [];
   }
 
   assertReadable(path: string): void {
@@ -39,13 +44,26 @@ export class LocalPolicy implements PolicyProvider {
   }
 
   assertCommand(command: string, args: readonly string[]): void {
-    const allowedPrefixes = this.commands[command];
-    if (!allowedPrefixes || !args.every((arg) => !arg.includes('\0'))) {
-      throw new SmartUiError('POLICY_VIOLATION', `Command is not allowlisted: ${command}`);
+    if (command.includes('\0') || args.some((argument) => argument.includes('\0'))) {
+      throw new SmartUiError('POLICY_VIOLATION', 'Command contains a null byte.');
     }
-    const serialized = args.join(' ');
-    if (!allowedPrefixes.some((prefix) => serialized.startsWith(prefix))) {
-      throw new SmartUiError('POLICY_VIOLATION', `Arguments are not allowlisted for: ${command}`);
+    const allowed = this.commands.some(
+      (candidate) =>
+        candidate.executable === command &&
+        candidate.args.length === args.length &&
+        candidate.args.every((argument, index) => argument === args[index]),
+    );
+    if (!allowed) {
+      throw new SmartUiError(
+        'POLICY_VIOLATION',
+        `Command is not exactly allowlisted: ${command} ${args.join(' ')}`,
+      );
+    }
+  }
+
+  assertEndpoint(url: string): void {
+    if (!isUrlAllowed(url, this.endpoints)) {
+      throw new SmartUiError('POLICY_VIOLATION', `Endpoint is not allowlisted: ${url}`);
     }
   }
 

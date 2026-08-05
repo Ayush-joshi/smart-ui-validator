@@ -1,12 +1,15 @@
 # Smart UI Validator
 
-Smart UI Validator is a host-neutral UI engineering engine and CLI. Phase 1 can inspect a React
-repository, normalize a local reference image into a versioned design contract, capture a running
-fixture in an isolated Playwright browser, store evidence by content hash, and emit a structured run
-record plus an HTML report.
+Smart UI Validator is a host-neutral UI engineering engine and CLI. Phase 2 normalizes local images
+or Figma MCP evidence into a versioned design contract, captures a React target in an isolated
+Playwright browser, deterministically compares structural and raster evidence, and applies bounded,
+policy-controlled repairs. Every pass retains content-addressed screenshots, diffs, overlays,
+findings, scores, patch rationale, and its terminal reason.
 
-It does **not** yet compare pixels, repair visual differences, connect to Figma, support Angular, or
-learn preferences. Those capabilities belong to later phases.
+The shipped automatic repair provider is deliberately narrow: it demonstrates a controlled CSS
+background-color repair. Broader production coding adapters, Angular, interaction-state validation,
+and governed preference learning remain Phase 3/4 work. Figma and Chrome MCP adapters have recorded
+contract tests; live MCP integration is opt-in and is not part of CI.
 
 ## Quickstart
 
@@ -25,14 +28,22 @@ pnpm smart-ui design normalize \
   --artifacts /tmp/smart-ui-artifacts
 ```
 
-Start the fixture with `pnpm fixture:dev --port 4173`, then run:
+Start the fixture with `pnpm fixture:dev --port 4173`, then run validation or a bounded repair:
 
 ```bash
-pnpm smart-ui run --target fixtures/react-app \
+pnpm smart-ui validate --target fixtures/react-app \
   --design /tmp/smart-ui-design.json --route http://127.0.0.1:4173 \
-  --artifacts /tmp/smart-ui-artifacts --dry-run --json
+  --artifacts /tmp/smart-ui-artifacts --json
+pnpm smart-ui fix --target fixtures/react-app \
+  --design /tmp/smart-ui-design.json --route http://127.0.0.1:4173 \
+  --artifacts /tmp/smart-ui-artifacts --allow-write src/styles.css \
+  --max-passes 3 --dry-run --json
+pnpm smart-ui compare target.png implementation.png --out diff.png --overlay overlay.png
 pnpm smart-ui report /path/to/run-record.json --format html
 ```
 
-Generated artifacts are excluded from Git by default. See [development](docs/development.md),
-[architecture](docs/architecture.md), and [security](docs/security.md).
+Repository policy and thresholds are configured through `smart-ui.config.json`; defaults and an
+example are in [development](docs/development.md). Generated artifacts are excluded from Git by
+default. See the authoritative [implementation plan](docs/implementation-plan.md),
+[architecture](docs/architecture.md), [design contract](docs/design-contract.md), and
+[security](docs/security.md).

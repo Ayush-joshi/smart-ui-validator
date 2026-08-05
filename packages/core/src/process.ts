@@ -18,8 +18,15 @@ export async function runAllowedProcess(
     });
     let stdout = '';
     let stderr = '';
-    child.stdout.setEncoding('utf8').on('data', (data: string) => (stdout += data));
-    child.stderr.setEncoding('utf8').on('data', (data: string) => (stderr += data));
+    const maxOutputCharacters = 1_000_000;
+    child.stdout.setEncoding('utf8').on('data', (data: string) => {
+      if (stdout.length < maxOutputCharacters)
+        stdout += data.slice(0, maxOutputCharacters - stdout.length);
+    });
+    child.stderr.setEncoding('utf8').on('data', (data: string) => {
+      if (stderr.length < maxOutputCharacters)
+        stderr += data.slice(0, maxOutputCharacters - stderr.length);
+    });
     const timer = setTimeout(() => {
       child.kill('SIGTERM');
       reject(new SmartUiError('TIMEOUT', `${command} exceeded ${policy.maxExecutionTimeMs}ms`));

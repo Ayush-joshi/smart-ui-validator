@@ -1,0 +1,35 @@
+{
+  "componentName": "FixtureCard",
+  "route": "/",
+  "viewport": { "width": 800, "height": 600, "deviceScaleFactor": 1 },
+  "theme": "light",
+  "locale": "en-US",
+  "ambiguities": [],
+  "elements": [
+    {
+      "validationId": "fixture-card",
+      "type": "article",
+      "x": 180,
+      "y": 170,
+      "width": 420,
+      "height": 260,
+      "padding": { "top": 40, "right": 40, "bottom": 40, "left": 40 },
+      "backgroundColor": "#ff0000",
+      "borderRadius": 16
+    },
+    {
+      "validationId": "fixture-title",
+      "type": "text",
+      "fontSize": 28,
+      "text": "Validate with confidence"
+    },
+    {
+      "validationId": "fixture-action",
+      "type": "button",
+      "role": "link",
+      "assetSource": "/missing-icon.svg",
+      "keyboardReachable": true,
+      "focusVisible": true
+    }
+  ]
+}

@@ -1,205 +1,180 @@
 import { describe, expect, it } from 'vitest';
-import { SmartUiComparator, configSchema } from '../packages/core/src/index.js';
-import type { DesignContract } from '../packages/core/src/schemas.js';
-import type { BrowserEvidence } from '../packages/core/src/providers.js';
+import { SmartUiComparator, compareImages, configSchema } from '../packages/core/src/index.js';
+import { browserElement, contract, designElement, evidence, PNG_BYTES } from './helpers.js';
 
-describe('Validation Comparator', () => {
-  const defaultConfig = configSchema.parse({});
-  const comparator = new SmartUiComparator(defaultConfig);
+const reference = {
+  hash: 'sha256:47f0c7e227f7d2e0e9a5e43f42f36f8f52dc958d68e1f559b6e4c6f52f62e7e1',
+  mediaType: 'image/png',
+  relativePath: 'objects/47/reference.png',
+  byteLength: PNG_BYTES.byteLength,
+};
 
-  const mockContract: DesignContract = {
-    schemaVersion: '1.0',
-    id: 'test-contract',
-    name: 'Test Component',
-    viewport: { width: 800, height: 600, deviceScaleFactor: 1 },
-    theme: 'light',
-    locale: 'en-US',
-    component: { name: 'Card', route: '/' },
-    reference: { hash: 'sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855', mediaType: 'image/png', relativePath: 'ref.png', byteLength: 0 },
-    provenance: { provider: 'test', source: 'test', capturedAt: new Date().toISOString(), sourceHash: 'sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855' },
-    ambiguities: [],
-    elements: [
-      {
-        validationId: 'card-root',
-        type: 'frame',
-        x: 100,
-        y: 100,
-        width: 300,
-        height: 200,
-        backgroundColor: '#ffffff',
-      },
-      {
-        validationId: 'card-title',
-        type: 'text',
-        x: 120,
-        y: 120,
-        width: 200,
-        height: 30,
-        color: '#333333',
-        fontSize: 16,
-      }
-    ],
-  };
+const comparator = new SmartUiComparator(configSchema.parse({}));
 
-  it('should return 100 score and no findings when elements match perfectly', async () => {
-    const mockEvidence: BrowserEvidence = {
-      screenshot: new Uint8Array(0),
-      consoleErrors: [],
-      failedRequests: [],
-      elements: [
-        {
-          validationId: 'card-root',
-          tagName: 'div',
-          selector: 'div',
-          x: 100,
-          y: 100,
-          width: 300,
-          height: 200,
-          color: '#000000',
-          backgroundColor: '#ffffff',
-          borderColor: 'transparent',
-          borderWidth: 0,
-          borderRadius: 0,
-          opacity: 1,
-          boxShadow: 'none',
-          padding: { top: 0, right: 0, bottom: 0, left: 0 },
-          margin: { top: 0, right: 0, bottom: 0, left: 0 },
-          gap: undefined,
-          fontFamily: 'Arial',
-          fontSize: 14,
-          fontWeight: 'normal',
-          lineHeight: 'normal',
-          letterSpacing: 'normal',
-          text: '',
-          textWrap: true,
-          role: 'generic',
-          accessibleName: '',
-          accessibleState: {},
-          keyboardReachable: false,
-          focusVisible: false,
-        },
-        {
-          validationId: 'card-title',
-          tagName: 'h1',
-          selector: 'h1',
-          x: 120,
-          y: 120,
-          width: 200,
-          height: 30,
-          color: '#333333',
-          backgroundColor: 'transparent',
-          borderColor: 'transparent',
-          borderWidth: 0,
-          borderRadius: 0,
-          opacity: 1,
-          boxShadow: 'none',
-          padding: { top: 0, right: 0, bottom: 0, left: 0 },
-          margin: { top: 0, right: 0, bottom: 0, left: 0 },
-          gap: undefined,
-          fontFamily: 'Arial',
-          fontSize: 16,
-          fontWeight: 'bold',
-          lineHeight: 'normal',
-          letterSpacing: 'normal',
-          text: 'Hello World',
-          textWrap: true,
-          role: 'heading',
-          accessibleName: 'Hello World',
-          accessibleState: {},
-          keyboardReachable: false,
-          focusVisible: false,
-        }
-      ],
-    };
-
-    const result = await comparator.compare(mockContract, mockEvidence, null);
+describe('deterministic comparison engine', () => {
+  it('scores every supported property at 100 when evidence matches', async () => {
+    const design = designElement({
+      padding: { top: 1, right: 2, bottom: 3, left: 4 },
+      margin: { top: 4, right: 3, bottom: 2, left: 1 },
+      gap: 8,
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      overflowX: 'hidden',
+      overflowY: 'auto',
+      color: '#000000',
+      backgroundColor: 'transparent',
+      borderColor: '#000000',
+      borderWidth: 1,
+      borderRadius: 4,
+      opacity: 0.5,
+      boxShadow: 'none',
+      fontFamily: 'Arial',
+      fontSize: 16,
+      fontWeight: 400,
+      lineHeight: 24,
+      letterSpacing: 0,
+      text: 'Hello',
+      textWrap: false,
+      lineCount: 1,
+      assetSource: '/assets/logo.png',
+      intrinsicWidth: 20,
+      intrinsicHeight: 10,
+      objectFit: 'contain',
+      objectPosition: '50% 50%',
+      role: 'button',
+      accessibleName: 'Hello',
+      accessibleState: { pressed: false },
+      keyboardReachable: true,
+      focusVisible: true,
+    });
+    const actual = browserElement({
+      tagName: 'button',
+      padding: { top: 1, right: 2, bottom: 3, left: 4 },
+      margin: { top: 4, right: 3, bottom: 2, left: 1 },
+      gap: 8,
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      overflowX: 'hidden',
+      overflowY: 'auto',
+      opacity: 0.5,
+      borderWidth: 1,
+      borderRadius: 4,
+      assetSource: 'http://127.0.0.1/assets/logo.png',
+      intrinsicWidth: 20,
+      intrinsicHeight: 10,
+      objectFit: 'contain',
+      role: 'button',
+      accessibleState: { pressed: false },
+      keyboardReachable: true,
+      focusVisible: true,
+    });
+    const result = await comparator.compare(contract(reference, [design]), evidence([actual]), {
+      bytes: PNG_BYTES,
+      mediaType: 'image/png',
+    });
     expect(result.score).toBe(100);
-    expect(result.findings).toHaveLength(0);
+    expect(result.findings).toEqual([]);
+    expect(result.schemaVersion).toBe('1.0');
+    expect(result.checkedProperties).toBeGreaterThan(30);
   });
 
-  it('should detect position/size, appearance, and accessibility mismatches', async () => {
-    const mockEvidence: BrowserEvidence = {
-      screenshot: new Uint8Array(0),
-      consoleErrors: ['Uncaught Error: Test'],
-      failedRequests: [],
-      elements: [
-        {
-          validationId: 'card-root',
-          tagName: 'div',
-          selector: 'div',
-          x: 150, // Mismatch (expected 100)
-          y: 100,
-          width: 300,
-          height: 250, // Mismatch (expected 200)
-          color: '#000000',
-          backgroundColor: '#ff0000', // Mismatch (expected #ffffff)
-          borderColor: 'transparent',
-          borderWidth: 0,
-          borderRadius: 0,
-          opacity: 1,
-          boxShadow: 'none',
-          padding: { top: 0, right: 0, bottom: 0, left: 0 },
-          margin: { top: 0, right: 0, bottom: 0, left: 0 },
-          gap: undefined,
-          fontFamily: 'Arial',
-          fontSize: 14,
-          fontWeight: 'normal',
-          lineHeight: 'normal',
-          letterSpacing: 'normal',
-          text: '',
-          textWrap: true,
-          role: 'generic',
-          accessibleName: '',
-          accessibleState: {},
-          keyboardReachable: false,
-          focusVisible: false,
-        },
-        {
-          validationId: 'card-title',
-          tagName: 'button',
-          selector: 'button',
-          x: 120,
-          y: 120,
-          width: 200,
-          height: 30,
-          color: '#333333',
-          backgroundColor: 'transparent',
-          borderColor: 'transparent',
-          borderWidth: 0,
-          borderRadius: 0,
-          opacity: 1,
-          boxShadow: 'none',
-          padding: { top: 0, right: 0, bottom: 0, left: 0 },
-          margin: { top: 0, right: 0, bottom: 0, left: 0 },
-          gap: undefined,
-          fontFamily: 'Arial',
-          fontSize: 16,
-          fontWeight: 'bold',
-          lineHeight: 'normal',
-          letterSpacing: 'normal',
-          text: 'Hello World',
-          textWrap: true,
-          role: 'button', // accessibility role button should be keyboard reachable
-          accessibleName: 'Hello World',
-          accessibleState: {},
-          keyboardReachable: false, // Mismatch (accessibility error)
-          focusVisible: false,
-        }
-      ],
-    };
+  it.each([
+    [
+      'geometry',
+      designElement({ padding: { top: 9, right: 0, bottom: 0, left: 0 } }),
+      browserElement(),
+    ],
+    ['typography', designElement({ fontFamily: 'Inter' }), browserElement()],
+    ['appearance', designElement({ opacity: 0 }), browserElement()],
+    [
+      'assets',
+      designElement({ assetSource: '/wanted.png' }),
+      browserElement({ assetSource: '/actual.png' }),
+    ],
+    ['accessibility', designElement({ role: 'button' }), browserElement({ role: 'generic' })],
+  ])('localizes a %s mismatch', async (category, design, actual) => {
+    const result = await comparator.compare(contract(reference, [design]), evidence([actual]), {
+      bytes: PNG_BYTES,
+      mediaType: 'image/png',
+    });
+    expect(result.findings.some((finding) => finding.category === category)).toBe(true);
+    expect(result.findings.every((finding) => finding.evidenceArtifacts.length > 0)).toBe(true);
+  });
 
-    const result = await comparator.compare(mockContract, mockEvidence, null);
+  it('honors threshold boundaries and stable finding ids', async () => {
+    const boundary = await comparator.compare(
+      contract(reference, [designElement({ x: 12 })]),
+      evidence(),
+      { bytes: PNG_BYTES, mediaType: 'image/png' },
+    );
+    expect(
+      boundary.findings.some((finding) => finding.suggestedRepairCategory === 'position'),
+    ).toBe(false);
+    const first = await comparator.compare(
+      contract(reference, [designElement({ x: 12.01 })]),
+      evidence(),
+      { bytes: PNG_BYTES, mediaType: 'image/png' },
+    );
+    const second = await comparator.compare(
+      contract(reference, [designElement({ x: 12.01 })]),
+      evidence(),
+      { bytes: PNG_BYTES, mediaType: 'image/png' },
+    );
+    expect(first.findings[0]?.id).toBe(second.findings[0]?.id);
+  });
+
+  it('detects missing, extra, console, and network failures', async () => {
+    const result = await comparator.compare(
+      contract(reference, [designElement({ validationId: 'missing' })]),
+      evidence([browserElement({ validationId: 'extra' })], {
+        consoleErrors: ['boom'],
+        failedRequests: ['https://example.test/api?token=[REDACTED]: HTTP 500'],
+      }),
+      { bytes: PNG_BYTES, mediaType: 'image/png' },
+    );
+    expect(
+      result.findings.some((finding) => finding.suggestedRepairCategory === 'missing_element'),
+    ).toBe(true);
+    expect(
+      result.findings.some((finding) => finding.suggestedRepairCategory === 'extra_element'),
+    ).toBe(true);
+    expect(result.findings.filter((finding) => finding.category === 'runtime')).toHaveLength(2);
     expect(result.score).toBeLessThan(100);
-    expect(result.findings).toHaveLength(5); // 1 position, 1 size, 1 bg-color, 1 console error, 1 accessibility keyboard reachability
+  });
 
-    const geomFinding = result.findings.find(f => f.category === 'geometry' && f.suggestedRepairCategory === 'position');
-    expect(geomFinding).toBeDefined();
-    expect(geomFinding?.expected).toEqual({ x: 100, y: 100 });
+  it('fails scoring when raster evidence cannot be decoded', async () => {
+    const result = await comparator.compare(
+      contract(reference, []),
+      evidence([], { screenshot: PNG_BYTES }),
+      {
+        bytes: new TextEncoder().encode('not an image'),
+        mediaType: 'image/png',
+      },
+    );
+    expect(
+      result.findings.some(
+        (finding) => finding.suggestedRepairCategory === 'raster_decode_failure',
+      ),
+    ).toBe(true);
+    expect(result.score).toBeLessThan(100);
+  });
 
-    const colorFinding = result.findings.find(f => f.category === 'appearance' && f.suggestedRepairCategory === 'background_color');
-    expect(colorFinding).toBeDefined();
-
-    const consoleFinding = result.findings.find(f => f.category === 'runtime');
-    expect(consoleFinding?.message).toContain('Uncaught Error: Test');
+  it('supports SVG raster comparison and excludes approved masks from the denominator', async () => {
+    const red = new TextEncoder().encode(
+      '<svg xmlns="http://www.w3.org/2000/svg" width="4" height="4"><rect width="4" height="4" fill="red"/></svg>',
+    );
+    const blue = new TextEncoder().encode(
+      '<svg xmlns="http://www.w3.org/2000/svg" width="4" height="4"><rect width="4" height="4" fill="blue"/></svg>',
+    );
+    const different = await compareImages(red, blue, [], {
+      mediaType1: 'image/svg+xml',
+      mediaType2: 'image/svg+xml',
+    });
+    expect(different.diffPercent).toBe(100);
+    const masked = await compareImages(red, blue, [{ x: 0, y: 0, width: 4, height: 4 }], {
+      mediaType1: 'image/svg+xml',
+      mediaType2: 'image/svg+xml',
+    });
+    expect(masked.diffPercent).toBe(0);
   });
 });

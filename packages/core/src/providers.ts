@@ -49,6 +49,10 @@ export interface BrowserElementEvidence {
   padding: { top: number; right: number; bottom: number; left: number };
   margin: { top: number; right: number; bottom: number; left: number };
   gap: number | undefined;
+  alignItems: string;
+  justifyContent: string;
+  overflowX: string;
+  overflowY: string;
   fontFamily: string;
   fontSize: number;
   fontWeight: string;
@@ -56,9 +60,15 @@ export interface BrowserElementEvidence {
   letterSpacing: string;
   text: string;
   textWrap: boolean;
+  lineCount: number;
+  assetSource: string | undefined;
+  intrinsicWidth: number | undefined;
+  intrinsicHeight: number | undefined;
+  objectFit: string;
+  objectPosition: string;
   role: string;
   accessibleName: string;
-  accessibleState: Record<string, string | boolean>;
+  accessibleState: Record<string, string | boolean | number>;
   keyboardReachable: boolean;
   focusVisible: boolean;
 }
@@ -74,6 +84,17 @@ export interface BrowserCaptureOptions {
   url: string;
   viewport: { width: number; height: number; deviceScaleFactor: number };
   timeoutMs: number;
+  locale: string;
+  theme: 'light' | 'dark';
+  allowedEndpoints: string[];
+  blockExternalNetwork: boolean;
+  evidenceLimits: {
+    maxElements: number;
+    maxTextLength: number;
+    maxConsoleMessages: number;
+    maxFailedRequests: number;
+    maxArtifactBytes: number;
+  };
 }
 
 export interface BrowserProvider {
@@ -91,6 +112,8 @@ export interface PolicyProvider {
   assertReadable(path: string): void;
   assertWritable(path: string): void;
   assertCommand(command: string, args: readonly string[]): void;
+  assertEndpoint(url: string): void;
+  readonly writableFiles: readonly string[];
   readonly dryRun: boolean;
   readonly maxExecutionTimeMs: number;
 }

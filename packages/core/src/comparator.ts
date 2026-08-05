@@ -1,15 +1,31 @@
-import { randomUUID } from 'node:crypto';
+import { createHash } from 'node:crypto';
+import { basename } from 'node:path';
 import { chromium } from 'playwright';
-import type { DesignContract, DesignElement, ValidationFinding } from './schemas.js';
-import type { BrowserEvidence, BrowserElementEvidence } from './providers.js';
-import type { Config } from './config.js';
 import { deltaE76 } from './color.js';
+import type { Config } from './config.js';
+import type { BrowserElementEvidence, BrowserEvidence } from './providers.js';
+import {
+  comparisonResultSchema,
+  type ArtifactRef,
+  type ComparisonResultRecord,
+  type DesignContract,
+  type DesignElement,
+  type ValidationFinding,
+} from './schemas.js';
 
-export interface ComparisonResult {
-  score: number;
-  findings: ValidationFinding[];
-  heatmap: Uint8Array | null;
-  diffPercent: number;
+export interface ComparisonResult extends ComparisonResultRecord {
+  diff: Uint8Array | null;
+  overlay: Uint8Array | null;
+}
+
+export interface ReferenceImage {
+  bytes: Uint8Array;
+  mediaType: string;
+}
+
+interface CheckState {
+  total: number;
+  passed: number;
 }
 
 export class SmartUiComparator {
@@ -18,468 +34,892 @@ export class SmartUiComparator {
   async compare(
     contract: DesignContract,
     evidence: BrowserEvidence,
-    referencePng: Uint8Array | null,
+    reference: ReferenceImage | null,
   ): Promise<ComparisonResult> {
     const findings: ValidationFinding[] = [];
-    let totalChecks = 0;
-    let passedChecks = 0;
-
-    const recordCheck = (passed: boolean) => {
-      totalChecks++;
-      if (passed) passedChecks++;
-    };
-
-    const designElements = contract.elements;
-    const browserElements = evidence.elements;
-
+    const state: CheckState = { total: 0, passed: 0 };
     const matchedBrowserIndices = new Set<number>();
 
-    for (const designEl of designElements) {
-      const browserElIdx = findMatchingBrowserElement(designEl, browserElements, matchedBrowserIndices);
-
-      if (browserElIdx === -1) {
-        findings.push({
-          id: randomUUID(),
-          category: 'geometry',
-          severity: 'error',
-          confidence: 1.0,
-          designNodeId: designEl.figmaNodeId,
-          message: `Design element '${designEl.validationId || designEl.selector || designEl.type}' is missing from the implementation.`,
-          suggestedRepairCategory: 'missing_element',
-        });
-        recordCheck(false);
+    for (const designElement of contract.elements) {
+      const browserIndex = findMatchingBrowserElement(
+        designElement,
+        evidence.elements,
+        matchedBrowserIndices,
+      );
+      if (browserIndex === -1) {
+        record(state, false);
+        findings.push(
+          finding({
+            category: 'geometry',
+            severity: 'error',
+            confidence: 1,
+            designElement,
+            expected: designElement.validationId ?? designElement.selector ?? designElement.type,
+            actual: null,
+            message: `Design element '${designElement.validationId ?? designElement.selector ?? designElement.type}' is missing from the implementation.`,
+            repair: 'missing_element',
+            artifacts: [contract.reference],
+          }),
+        );
         continue;
       }
-
-      matchedBrowserIndices.add(browserElIdx);
-      const browserEl = browserElements[browserElIdx]!;
-
-      compareElementProperties(designEl, browserEl, this.config, findings, recordCheck);
+      matchedBrowserIndices.add(browserIndex);
+      compareElementProperties(
+        designElement,
+        evidence.elements[browserIndex]!,
+        this.config,
+        findings,
+        state,
+        contract.reference,
+      );
     }
 
-    for (let i = 0; i < browserElements.length; i++) {
-      if (!matchedBrowserIndices.has(i)) {
-        const extraEl = browserElements[i]!;
-        if (extraEl.validationId) {
-          findings.push({
-            id: randomUUID(),
+    for (const [index, browserElement] of evidence.elements.entries()) {
+      if (!matchedBrowserIndices.has(index) && browserElement.validationId) {
+        record(state, false);
+        findings.push(
+          finding({
             category: 'geometry',
             severity: 'warning',
-            confidence: 0.8,
-            targetDomLocator: extraEl.validationId || extraEl.selector,
-            message: `Unexpected element '${extraEl.validationId || extraEl.selector}' found in the implementation.`,
-            suggestedRepairCategory: 'extra_element',
-          });
-        }
+            confidence: 0.9,
+            browserElement,
+            expected: null,
+            actual: browserElement.validationId,
+            message: `Unexpected validation element '${browserElement.validationId}' exists in the implementation.`,
+            repair: 'extra_element',
+            artifacts: [contract.reference],
+          }),
+        );
       }
     }
 
-    if (this.config.validation.requireNoConsoleErrors && evidence.consoleErrors.length > 0) {
-      for (const err of evidence.consoleErrors) {
-        findings.push({
-          id: randomUUID(),
-          category: 'runtime',
-          severity: 'error',
-          confidence: 1.0,
-          message: `Browser console error: ${err}`,
-        });
-        recordCheck(false);
-      }
-    } else {
-      recordCheck(true);
-    }
+    compareRuntime(evidence, this.config, findings, state, contract.reference);
 
-    if (evidence.failedRequests.length > 0) {
-      for (const req of evidence.failedRequests) {
-        findings.push({
-          id: randomUUID(),
-          category: 'runtime',
-          severity: 'error',
-          confidence: 1.0,
-          message: `Failed network request: ${req}`,
-        });
-        recordCheck(false);
-      }
-    } else {
-      recordCheck(true);
-    }
-
-    let heatmap: Uint8Array | null = null;
+    let diff: Uint8Array | null = null;
+    let overlay: Uint8Array | null = null;
     let diffPercent = 0;
-
-    if (referencePng && evidence.screenshot.length > 0) {
+    if (!reference) {
+      record(state, false);
+      findings.push(
+        finding({
+          category: 'raster',
+          severity: 'error',
+          confidence: 1,
+          expected: contract.reference.hash,
+          actual: null,
+          message:
+            'The target raster artifact could not be read, so visual comparison was not verified.',
+          repair: 'reference_unavailable',
+          artifacts: [contract.reference],
+        }),
+      );
+    } else if (evidence.screenshot.length === 0) {
+      record(state, false);
+      findings.push(
+        finding({
+          category: 'raster',
+          severity: 'error',
+          confidence: 1,
+          expected: 'implementation screenshot',
+          actual: null,
+          message: 'The browser returned no implementation screenshot.',
+          repair: 'screenshot_unavailable',
+          artifacts: [contract.reference],
+        }),
+      );
+    } else {
       try {
-        const rasterDiff = await compareImages(
-          referencePng,
+        const raster = await compareImages(
+          reference.bytes,
           evidence.screenshot,
           this.config.masks,
+          {
+            channelTolerance: this.config.validation.rasterChannelTolerance,
+            mediaType1: reference.mediaType,
+            mediaType2: 'image/png',
+          },
         );
-        heatmap = rasterDiff.heatmap;
-        diffPercent = rasterDiff.diffPercent;
-
-        const visualDiffPercentThreshold = this.config.validation.visualDifferencePercent;
-        if (diffPercent > visualDiffPercentThreshold) {
-          findings.push({
-            id: randomUUID(),
+        diff = raster.diff;
+        overlay = raster.overlay;
+        diffPercent = raster.diffPercent;
+        const passed = diffPercent <= this.config.validation.visualDifferencePercent;
+        record(state, passed);
+        if (!passed) {
+          findings.push(
+            finding({
+              category: 'raster',
+              severity: 'error',
+              confidence: 0.95,
+              expected: this.config.validation.visualDifferencePercent,
+              actual: diffPercent,
+              delta: diffPercent - this.config.validation.visualDifferencePercent,
+              message: `Visual mismatch is ${diffPercent.toFixed(3)}%, above the ${this.config.validation.visualDifferencePercent}% threshold.`,
+              repair: 'raster_difference',
+              artifacts: [contract.reference],
+            }),
+          );
+        }
+      } catch (error) {
+        record(state, false);
+        findings.push(
+          finding({
             category: 'raster',
             severity: 'error',
-            confidence: 0.9,
-            message: `Visual pixel mismatch is ${diffPercent.toFixed(2)}%, exceeding threshold of ${visualDiffPercentThreshold}%.`,
-            expected: visualDiffPercentThreshold,
-            actual: diffPercent,
-            delta: diffPercent - visualDiffPercentThreshold,
-          });
-          recordCheck(false);
-        } else {
-          recordCheck(true);
-        }
-      } catch (err) {
-        findings.push({
-          id: randomUUID(),
-          category: 'raster',
-          severity: 'warning',
-          confidence: 0.5,
-          message: `Failed to calculate raster comparison: ${err instanceof Error ? err.message : String(err)}`,
-        });
+            confidence: 1,
+            expected: contract.reference.mediaType,
+            actual: error instanceof Error ? error.message : String(error),
+            message: `Raster comparison failed: ${error instanceof Error ? error.message : String(error)}`,
+            repair: 'raster_decode_failure',
+            artifacts: [contract.reference],
+          }),
+        );
       }
     }
 
-    const score = totalChecks > 0 ? Math.max(0, Math.min(100, Math.round((passedChecks / totalChecks) * 100))) : 100;
-
-    return {
-      score,
+    const result = comparisonResultSchema.parse({
+      schemaVersion: '1.0',
+      score: state.total === 0 ? 100 : roundScore((state.passed / state.total) * 100),
       findings,
-      heatmap,
       diffPercent,
-    };
+      checkedProperties: state.total,
+      passedProperties: state.passed,
+    });
+    return { ...result, diff, overlay };
   }
 }
 
 function findMatchingBrowserElement(
-  designEl: DesignElement,
+  designElement: DesignElement,
   browserElements: BrowserElementEvidence[],
   matchedIndices: Set<number>,
 ): number {
-  if (designEl.validationId) {
-    const idx = browserElements.findIndex((el) => el.validationId === designEl.validationId);
-    if (idx !== -1) return idx;
-  }
+  const availableIndex = (predicate: (element: BrowserElementEvidence) => boolean): number =>
+    browserElements.findIndex((element, index) => !matchedIndices.has(index) && predicate(element));
 
-  if (designEl.selector) {
-    const idx = browserElements.findIndex((el) => el.selector === designEl.selector);
-    if (idx !== -1 && !matchedIndices.has(idx)) return idx;
+  if (designElement.validationId) {
+    return availableIndex((element) => element.validationId === designElement.validationId);
   }
-
-  for (let i = 0; i < browserElements.length; i++) {
-    if (matchedIndices.has(i)) continue;
-    const bEl = browserElements[i]!;
-    if (bEl.tagName === designEl.type && (bEl.text || '').includes(designEl.text || '')) {
-      return i;
-    }
+  if (designElement.selector) {
+    return availableIndex((element) => element.selector === designElement.selector);
   }
-
-  return -1;
+  const expectedType = normalizeElementType(designElement.type);
+  const expectedText = designElement.text?.trim();
+  return availableIndex((element) => {
+    if (!typeMatches(expectedType, element.tagName, element.role)) return false;
+    return expectedText ? normalizeText(element.text).includes(normalizeText(expectedText)) : true;
+  });
 }
 
 function compareElementProperties(
-  designEl: DesignElement,
-  browserEl: BrowserElementEvidence,
+  design: DesignElement,
+  actual: BrowserElementEvidence,
   config: Config,
   findings: ValidationFinding[],
-  recordCheck: (passed: boolean) => void,
-) {
-  const locator = browserEl.validationId || browserEl.selector;
-  const geomTol = config.validation.geometryTolerancePx;
+  state: CheckState,
+  targetArtifact: ArtifactRef,
+): void {
+  const geometryTolerance = config.validation.geometryTolerancePx;
+  const typographyTolerance = config.validation.typographyTolerancePx;
+  const artifacts = [targetArtifact];
 
-  if (designEl.x !== undefined && designEl.y !== undefined) {
-    const xDiff = Math.abs(designEl.x - browserEl.x);
-    const yDiff = Math.abs(designEl.y - browserEl.y);
-    const geomOk = xDiff <= geomTol && yDiff <= geomTol;
-    recordCheck(geomOk);
-    if (!geomOk) {
-      findings.push({
-        id: randomUUID(),
-        category: 'geometry',
-        severity: 'error',
-        confidence: 0.95,
-        designNodeId: designEl.figmaNodeId,
-        targetDomLocator: locator,
-        expected: { x: designEl.x, y: designEl.y },
-        actual: { x: browserEl.x, y: browserEl.y },
-        delta: Math.max(xDiff, yDiff),
-        message: `Element geometry position mismatch: expected (${designEl.x}, ${designEl.y}), actual (${browserEl.x}, ${browserEl.y}).`,
-        suggestedRepairCategory: 'position',
-      });
+  compareNumber('geometry', 'x', design.x, actual.x, geometryTolerance, 'position', 'error');
+  compareNumber('geometry', 'y', design.y, actual.y, geometryTolerance, 'position', 'error');
+  compareNumber(
+    'geometry',
+    'width',
+    design.width,
+    actual.width,
+    geometryTolerance,
+    'size',
+    'error',
+  );
+  compareNumber(
+    'geometry',
+    'height',
+    design.height,
+    actual.height,
+    geometryTolerance,
+    'size',
+    'error',
+  );
+  compareEdges('padding', design.padding, actual.padding);
+  compareEdges('margin', design.margin, actual.margin);
+  compareNumber('geometry', 'gap', design.gap, actual.gap, geometryTolerance, 'gap', 'warning');
+  compareString('geometry', 'alignItems', design.alignItems, actual.alignItems, 'alignment');
+  compareString(
+    'geometry',
+    'justifyContent',
+    design.justifyContent,
+    actual.justifyContent,
+    'alignment',
+  );
+  compareString('geometry', 'overflowX', design.overflowX, actual.overflowX, 'overflow');
+  compareString('geometry', 'overflowY', design.overflowY, actual.overflowY, 'overflow');
+
+  compareColor('color', design.color, actual.color);
+  compareColor('backgroundColor', design.backgroundColor, actual.backgroundColor);
+  compareColor('borderColor', design.borderColor, actual.borderColor);
+  compareNumber(
+    'appearance',
+    'borderWidth',
+    design.borderWidth,
+    actual.borderWidth,
+    geometryTolerance,
+    'border',
+    'warning',
+  );
+  compareNumber(
+    'appearance',
+    'borderRadius',
+    design.borderRadius,
+    actual.borderRadius,
+    geometryTolerance,
+    'border_radius',
+    'warning',
+  );
+  compareNumber(
+    'appearance',
+    'opacity',
+    design.opacity,
+    actual.opacity,
+    0.01,
+    'opacity',
+    'warning',
+  );
+  compareString('appearance', 'boxShadow', design.boxShadow, actual.boxShadow, 'shadow');
+
+  compareString(
+    'typography',
+    'fontFamily',
+    design.fontFamily,
+    actual.fontFamily,
+    'font_family',
+    normalizeFontFamily,
+  );
+  compareString(
+    'typography',
+    'fontWeight',
+    design.fontWeight,
+    actual.fontWeight,
+    'font_weight',
+    normalizeFontWeight,
+  );
+  compareNumber(
+    'typography',
+    'fontSize',
+    design.fontSize,
+    actual.fontSize,
+    typographyTolerance,
+    'font_size',
+    'error',
+  );
+  compareCssLength(
+    'lineHeight',
+    design.lineHeight,
+    actual.lineHeight,
+    typographyTolerance,
+    'line_height',
+  );
+  compareCssLength(
+    'letterSpacing',
+    design.letterSpacing,
+    actual.letterSpacing,
+    typographyTolerance,
+    'letter_spacing',
+  );
+  compareString('typography', 'text', design.text, actual.text, 'text_content', normalizeText);
+  if (!config.validation.textWrapMismatchAllowed) {
+    compareBoolean('typography', 'textWrap', design.textWrap, actual.textWrap, 'text_wrap');
+    compareNumber(
+      'typography',
+      'lineCount',
+      design.lineCount,
+      actual.lineCount,
+      0,
+      'text_wrap',
+      'warning',
+    );
+  }
+
+  compareAssetSource(design.assetSource, actual.assetSource);
+  compareNumber(
+    'assets',
+    'intrinsicWidth',
+    design.intrinsicWidth,
+    actual.intrinsicWidth,
+    0,
+    'asset_dimensions',
+    'error',
+  );
+  compareNumber(
+    'assets',
+    'intrinsicHeight',
+    design.intrinsicHeight,
+    actual.intrinsicHeight,
+    0,
+    'asset_dimensions',
+    'error',
+  );
+  compareString('assets', 'objectFit', design.objectFit, actual.objectFit, 'asset_crop');
+  compareString(
+    'assets',
+    'objectPosition',
+    design.objectPosition,
+    actual.objectPosition,
+    'asset_crop',
+  );
+  if (design.assetHash) {
+    mismatch('assets', 'assetHash', design.assetHash, undefined, 'asset_hash', 'error', 1);
+  }
+
+  compareString('accessibility', 'role', design.role, actual.role, 'accessible_role');
+  compareString(
+    'accessibility',
+    'accessibleName',
+    design.accessibleName,
+    actual.accessibleName,
+    'accessible_name',
+    normalizeText,
+  );
+  if (design.accessibleState) {
+    compareString(
+      'accessibility',
+      'accessibleState',
+      stableJson(design.accessibleState),
+      stableJson(actual.accessibleState),
+      'accessible_state',
+    );
+  }
+  compareBoolean(
+    'accessibility',
+    'keyboardReachable',
+    design.keyboardReachable,
+    actual.keyboardReachable,
+    'keyboard_nav',
+  );
+  compareBoolean(
+    'accessibility',
+    'focusVisible',
+    design.focusVisible,
+    actual.focusVisible,
+    'focus_outline',
+  );
+
+  if (config.validation.requireKeyboardNavigation && isInteractiveRole(actual.role)) {
+    requiredAccessibility('keyboardReachable', actual.keyboardReachable, 'keyboard_nav');
+    if (actual.keyboardReachable)
+      requiredAccessibility('focusVisible', actual.focusVisible, 'focus_outline');
+    requiredAccessibility(
+      'accessibleName',
+      actual.accessibleName.trim().length > 0,
+      'accessible_name',
+    );
+  }
+
+  function compareEdges(
+    name: 'padding' | 'margin',
+    expected: DesignElement[typeof name],
+    observed: BrowserElementEvidence[typeof name],
+  ): void {
+    if (!expected) return;
+    for (const edge of ['top', 'right', 'bottom', 'left'] as const) {
+      compareNumber(
+        'geometry',
+        `${name}.${edge}`,
+        expected[edge],
+        observed[edge],
+        geometryTolerance,
+        name,
+        'warning',
+      );
     }
   }
 
-  if (designEl.width !== undefined && designEl.height !== undefined) {
-    const wDiff = Math.abs(designEl.width - browserEl.width);
-    const hDiff = Math.abs(designEl.height - browserEl.height);
-    const sizeOk = wDiff <= geomTol && hDiff <= geomTol;
-    recordCheck(sizeOk);
-    if (!sizeOk) {
-      findings.push({
-        id: randomUUID(),
-        category: 'geometry',
-        severity: 'error',
-        confidence: 0.95,
-        designNodeId: designEl.figmaNodeId,
-        targetDomLocator: locator,
-        expected: { width: designEl.width, height: designEl.height },
-        actual: { width: browserEl.width, height: browserEl.height },
-        delta: Math.max(wDiff, hDiff),
-        message: `Element geometry size mismatch: expected ${designEl.width}x${designEl.height}, actual ${browserEl.width}x${browserEl.height}.`,
-        suggestedRepairCategory: 'size',
-      });
+  function compareColor(name: string, expected: string | undefined, observed: string): void {
+    if (expected === undefined) return;
+    let delta: number;
+    try {
+      delta = deltaE76(expected, observed);
+    } catch (error) {
+      mismatch(
+        'appearance',
+        name,
+        expected,
+        observed,
+        'invalid_color',
+        'error',
+        1,
+        error instanceof Error ? error.message : String(error),
+      );
+      return;
+    }
+    const passed = delta <= config.validation.colorDeltaE;
+    record(state, passed);
+    if (!passed)
+      mismatch(
+        'appearance',
+        name,
+        expected,
+        observed,
+        name,
+        'error',
+        0.95,
+        undefined,
+        delta,
+        false,
+      );
+  }
+
+  function compareAssetSource(expected: string | undefined, observed: string | undefined): void {
+    if (expected === undefined) return;
+    const normalizedExpected = normalizeAsset(expected);
+    const normalizedObserved = observed ? normalizeAsset(observed) : undefined;
+    const passed = normalizedExpected === normalizedObserved;
+    record(state, passed);
+    if (!passed)
+      mismatch(
+        'assets',
+        'assetSource',
+        expected,
+        observed,
+        'asset_selection',
+        'error',
+        0.95,
+        undefined,
+        undefined,
+        false,
+      );
+  }
+
+  function requiredAccessibility(name: string, passed: boolean, repair: string): void {
+    record(state, passed);
+    if (!passed)
+      mismatch(
+        'accessibility',
+        name,
+        true,
+        false,
+        repair,
+        'error',
+        0.95,
+        undefined,
+        undefined,
+        false,
+      );
+  }
+
+  function compareCssLength(
+    name: string,
+    expected: string | number | undefined,
+    observed: string,
+    tolerance: number,
+    repair: string,
+  ): void {
+    if (expected === undefined) return;
+    const expectedNumber = cssNumber(expected);
+    const actualNumber = cssNumber(observed);
+    if (expectedNumber !== null && actualNumber !== null) {
+      compareNumber('typography', name, expectedNumber, actualNumber, tolerance, repair, 'warning');
+    } else {
+      compareString('typography', name, expected, observed, repair);
     }
   }
 
-  if (designEl.backgroundColor) {
-    const dE = deltaE76(designEl.backgroundColor, browserEl.backgroundColor);
-    const bgOk = dE <= config.validation.colorDeltaE;
-    recordCheck(bgOk);
-    if (!bgOk) {
-      findings.push({
-        id: randomUUID(),
-        category: 'appearance',
-        severity: 'error',
-        confidence: 0.9,
-        designNodeId: designEl.figmaNodeId,
-        targetDomLocator: locator,
-        expected: designEl.backgroundColor,
-        actual: browserEl.backgroundColor,
-        delta: dE,
-        message: `Element background color mismatch (Delta E: ${dE.toFixed(2)}): expected '${designEl.backgroundColor}', actual '${browserEl.backgroundColor}'.`,
-        suggestedRepairCategory: 'background_color',
-      });
-    }
+  function compareBoolean(
+    category: ValidationFinding['category'],
+    name: string,
+    expected: boolean | undefined,
+    observed: boolean,
+    repair: string,
+  ): void {
+    if (expected === undefined) return;
+    const passed = expected === observed;
+    record(state, passed);
+    if (!passed)
+      mismatch(
+        category,
+        name,
+        expected,
+        observed,
+        repair,
+        'warning',
+        0.9,
+        undefined,
+        undefined,
+        false,
+      );
   }
 
-  if (designEl.color) {
-    const dE = deltaE76(designEl.color, browserEl.color);
-    const colorOk = dE <= config.validation.colorDeltaE;
-    recordCheck(colorOk);
-    if (!colorOk) {
-      findings.push({
-        id: randomUUID(),
-        category: 'appearance',
-        severity: 'error',
-        confidence: 0.9,
-        designNodeId: designEl.figmaNodeId,
-        targetDomLocator: locator,
-        expected: designEl.color,
-        actual: browserEl.color,
-        delta: dE,
-        message: `Element text color mismatch (Delta E: ${dE.toFixed(2)}): expected '${designEl.color}', actual '${browserEl.color}'.`,
-        suggestedRepairCategory: 'text_color',
-      });
-    }
+  function compareString(
+    category: ValidationFinding['category'],
+    name: string,
+    expected: string | number | undefined,
+    observed: string | number,
+    repair: string,
+    normalize: (value: string | number) => string = (value) => String(value).trim().toLowerCase(),
+  ): void {
+    if (expected === undefined) return;
+    const passed = normalize(expected) === normalize(observed);
+    record(state, passed);
+    if (!passed)
+      mismatch(
+        category,
+        name,
+        expected,
+        observed,
+        repair,
+        'warning',
+        0.9,
+        undefined,
+        undefined,
+        false,
+      );
   }
 
-  if (designEl.borderRadius !== undefined) {
-    const rOk = Math.abs(designEl.borderRadius - browserEl.borderRadius) <= 1;
-    recordCheck(rOk);
-    if (!rOk) {
-      findings.push({
-        id: randomUUID(),
-        category: 'appearance',
-        severity: 'warning',
-        confidence: 0.8,
-        designNodeId: designEl.figmaNodeId,
-        targetDomLocator: locator,
-        expected: designEl.borderRadius,
-        actual: browserEl.borderRadius,
-        delta: Math.abs(designEl.borderRadius - browserEl.borderRadius),
-        message: `Element border radius mismatch: expected ${designEl.borderRadius}px, actual ${browserEl.borderRadius}px.`,
-        suggestedRepairCategory: 'border_radius',
-      });
-    }
+  function compareNumber(
+    category: ValidationFinding['category'],
+    name: string,
+    expected: number | undefined,
+    observed: number | undefined,
+    tolerance: number,
+    repair: string,
+    severity: ValidationFinding['severity'],
+  ): void {
+    if (expected === undefined) return;
+    const delta = observed === undefined ? Number.POSITIVE_INFINITY : Math.abs(expected - observed);
+    const passed = delta <= tolerance;
+    record(state, passed);
+    if (!passed)
+      mismatch(category, name, expected, observed, repair, severity, 0.95, undefined, delta, false);
   }
 
-  if (designEl.fontSize !== undefined) {
-    const fsOk = Math.abs(designEl.fontSize - browserEl.fontSize) <= 1;
-    recordCheck(fsOk);
-    if (!fsOk) {
-      findings.push({
-        id: randomUUID(),
-        category: 'typography',
-        severity: 'error',
-        confidence: 0.9,
-        designNodeId: designEl.figmaNodeId,
-        targetDomLocator: locator,
-        expected: designEl.fontSize,
-        actual: browserEl.fontSize,
-        delta: Math.abs(designEl.fontSize - browserEl.fontSize),
-        message: `Element font size mismatch: expected ${designEl.fontSize}px, actual ${browserEl.fontSize}px.`,
-        suggestedRepairCategory: 'font_size',
-      });
-    }
+  function mismatch(
+    category: ValidationFinding['category'],
+    name: string,
+    expected: unknown,
+    observed: unknown,
+    repair: string,
+    severity: ValidationFinding['severity'],
+    confidence: number,
+    extraMessage?: string,
+    delta?: unknown,
+    addCheck = true,
+  ): void {
+    if (addCheck) record(state, false);
+    findings.push(
+      finding({
+        category,
+        severity,
+        confidence,
+        designElement: design,
+        browserElement: actual,
+        expected,
+        actual: observed,
+        delta,
+        message: `${name} mismatch: expected ${print(expected)}, actual ${print(observed)}.${extraMessage ? ` ${extraMessage}` : ''}`,
+        repair,
+        artifacts,
+      }),
+    );
   }
+}
 
-  if (designEl.textWrap !== undefined && !config.validation.textWrapMismatchAllowed) {
-    const wrapOk = designEl.textWrap === browserEl.textWrap;
-    recordCheck(wrapOk);
-    if (!wrapOk) {
-      findings.push({
-        id: randomUUID(),
-        category: 'typography',
-        severity: 'warning',
-        confidence: 0.8,
-        designNodeId: designEl.figmaNodeId,
-        targetDomLocator: locator,
-        expected: designEl.textWrap,
-        actual: browserEl.textWrap,
-        message: `Element text wrapping mismatch: expected textWrap=${designEl.textWrap}, actual textWrap=${browserEl.textWrap}.`,
-        suggestedRepairCategory: 'text_wrap',
-      });
-    }
-  }
-
-  if (config.validation.requireKeyboardNavigation) {
-    const isInteractive = ['button', 'link', 'textbox', 'checkbox', 'radio'].includes(browserEl.role);
-    if (isInteractive) {
-      const krOk = browserEl.keyboardReachable;
-      recordCheck(krOk);
-      if (!krOk) {
-        findings.push({
-          id: randomUUID(),
-          category: 'accessibility',
+function compareRuntime(
+  evidence: BrowserEvidence,
+  config: Config,
+  findings: ValidationFinding[],
+  state: CheckState,
+  artifact: ArtifactRef,
+): void {
+  if (config.validation.requireNoConsoleErrors) {
+    const passed = evidence.consoleErrors.length === 0;
+    record(state, passed);
+    for (const error of evidence.consoleErrors) {
+      findings.push(
+        finding({
+          category: 'runtime',
           severity: 'error',
-          confidence: 0.9,
-          designNodeId: designEl.figmaNodeId,
-          targetDomLocator: locator,
-          message: `Interactive element of role '${browserEl.role}' is not keyboard reachable (missing tabIndex or disabled).`,
-          suggestedRepairCategory: 'keyboard_nav',
-        });
-      }
-
-      if (krOk) {
-        const fvOk = browserEl.focusVisible;
-        recordCheck(fvOk);
-        if (!fvOk) {
-          findings.push({
-            id: randomUUID(),
-            category: 'accessibility',
-            severity: 'warning',
-            confidence: 0.8,
-            designNodeId: designEl.figmaNodeId,
-            targetDomLocator: locator,
-            message: `Keyboard reachable element has no visible outline on focus.`,
-            suggestedRepairCategory: 'focus_outline',
-          });
-        }
-      }
+          confidence: 1,
+          expected: 'no console errors',
+          actual: error,
+          message: `Browser console error: ${error}`,
+          repair: 'console_error',
+          artifacts: [artifact],
+        }),
+      );
+    }
+  }
+  if (config.validation.requireNoNetworkFailures) {
+    const passed = evidence.failedRequests.length === 0;
+    record(state, passed);
+    for (const request of evidence.failedRequests) {
+      findings.push(
+        finding({
+          category: 'runtime',
+          severity: 'error',
+          confidence: 1,
+          expected: 'no failed requests',
+          actual: request,
+          message: `Failed network request: ${request}`,
+          repair: 'network_failure',
+          artifacts: [artifact],
+        }),
+      );
     }
   }
 }
 
+interface FindingInput {
+  category: ValidationFinding['category'];
+  severity: ValidationFinding['severity'];
+  confidence: number;
+  designElement?: DesignElement;
+  browserElement?: BrowserElementEvidence;
+  expected?: unknown;
+  actual?: unknown;
+  delta?: unknown;
+  message: string;
+  repair?: string;
+  artifacts: ArtifactRef[];
+}
+
+function finding(input: FindingInput): ValidationFinding {
+  const designNodeId = input.designElement?.figmaNodeId;
+  const targetDomLocator = input.browserElement?.validationId ?? input.browserElement?.selector;
+  const id = createHash('sha256')
+    .update(
+      stableJson({
+        category: input.category,
+        designNodeId,
+        targetDomLocator,
+        expected: input.expected,
+        actual: input.actual,
+        repair: input.repair,
+      }),
+    )
+    .digest('hex')
+    .slice(0, 24);
+  return {
+    id: `finding-${id}`,
+    category: input.category,
+    severity: input.severity,
+    confidence: input.confidence,
+    ...(designNodeId ? { designNodeId } : {}),
+    ...(targetDomLocator ? { targetDomLocator } : {}),
+    ...(input.expected !== undefined ? { expected: input.expected } : {}),
+    ...(input.actual !== undefined ? { actual: input.actual } : {}),
+    ...(input.delta !== undefined && Number.isFinite(input.delta as number)
+      ? { delta: input.delta }
+      : {}),
+    message: input.message,
+    ...(input.repair ? { suggestedRepairCategory: input.repair } : {}),
+    evidenceArtifacts: input.artifacts,
+  };
+}
+
 export async function compareImages(
-  imgBuffer1: Uint8Array,
-  imgBuffer2: Uint8Array,
+  image1: Uint8Array,
+  image2: Uint8Array,
   masks: Array<{ x: number; y: number; width: number; height: number }> = [],
-): Promise<{ diffPercent: number; heatmap: Uint8Array }> {
+  options: { channelTolerance?: number; mediaType1?: string; mediaType2?: string } = {},
+): Promise<{ diffPercent: number; diff: Uint8Array; heatmap: Uint8Array; overlay: Uint8Array }> {
   const browser = await chromium.launch({ headless: true });
   try {
-    const context = await browser.newContext();
-    const page = await context.newPage();
-
-    const base64_1 = Buffer.from(imgBuffer1).toString('base64');
-    const base64_2 = Buffer.from(imgBuffer2).toString('base64');
-
+    const page = await browser.newPage();
     const result = await page.evaluate(
-      async ({ b1, b2, masksList }) => {
-        const loadImage = (src: string): Promise<HTMLImageElement> => {
-          return new Promise((resolve, reject) => {
-            const img = new Image();
-            img.onload = () => resolve(img);
-            img.onerror = reject;
-            img.src = src;
+      async ({ first, second, firstType, secondType, maskList, tolerance }) => {
+        const load = (source: string): Promise<HTMLImageElement> =>
+          new Promise((resolve, reject) => {
+            const image = new Image();
+            image.onload = () => resolve(image);
+            image.onerror = () => reject(new Error('Image decode failed.'));
+            image.src = source;
           });
+        const [target, implementation] = await Promise.all([
+          load(`data:${firstType};base64,${first}`),
+          load(`data:${secondType};base64,${second}`),
+        ]);
+        const width = Math.max(target.width, implementation.width);
+        const height = Math.max(target.height, implementation.height);
+        if (width === 0 || height === 0) throw new Error('Image has zero dimensions.');
+        const canvas = () => {
+          const value = document.createElement('canvas');
+          value.width = width;
+          value.height = height;
+          return value;
         };
-
-        const img1 = await loadImage(`data:image/png;base64,${b1}`);
-        const img2 = await loadImage(`data:image/png;base64,${b2}`);
-
-        const width = Math.max(img1.width, img2.width);
-        const height = Math.max(img1.height, img2.height);
-
-        const c1 = document.createElement('canvas');
-        const c2 = document.createElement('canvas');
-        const cDiff = document.createElement('canvas');
-
-        c1.width = c2.width = cDiff.width = width;
-        c1.height = c2.height = cDiff.height = height;
-
-        const ctx1 = c1.getContext('2d')!;
-        const ctx2 = c2.getContext('2d')!;
-        const ctxDiff = cDiff.getContext('2d')!;
-
-        ctx1.drawImage(img1, 0, 0);
-        ctx2.drawImage(img2, 0, 0);
-
-        const d1 = ctx1.getImageData(0, 0, width, height);
-        const d2 = ctx2.getImageData(0, 0, width, height);
-        const dDiff = ctxDiff.createImageData(width, height);
-
-        let diffPixels = 0;
-        const totalPixels = width * height;
-
-        const isMasked = (x: number, y: number) => {
-          return masksList.some(
-            (m) => x >= m.x && x < m.x + m.width && y >= m.y && y < m.y + m.height,
+        const targetCanvas = canvas();
+        const implementationCanvas = canvas();
+        const diffCanvas = canvas();
+        const overlayCanvas = canvas();
+        const targetContext = targetCanvas.getContext('2d')!;
+        const implementationContext = implementationCanvas.getContext('2d')!;
+        const diffContext = diffCanvas.getContext('2d')!;
+        const overlayContext = overlayCanvas.getContext('2d')!;
+        targetContext.drawImage(target, 0, 0);
+        implementationContext.drawImage(implementation, 0, 0);
+        const targetData = targetContext.getImageData(0, 0, width, height);
+        const implementationData = implementationContext.getImageData(0, 0, width, height);
+        const diffData = diffContext.createImageData(width, height);
+        let different = 0;
+        let compared = 0;
+        for (let pixel = 0; pixel < width * height; pixel++) {
+          const offset = pixel * 4;
+          const x = pixel % width;
+          const y = Math.floor(pixel / width);
+          const masked = maskList.some(
+            (mask) =>
+              x >= mask.x && x < mask.x + mask.width && y >= mask.y && y < mask.y + mask.height,
           );
-        };
-
-        for (let i = 0; i < totalPixels; i++) {
-          const idx = i * 4;
-          const x = i % width;
-          const y = Math.floor(i / width);
-
-          if (isMasked(x, y)) {
-            dDiff.data[idx] = d2.data[idx]!;
-            dDiff.data[idx + 1] = d2.data[idx + 1]!;
-            dDiff.data[idx + 2] = d2.data[idx + 2]!;
-            dDiff.data[idx + 3] = 80;
+          if (masked) {
+            diffData.data[offset] = implementationData.data[offset]!;
+            diffData.data[offset + 1] = implementationData.data[offset + 1]!;
+            diffData.data[offset + 2] = implementationData.data[offset + 2]!;
+            diffData.data[offset + 3] = 50;
             continue;
           }
-
-          const rDiff = Math.abs(d1.data[idx]! - d2.data[idx]!);
-          const gDiff = Math.abs(d1.data[idx + 1]! - d2.data[idx + 1]!);
-          const bDiff = Math.abs(d1.data[idx + 2]! - d2.data[idx + 2]!);
-          const aDiff = Math.abs(d1.data[idx + 3]! - d2.data[idx + 3]!);
-
-          if (rDiff > 10 || gDiff > 10 || bDiff > 10 || aDiff > 10) {
-            diffPixels++;
-            dDiff.data[idx] = 255;
-            dDiff.data[idx + 1] = 0;
-            dDiff.data[idx + 2] = 0;
-            dDiff.data[idx + 3] = 255;
-          } else {
-            dDiff.data[idx] = d2.data[idx]!;
-            dDiff.data[idx + 1] = d2.data[idx + 1]!;
-            dDiff.data[idx + 2] = d2.data[idx + 2]!;
-            dDiff.data[idx + 3] = 100;
-          }
+          compared++;
+          const channelDiffs = [0, 1, 2, 3].map((channel) =>
+            Math.abs(
+              targetData.data[offset + channel]! - implementationData.data[offset + channel]!,
+            ),
+          );
+          const differs = channelDiffs.some((difference) => difference > tolerance);
+          if (differs) different++;
+          diffData.data[offset] = differs ? 255 : implementationData.data[offset]!;
+          diffData.data[offset + 1] = differs ? 0 : implementationData.data[offset + 1]!;
+          diffData.data[offset + 2] = differs ? 0 : implementationData.data[offset + 2]!;
+          diffData.data[offset + 3] = differs ? 255 : 90;
         }
-
-        ctxDiff.putImageData(dDiff, 0, 0);
-
+        diffContext.putImageData(diffData, 0, 0);
+        overlayContext.globalAlpha = 0.5;
+        overlayContext.drawImage(targetCanvas, 0, 0);
+        overlayContext.drawImage(implementationCanvas, 0, 0);
         return {
-          diffPercent: (diffPixels / totalPixels) * 100,
-          heatmapUrl: cDiff.toDataURL('image/png'),
+          diffPercent: compared === 0 ? 0 : (different / compared) * 100,
+          diffUrl: diffCanvas.toDataURL('image/png'),
+          overlayUrl: overlayCanvas.toDataURL('image/png'),
         };
       },
-      { b1: base64_1, b2: base64_2, masksList: masks },
+      {
+        first: Buffer.from(image1).toString('base64'),
+        second: Buffer.from(image2).toString('base64'),
+        firstType: options.mediaType1 ?? 'image/png',
+        secondType: options.mediaType2 ?? 'image/png',
+        maskList: masks,
+        tolerance: options.channelTolerance ?? 10,
+      },
     );
-
-    const parts = result.heatmapUrl.split(',');
-    const base64Heatmap = parts[1] || '';
+    const diff = decodeDataUrl(result.diffUrl);
     return {
       diffPercent: result.diffPercent,
-      heatmap: Uint8Array.from(Buffer.from(base64Heatmap, 'base64')),
+      diff,
+      heatmap: diff,
+      overlay: decodeDataUrl(result.overlayUrl),
     };
   } finally {
     await browser.close();
   }
+}
+
+function record(state: CheckState, passed: boolean): void {
+  state.total++;
+  if (passed) state.passed++;
+}
+
+function normalizeElementType(type: string): string {
+  return type
+    .trim()
+    .toLowerCase()
+    .replace(/^figma:/, '');
+}
+
+function typeMatches(expected: string, tagName: string, role: string): boolean {
+  if (expected === tagName || expected === role) return true;
+  if (['frame', 'group', 'component', 'instance'].includes(expected)) {
+    return ['div', 'section', 'article', 'main', 'header', 'footer', 'nav'].includes(tagName);
+  }
+  if (expected === 'text') return !['img', 'svg', 'video', 'canvas'].includes(tagName);
+  if (expected === 'rectangle') return ['div', 'section', 'article'].includes(tagName);
+  return false;
+}
+
+function normalizeText(value: string | number): string {
+  return String(value).trim().replace(/\s+/g, ' ');
+}
+
+function normalizeFontFamily(value: string | number): string {
+  return String(value)
+    .split(',')
+    .map((family) =>
+      family
+        .trim()
+        .replace(/^['"]|['"]$/g, '')
+        .toLowerCase(),
+    )
+    .join(',');
+}
+
+function normalizeFontWeight(value: string | number): string {
+  const normalized = String(value).trim().toLowerCase();
+  if (normalized === 'normal') return '400';
+  if (normalized === 'bold') return '700';
+  return normalized;
+}
+
+function normalizeAsset(value: string): string {
+  try {
+    return basename(new URL(value).pathname);
+  } catch {
+    return basename(value);
+  }
+}
+
+function cssNumber(value: string | number): number | null {
+  if (typeof value === 'number') return value;
+  const parsed = Number.parseFloat(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function isInteractiveRole(role: string): boolean {
+  return [
+    'button',
+    'link',
+    'textbox',
+    'checkbox',
+    'radio',
+    'combobox',
+    'menuitem',
+    'switch',
+  ].includes(role);
+}
+
+function print(value: unknown): string {
+  return value === undefined ? 'unavailable' : stableJson(value);
+}
+
+function stableJson(value: unknown): string {
+  return JSON.stringify(sortValue(value));
+}
+
+function sortValue(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(sortValue);
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([key, item]) => [key, sortValue(item)]),
+    );
+  }
+  return value;
+}
+
+function decodeDataUrl(value: string): Uint8Array {
+  const encoded = value.split(',')[1];
+  if (!encoded) throw new Error('Canvas did not return image data.');
+  return Uint8Array.from(Buffer.from(encoded, 'base64'));
+}
+
+function roundScore(value: number): number {
+  return Math.round(value * 1_000) / 1_000;
 }

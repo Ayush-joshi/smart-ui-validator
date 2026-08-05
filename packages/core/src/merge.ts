@@ -1,6 +1,9 @@
 import type { DesignContract, DesignElement } from './schemas.js';
 
-export function mergeDesignContracts(primary: DesignContract, secondary?: DesignContract): DesignContract {
+export function mergeDesignContracts(
+  primary: DesignContract,
+  secondary?: DesignContract,
+): DesignContract {
   if (!secondary) return primary;
 
   const mergedAmbiguities = [...primary.ambiguities];
@@ -30,14 +33,18 @@ export function mergeDesignContracts(primary: DesignContract, secondary?: Design
       const val1 = primaryEl[prop];
       const val2 = secondaryEl[prop];
 
-      if (val1 !== undefined && val2 !== undefined && JSON.stringify(val1) !== JSON.stringify(val2)) {
+      if (
+        val1 !== undefined &&
+        val2 !== undefined &&
+        JSON.stringify(val1) !== JSON.stringify(val2)
+      ) {
         mergedAmbiguities.push(
           `Conflict on element ${key || 'unknown'} property '${prop}': primary has '${JSON.stringify(val1)}', secondary has '${JSON.stringify(val2)}'. Primary value was kept.`,
         );
       }
 
       if (mergedEl[prop] === undefined) {
-        (mergedEl as any)[prop] = val2;
+        Object.assign(mergedEl, { [prop]: val2 });
       }
     }
 

@@ -1,66 +1,82 @@
+import { mkdtemp } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   FigmaDesignProvider,
-  MockFigmaMcpClient,
   LocalArtifactStore,
+  MockFigmaMcpClient,
 } from '../packages/core/src/index.js';
-import { mkdtemp } from 'node:fs/promises';
-import { join } from 'node:path';
-import { tmpdir } from 'node:os';
+import { PNG_BYTES } from './helpers.js';
 
-describe('Figma Design Provider', () => {
-  it('should call get_design_context & get_screenshot and normalize properties correctly', async () => {
-    const tempDir = await mkdtemp(join(tmpdir(), 'smart-ui-figma-test-'));
-    const store = new LocalArtifactStore(tempDir);
-    const mockMcp = new MockFigmaMcpClient();
-
-    // Setup custom figma node context response
-    mockMcp.setResponse('get_design_context', { fileKey: 'f1', nodeId: 'n1' }, {
-      node: {
-        id: '1:1',
-        name: 'Button',
-        type: 'FRAME',
-        x: 0,
-        y: 0,
-        width: 120,
-        height: 40,
-        color: '#ffffff',
-        backgroundColor: '#3d63dd',
-        children: [
-          {
-            id: '1:2',
-            name: 'label',
-            type: 'TEXT',
-            x: 10,
-            y: 10,
-            width: 100,
-            height: 20,
-            color: '#ffffff',
-            characters: 'Submit',
-            fontSize: 14,
-            fontWeight: 600,
-          }
-        ]
-      }
+describe('Figma MCP design provider contract', () => {
+  it('normalizes recorded MCP content blocks with provenance and optional evidence', async () => {
+    const store = new LocalArtifactStore(await mkdtemp(join(tmpdir(), 'smart-ui-figma-')));
+    const client = new MockFigmaMcpClient();
+    const args = { fileKey: 'file-1', nodeId: '1:1' };
+    client.setResponse('get_metadata', args, {
+      content: [
+        {
+          type: 'text',
+          text: '<frame id="1:1" name="Button" x="0" y="0" width="120" height="40"><text id="1:2" name="Label" x="10" y="10" width="100" height="20" /></frame>',
+        },
+      ],
     });
+    client.setResponse('get_design_context', args, {
+      content: [
+        {
+          type: 'text',
+          text: 'export function Button() { return <button>Submit</button>; } Authorization: Bearer fixture',
+        },
+      ],
+    });
+    client.setResponse('get_variable_defs', args, {
+      structuredContent: { '--brand': '#3d63dd' },
+    });
+    client.setResponse('get_code_connect_map', args, {
+      structuredContent: { '1:1': { componentName: 'Button', source: 'src/Button.tsx' } },
+    });
+    client.setResponse(
+      'get_screenshot',
+      { ...args, enableBase64Response: true },
+      {
+        content: [
+          { type: 'image', data: Buffer.from(PNG_BYTES).toString('base64'), mimeType: 'image/png' },
+        ],
+      },
+    );
 
-    const provider = new FigmaDesignProvider(mockMcp, store);
-    const contract = await provider.normalize({ fileKey: 'f1', nodeId: 'n1' });
+    const result = await new FigmaDesignProvider(client, store).normalize({
+      fileKey: 'file-1',
+      nodeId: '1:1',
+    });
+    expect(result.name).toBe('Button');
+    expect(result.viewport).toMatchObject({ width: 120, height: 40 });
+    expect(result.elements).toHaveLength(2);
+    expect(result.provenance).toMatchObject({
+      provider: 'figma-mcp',
+      documentId: 'file-1',
+      nodeId: '1:1',
+    });
+    expect(result.sourceEvidence.variables?.mediaType).toBe('application/json');
+    expect(result.sourceEvidence.codeConnect?.mediaType).toBe('application/json');
+    const storedContext = new TextDecoder().decode(
+      await store.read(result.sourceEvidence.layoutContext!.relativePath),
+    );
+    expect(storedContext).not.toContain('Bearer fixture');
+    expect(() => JSON.parse(storedContext)).not.toThrow();
+  });
 
-    expect(contract.schemaVersion).toBe('1.0');
-    expect(contract.name).toBe('Button');
-    expect(contract.viewport.width).toBe(120);
-    expect(contract.viewport.height).toBe(40);
-    expect(contract.elements).toHaveLength(2);
-
-    const frameEl = contract.elements[0]!;
-    expect(frameEl.type).toBe('frame');
-    expect(frameEl.backgroundColor).toBe('#3d63dd');
-
-    const textEl = contract.elements[1]!;
-    expect(textEl.type).toBe('text');
-    expect(textEl.text).toBe('Submit');
-    expect(textEl.fontSize).toBe(14);
-    expect(textEl.fontWeight).toBe(600);
+  it('rejects an empty or malformed screenshot response', async () => {
+    const store = new LocalArtifactStore(await mkdtemp(join(tmpdir(), 'smart-ui-figma-')));
+    const client = new MockFigmaMcpClient();
+    client.setResponse(
+      'get_screenshot',
+      { fileKey: 'bad', nodeId: '1:1', enableBase64Response: true },
+      { structuredContent: {} },
+    );
+    await expect(
+      new FigmaDesignProvider(client, store).normalize({ fileKey: 'bad', nodeId: '1:1' }),
+    ).rejects.toThrow(/neither MCP image content/);
   });
 });

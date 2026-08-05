@@ -36,7 +36,10 @@ export class LocalImageDesignProvider implements DesignProvider<LocalImageInput>
     const width = input.spec?.viewport?.width ?? dimensions.width;
     const height = input.spec?.viewport?.height ?? dimensions.height;
     if (width === undefined || height === undefined) {
-      throw new SmartUiError('INVALID_INPUT', 'Could not resolve image dimensions, and no viewport was provided in the spec.');
+      throw new SmartUiError(
+        'INVALID_INPUT',
+        'Could not resolve image dimensions, and no viewport was provided in the spec.',
+      );
     }
     const viewport = {
       width,
@@ -63,6 +66,15 @@ export class LocalImageDesignProvider implements DesignProvider<LocalImageInput>
       },
       ambiguities: input.spec?.ambiguities ?? [],
       elements: input.spec?.elements ?? [],
+      sourceEvidence: {
+        assets: [],
+        uncertainties:
+          input.spec?.elements && input.spec.elements.length > 0
+            ? []
+            : [
+                'A raster/image reference does not provide exact semantic, typography, accessibility, or element correspondence data without a sidecar specification.',
+              ],
+      },
     });
   }
 }
