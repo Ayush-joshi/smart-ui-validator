@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { extname, resolve } from 'node:path';
 import { imageSize } from 'image-size';
+import { SmartUiError } from './errors.js';
 import type { ArtifactStore, DesignProvider } from './providers.js';
 import { designContractSchema, type DesignContract } from './schemas.js';
 
@@ -29,10 +30,15 @@ export class LocalImageDesignProvider implements DesignProvider<LocalImageInput>
     const mediaType = mediaTypeFor(source);
     const reference = await this.artifacts.put(bytes, mediaType, source);
     const sourceHash = `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
-    const viewport = input.spec?.viewport ?? {
-      width: dimensions.width,
-      height: dimensions.height,
-      deviceScaleFactor: 1,
+    const width = input.spec?.viewport?.width ?? dimensions.width;
+    const height = input.spec?.viewport?.height ?? dimensions.height;
+    if (width === undefined || height === undefined) {
+      throw new SmartUiError('INVALID_INPUT', 'Could not resolve image dimensions, and no viewport was provided in the spec.');
+    }
+    const viewport = {
+      width,
+      height,
+      deviceScaleFactor: input.spec?.viewport?.deviceScaleFactor ?? 1,
     };
     return designContractSchema.parse({
       schemaVersion: '1.0',

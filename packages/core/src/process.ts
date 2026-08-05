@@ -24,9 +24,13 @@ export async function runAllowedProcess(
       child.kill('SIGTERM');
       reject(new SmartUiError('TIMEOUT', `${command} exceeded ${policy.maxExecutionTimeMs}ms`));
     }, policy.maxExecutionTimeMs);
-    child.once('error', reject);
+    const cleanup = () => clearTimeout(timer);
+    child.once('error', (error) => {
+      cleanup();
+      reject(error);
+    });
     child.once('close', (code) => {
-      clearTimeout(timer);
+      cleanup();
       resolve({ exitCode: code ?? -1, stdout, stderr });
     });
   });

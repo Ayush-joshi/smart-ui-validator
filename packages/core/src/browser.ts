@@ -18,10 +18,10 @@ export class PlaywrightBrowserProvider implements BrowserProvider {
         reducedMotion: 'reduce',
       });
       const page = await context.newPage();
+      await page.goto(options.url, { waitUntil: 'networkidle', timeout: options.timeoutMs });
       await page.addStyleTag({
         content: '*,*::before,*::after{animation:none!important;transition:none!important}',
       });
-      await page.goto(options.url, { waitUntil: 'networkidle', timeout: options.timeoutMs });
       await page.evaluate(() => document.fonts.ready);
       return await page.screenshot({ type: 'png', animations: 'disabled', fullPage: false });
     } catch (error) {
