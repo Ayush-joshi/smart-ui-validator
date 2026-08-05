@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="600" viewBox="0 0 800 600">
+  <rect width="800" height="600" fill="#f4f7fb"/>
+  <rect x="190" y="170" width="420" height="260" rx="16" fill="#fff" stroke="#d8e0ec"/>
+  <text x="230" y="222" font-family="Arial" font-size="12" font-weight="700" letter-spacing="1.5" fill="#3d63dd">SMART UI</text>
+  <text x="230" y="271" font-family="Arial" font-size="32" font-weight="700" fill="#172033">Validate with confidence</text>
+  <text x="230" y="315" font-family="Arial" font-size="16" fill="#526071">Deterministic evidence for every</text>
+  <text x="230" y="339" font-family="Arial" font-size="16" fill="#526071">implementation pass.</text>
+  <rect x="230" y="369" width="142" height="42" rx="8" fill="#3d63dd"/>
+  <text x="248" y="395" font-family="Arial" font-size="15" font-weight="600" fill="#fff">Start validation</text>
+</svg>

@@ -1,0 +1,20 @@
+{
+  "name": "@smart-ui/core",
+  "version": "0.1.0",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "image-size": "2.0.2",
+    "playwright": "1.55.0",
+    "zod": "4.1.5"
+  }
+}

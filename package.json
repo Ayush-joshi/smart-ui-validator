@@ -1,0 +1,28 @@
+{
+  "name": "smart-ui-validator",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@10.15.0",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "pnpm -r build",
+    "lint": "eslint .",
+    "typecheck": "pnpm -r typecheck",
+    "test": "vitest run",
+    "test:e2e": "vitest run tests/e2e",
+    "format:check": "prettier --check .",
+    "fixture:dev": "pnpm --filter @smart-ui/react-fixture dev",
+    "smart-ui": "pnpm --filter @smart-ui/cli start"
+  },
+  "devDependencies": {
+    "@eslint/js": "9.34.0",
+    "@types/node": "22.18.0",
+    "eslint": "9.34.0",
+    "prettier": "3.6.2",
+    "typescript": "5.9.2",
+    "typescript-eslint": "8.41.0",
+    "vitest": "3.2.4"
+  }
+}

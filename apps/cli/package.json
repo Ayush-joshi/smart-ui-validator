@@ -1,0 +1,20 @@
+{
+  "name": "@smart-ui/cli",
+  "version": "0.1.0",
+  "type": "module",
+  "bin": {
+    "smart-ui": "dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "start": "tsx src/index.ts"
+  },
+  "dependencies": {
+    "@smart-ui/core": "workspace:*",
+    "commander": "14.0.0"
+  },
+  "devDependencies": {
+    "tsx": "4.20.5"
+  }
+}

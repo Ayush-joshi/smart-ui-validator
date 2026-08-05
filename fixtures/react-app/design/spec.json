@@ -1,0 +1,8 @@
+{
+  "componentName": "FixtureCard",
+  "route": "/",
+  "viewport": { "width": 800, "height": 600, "deviceScaleFactor": 1 },
+  "theme": "light",
+  "locale": "en-US",
+  "ambiguities": []
+}

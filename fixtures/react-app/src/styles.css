@@ -1,0 +1,56 @@
+:root {
+  font-family: Arial, sans-serif;
+  color: #172033;
+  background: #f4f7fb;
+}
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+}
+.canvas {
+  width: 800px;
+  height: 600px;
+  display: grid;
+  place-items: center;
+}
+.card {
+  width: 420px;
+  padding: 40px;
+  border: 1px solid #d8e0ec;
+  border-radius: 16px;
+  background: #fff;
+  box-shadow: 0 16px 48px rgba(31, 52, 82, 0.12);
+}
+.eyebrow {
+  color: #3d63dd;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+}
+h1 {
+  margin: 12px 0;
+  font-size: 32px;
+  line-height: 1.15;
+}
+p {
+  margin: 0 0 28px;
+  color: #526071;
+  font-size: 16px;
+  line-height: 1.5;
+}
+button {
+  padding: 12px 18px;
+  border: 0;
+  border-radius: 8px;
+  background: #3d63dd;
+  color: white;
+  font:
+    600 15px Arial,
+    sans-serif;
+}
+button:focus-visible {
+  outline: 3px solid #9eb1ff;
+  outline-offset: 3px;
+}
