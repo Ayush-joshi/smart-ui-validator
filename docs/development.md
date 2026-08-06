@@ -7,7 +7,7 @@ floor; its SQLite-backed tests currently emit Node's experimental SQLite warning
 
 ```bash
 pnpm install
-pnpm exec playwright install chromium
+pnpm --filter @smart-ui/core exec playwright install chromium
 pnpm format:check
 pnpm lint
 pnpm typecheck

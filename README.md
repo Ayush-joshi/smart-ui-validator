@@ -8,13 +8,13 @@ It introduces **Test-Driven Development (TDD) for Visuals**: You provide a Figma
 
 ## 🧠 What is this? (And where is the AI?)
 
-**Smart UI Validator does NOT contain an AI model.** It is a strict sandbox, a deterministic measurement engine, and a memory store built specifically *for* AI models.
+**Smart UI Validator does NOT contain an AI model.** It is a strict sandbox, a deterministic measurement engine, and a memory store built specifically _for_ AI models.
 
-You bring your own AI model (BYOM) via the **Model Context Protocol (MCP)**. 
+You bring your own AI model (BYOM) via the **Model Context Protocol (MCP)**.
 
 1. **The Brains (Your AI Model):** You chat with Claude Code or VS Code Copilot.
 2. **The Protocol (MCP):** Your AI communicates with Smart UI Validator via standard input/output.
-3. **The Brawn (Smart UI Validator):** The Validator intercepts the AI's actions. If the AI writes a UI component, the Validator boots up an isolated Chromium browser, takes a screenshot, mathematically compares it to the Figma design, and tells the AI exactly what to fix (e.g., *"The gap is 8px instead of 16px"*). 
+3. **The Brawn (Smart UI Validator):** The Validator intercepts the AI's actions. If the AI writes a UI component, the Validator boots up an isolated Chromium browser, takes a screenshot, mathematically compares it to the Figma design, and tells the AI exactly what to fix (e.g., _"The gap is 8px instead of 16px"_).
 
 ---
 
@@ -22,8 +22,8 @@ You bring your own AI model (BYOM) via the **Model Context Protocol (MCP)**.
 
 Smart UI Validator does not just take a blurry screenshot and ask the AI "does this look right?". It acts like a headless browser and deeply evaluates the **DOM, HTML, CSS, and runtime state**.
 
-1. **Geometry & Layout (The DOM Box Model):** It measures the exact rendered pixels between elements, bounding box intersections, flexbox alignments, and overflow boundaries. 
-2. **Typography & Computed Styles (CSS):** It extracts the computed styles to ensure font-family, exact font-weight, line-height, text-wrapping, and color *Delta E* (human perceptual color difference) perfectly match the design constraints.
+1. **Geometry & Layout (The DOM Box Model):** It measures the exact rendered pixels between elements, bounding box intersections, flexbox alignments, and overflow boundaries.
+2. **Typography & Computed Styles (CSS):** It extracts the computed styles to ensure font-family, exact font-weight, line-height, text-wrapping, and color _Delta E_ (human perceptual color difference) perfectly match the design constraints.
 3. **Accessibility & Semantics (HTML):** It audits missing `aria-labels`, missing image `alt` tags, duplicate IDs, legal color contrast ratios (e.g., WCAG AA), and keyboard focus states.
 4. **Runtime & Network States:** It actively fails validation if your component throws a JavaScript Console Error or if a network request (like fetching a font) fails. It can also simulate browser interactions like `:hover`, `:focus`, and `:active`.
 
@@ -33,7 +33,7 @@ This deep evaluation gives your AI model the exact pinpoint data it needs to wri
 
 ## 📍 How does it know where your component is?
 
-You might wonder: *How does the AI know where to navigate in the browser or which file to edit?*
+You might wonder: _How does the AI know where to navigate in the browser or which file to edit?_
 
 It uses a powerful mix of **auto-discovery** and **strict user boundaries**:
 
@@ -54,6 +54,7 @@ It uses a powerful mix of **auto-discovery** and **strict user boundaries**:
 ## 🛠️ Requirements
 
 Before starting, you need:
+
 - **Node.js** (v22.16 or newer)
 - **pnpm** (v10.15.0)
 - **Playwright Chromium** (installed automatically via the setup steps below)
@@ -64,23 +65,26 @@ Before starting, you need:
 ## 🚀 Getting Started (Setup)
 
 ### 1. Clone and Build the Engine
+
 First, clone this repository to your machine and build the Validator.
 
 ```bash
 git clone https://github.com/Ayush-joshi/smart-ui-validator.git
 cd smart-ui-validator
 pnpm install --frozen-lockfile
-pnpm exec playwright install chromium
+pnpm --filter @smart-ui/core exec playwright install chromium
 pnpm build
 ```
 
-*(Optional: Run `pnpm smart-ui doctor --target .` to ensure your environment is healthy).*
+_(Optional: Run `pnpm smart-ui doctor --target .` to ensure your environment is healthy)._
 
 ### 2. Wire up your AI Host
-Because the Validator is an MCP server, you must connect your AI to it. 
+
+Because the Validator is an MCP server, you must connect your AI to it.
 
 **For Claude Code (Terminal):**
 Create a `.mcp.json` file in your target project (where you want Claude to work):
+
 ```json
 {
   "mcpServers": {
@@ -94,9 +98,11 @@ Create a `.mcp.json` file in your target project (where you want Claude to work)
   }
 }
 ```
-*(For VS Code Copilot or Codex, see the [Host Setup Guide](docs/hosts.md) for configuration examples).*
+
+_(For VS Code Copilot or Codex, see the [Host Setup Guide](docs/hosts.md) for configuration examples)._
 
 ### 3. Set the Rules (The Sandbox)
+
 Create a `smart-ui.config.json` in the root of your target project. This tells the Validator what the AI is allowed to do.
 
 ```json
@@ -108,9 +114,7 @@ Create a `smart-ui.config.json` in the root of your target project. This tells t
   },
   "policy": {
     "allowedPaths": ["src/components/", "src/styles.css"],
-    "allowedCommands": [
-      { "executable": "pnpm", "args": ["test"] }
-    ]
+    "allowedCommands": [{ "executable": "pnpm", "args": ["test"] }]
   }
 }
 ```
@@ -122,23 +126,30 @@ Create a `smart-ui.config.json` in the root of your target project. This tells t
 Once everything is wired up, here is what your day-to-day workflow looks like:
 
 ### 1. Ingest the Design
+
 When your designer hands you a Figma spec or reference image, you normalize it into a machine-readable `DesignContract`:
+
 ```bash
 pnpm smart-ui design normalize --image ./design-specs/reference.svg --out /tmp/design.json
 ```
 
 ### 2. Prompt your AI
+
 Open your IDE or terminal, boot up your local dev server (e.g., `http://localhost:4173`), and ask your AI:
-> *"Build the Navigation component based on this design contract. Use the Smart UI tools to validate and fix it against `http://localhost:4173/nav` until the visual score is above 95/100."*
+
+> _"Build the Navigation component based on this design contract. Use the Smart UI tools to validate and fix it against `http://localhost:4173/nav` until the visual score is above 95/100."_
 
 ### 3. The Validator Takes Over
+
 - **Validation:** The AI writes the initial code and calls the Validator. The Validator launches headless Chromium, captures the DOM, and returns an exact mathematical critique.
 - **The Repair Loop:** The AI drafts CSS/Component patches to fix the critique. The Validator applies the patch, runs your tests (`pnpm test`), and takes another screenshot.
 - **Rollbacks:** If the AI accidentally breaks the layout or fails a test, the Validator cleanly rolls the file back to the previous state.
 
 ### 4. Confirming Memory (Learning)
+
 When the component is finished, the AI might realize you prefer using CSS variables (e.g., `--spacing-4`). The Validator will ask you in the terminal or chat:
-> *"Should I remember to map 16px to `--spacing-4` for this repository?"*
+
+> _"Should I remember to map 16px to `--spacing-4` for this repository?"_
 
 If you say yes, this preference is saved to `.smart-ui/agent-memory.sqlite`. The next time you ask the AI to build a component, it will automatically use `--spacing-4` on its very first try.
 
@@ -148,16 +159,17 @@ If you say yes, this preference is saved to `.smart-ui/agent-memory.sqlite`. The
 
 If you are using the CLI manually, pay attention to the exit codes:
 
-| Code | Meaning |
-| ---- | ------- |
-| `0` | Success. No blocking validation findings remain. |
-| `1` | Unexpected command/runtime failure. |
-| `2` | Invalid user input or strict schema/config error. |
-| `3` | Validation completed, but blocking visual/accessibility findings remain. |
-| `4` | An operation failed or the target environment is untrustworthy. |
+| Code | Meaning                                                                  |
+| ---- | ------------------------------------------------------------------------ |
+| `0`  | Success. No blocking validation findings remain.                         |
+| `1`  | Unexpected command/runtime failure.                                      |
+| `2`  | Invalid user input or strict schema/config error.                        |
+| `3`  | Validation completed, but blocking visual/accessibility findings remain. |
+| `4`  | An operation failed or the target environment is untrustworthy.          |
 
 **Common Issues:**
-- **Chromium missing:** Run `pnpm exec playwright install chromium`.
+
+- **Chromium missing:** Run `pnpm --filter @smart-ui/core exec playwright install chromium`.
 - **Write rejected:** Ensure the file you want the AI to edit is explicitly listed in `smart-ui.config.json` under `allowedPaths`.
 - **Command rejected:** Ensure your `allowedCommands` (like `pnpm test`) match exactly what the AI is trying to execute.
 - **MCP path rejected:** Ensure `SMART_UI_MCP_ROOT` is set strictly to your target project folder, not a home directory.
@@ -170,10 +182,10 @@ If you are using the CLI manually, pay attention to the exit codes:
 It does not contain its own proprietary Storybook engine, but it **natively auto-discovers your existing Storybook**. If you have `@storybook/react` installed, the AI will build components in a `.stories.tsx` file and validate them against your Storybook iframe URL (e.g., `http://localhost:6006`), completely isolating the component from your messy app logic!
 
 **How does it validate a deeply nested component without the header/footer ruining the score?**
-You add a simple data attribute to your component: `data-validation-id="pricing-card"`. When the Validator runs, it searches the DOM for that attribute and mathematically scopes the validation *strictly* to that box and its children, completely ignoring the rest of the webpage.
+You add a simple data attribute to your component: `data-validation-id="pricing-card"`. When the Validator runs, it searches the DOM for that attribute and mathematically scopes the validation _strictly_ to that box and its children, completely ignoring the rest of the webpage.
 
 **How does it handle complex states (e.g., a component that only appears after 3 clicks)?**
-Smart UI Validator is a visual component tool, not an end-to-end user journey tool (like Cypress). It will not simulate complex multi-step clicks. Instead, you isolate the component (via Storybook) or force the state to render via a URL flag (e.g., `http://localhost:4173/form?step=3`). *Note: Simple CSS states like `:hover` and `:focus` are natively supported and triggered automatically.*
+Smart UI Validator is a visual component tool, not an end-to-end user journey tool (like Cypress). It will not simulate complex multi-step clicks. Instead, you isolate the component (via Storybook) or force the state to render via a URL flag (e.g., `http://localhost:4173/form?step=3`). _Note: Simple CSS states like `:hover` and `:focus` are natively supported and triggered automatically._
 
 **How does the AI implement programmatic elements (like Modals or Toasts)?**
 Because a Toast isn't in the DOM on initial load, the AI uses a **"Sandbox Route"** pattern. It writes the `Toast.tsx` component, creates a temporary test route (e.g., `src/pages/sandbox.tsx`), forces the Toast to open on that route, and points the Validator there. Once validation passes, the AI deletes the temporary sandbox route and leaves the perfect component behind!
