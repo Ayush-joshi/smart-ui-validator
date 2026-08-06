@@ -80,8 +80,8 @@ and rehydrates compact governed records through its public `VectorStore`.
 
 Phase 3 verification passed Prettier, ESLint, TypeScript typecheck, production build, 61
 unit/integration tests, 2 real-Chromium end-to-end tests, and a built CLI Agent Memory persistence
-flow. Local plaintext, experimental Node SQLite, dual-write interruption, and unsupported multi-tenant
-operation remain documented limitations for Phase 4.
+flow. Local plaintext, experimental Node SQLite, dual-write interruption, and multi-process storage
+remain documented controlled-pilot limitations.
 
 The Phase 3 production dependency audit reports no known vulnerabilities. Playwright is pinned to
 1.55.1, the fixture uses Vite 8.2.0 with `@vitejs/plugin-react` 6.0.5, and the root narrowly overrides
@@ -93,9 +93,31 @@ forgetting commands, consent, retention, and poisoning/isolation tests.
 
 ### Phase 4 — Production adapters and distribution
 
-Add production React and Angular adapters, responsive and interaction-state validation, stable MCP
-distribution, host setup packages, optional OpenClaw routing, enterprise security controls, CI,
-releases, evaluation gates, and operational runbooks.
+Status: Implemented and verified on 2026-08-06 for a controlled local/internal pilot.
+
+Current Phase 4 capabilities include:
+
+- Production-oriented React/Angular inspection with existing-component, design-token, convention,
+  routing, state, Storybook, standalone/NgModule, signal, and observable discovery.
+- Responsive viewport matrices; default/hover/focus/active/disabled/loading/empty/error evidence;
+  expanded deterministic accessibility; approved dynamic regions; and attributed baselines.
+- Official SDK-based stdio MCP server with 13 tools, resources/prompts, strict schemas, annotations,
+  cancellation, approval gates, workspace/symlink containment, and built-transport smoke coverage.
+- Codex, Claude Code, VS Code/Copilot, and disabled optional OpenClaw setup examples.
+- Isolation/authorization/encryption/audit/retention/export/deletion/backup/migration primitives plus
+  CI, release candidates, evaluation gates, packaging/secret/advisory/SBOM checks, threat model, and
+  operations/rollback guidance.
+
+Phase 4 verification passed Prettier, ESLint, TypeScript typecheck, production build, 79
+unit/integration tests, 3 real-Chromium React/Angular end-to-end scenarios, all evaluation gates, a
+built packaged-CLI normalize/validate/report flow, and a built stdio MCP handshake. The production
+dependency audit reports no known vulnerabilities. Package inspection found no forbidden content,
+the source secret scan passed, and a 678-component CycloneDX inventory was generated locally.
+
+Remote MCP is not shipped. Live Figma/Chrome MCP, coding hosts, OpenClaw/Slack, external models,
+enterprise identity/KMS, and multi-node persistence remain deployment-owned and unverified. Local
+stores are plaintext and single-writer by default, Node SQLite remains experimental, and the bundled
+heuristic repair provider is intentionally narrow.
 
 ## Working rules
 

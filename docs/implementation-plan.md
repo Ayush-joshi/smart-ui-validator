@@ -2,7 +2,7 @@
 
 ## Product and four-phase implementation plan
 
-Status: Active roadmap — Phases 1 through 3 implemented and verified on 2026-08-06
+Status: Four-phase roadmap completed and verified on 2026-08-06
 
 Target project: this `smart-ui-validator` repository
 
@@ -431,6 +431,9 @@ Completion record:
 
 ### Phase 4 — Production frameworks, MCP distribution, and enterprise readiness
 
+Status: Completed and verified on 2026-08-06 for a controlled local/internal pilot. Remote and
+credentialed integrations remain explicitly outside the verified boundary.
+
 Deliver React and Angular production adapters, responsive and interaction-state
 validation, an MCP server, host setup packages, optional OpenClaw/Slack routing,
 and the controls needed for a serious internal pilot.
@@ -451,6 +454,47 @@ Exit criteria:
   threat model, and operational runbooks.
 - Evaluation corpus and release gates for fidelity, correctness, accessibility,
   convergence, tokens, latency, and regression rate.
+
+Completion record:
+
+- Added bounded React discovery for Vite, Next.js, Create React App, and Rsbuild plus Angular
+  discovery for standalone/NgModule components, signals/observables, routing, styling, tests,
+  Storybook, existing components, and design tokens. A representative Angular 21 standalone fixture
+  exercises signals, responsive CSS, and declared component states.
+- Added configured viewport/state matrices, hover/focus/active application, accessible-name,
+  duplicate-ID, image-alt, document-language, color-contrast, dynamic-region, and explicit
+  human-attributed regression-baseline validation.
+- Added the official TypeScript SDK-based stdio MCP distribution with 13 tools, resources, a prompt,
+  strict schemas, accurate annotations, cancellation, compact structured output, approval-gated
+  mutations, workspace/symlink containment, and no generic shell or remote HTTP transport. A built
+  stdio client/server smoke test discovered all 13 tools and invoked Angular inspection.
+- Added setup examples and operator guidance for Codex, Claude Code, VS Code/GitHub Copilot, and an
+  optional disabled OpenClaw/Slack routing boundary. The channel adapter preserves workspace,
+  tenant, user, project, channel, and thread scope; it does not post to external services.
+- Added tenant/user/repository/project isolation primitives, deny-by-default authorization,
+  scope-bound AES-256-GCM integration, hash-chained/redacted audit records, policy conflicts,
+  retention/legal hold, export/deletion, verified non-overwriting backup/restore, config migration,
+  telemetry-off interfaces, threat model, and operational/rollback runbooks.
+- Added CI and release-candidate workflows, package-content inspection, tracked/untracked source
+  secret scanning, production advisory audit, a local CycloneDX 1.5 inventory, changelog/release
+  guidance, and strict owned-fixture evaluation gates.
+- Final verification passed Prettier, ESLint, TypeScript typecheck, production React/Angular/core/CLI/
+  MCP builds, 79 unit/integration tests, and 3 real-Chromium React/Angular end-to-end scenarios. The
+  production audit reported no known vulnerabilities; the secret scan covered 141 source files;
+  package checks found 73 core, 5 CLI, and 6 MCP tarball files with forbidden content absent; and the
+  SBOM contained 678 dependency components.
+- The release scorecard passed all gates over two owned synthetic reference observations:
+  aggregate fidelity 97.125, correctness 1.0, reuse 0.5, responsive/interaction coverage 100%, zero
+  accessibility regressions, convergence 1.0, rollback 0, 2,975 estimated tokens, 4,100 ms p95,
+  memory precision 1.0, and leakage/injection block rates 1.0.
+- A packaged CLI smoke flow normalized the intentional React evidence, validated it in isolated
+  Chromium, localized 10 expected findings at score 58.333, returned the documented exit code 3,
+  wrote a non-overwriting RunRecord with 0.4.0 provenance, and reproduced its content-addressed HTML
+  report.
+- Live Figma/Chrome MCP, Codex/Claude/Copilot/OpenClaw/Slack, external model, remote MCP,
+  organization identity, KMS, and multi-node persistence were not exercised. Checked-in evaluation
+  observations are reviewed reference inputs rather than fresh live-integration measurements. Local
+  stores remain plaintext/single-writer unless a deployment supplies the documented controls.
 
 ---
 
@@ -1149,12 +1193,12 @@ acceptance criteria with evidence, not merely that code was written.
 ## 11. Suggested usage
 
 1. Treat this file and `AGENTS.md` as the durable roadmap and project context.
-2. Preserve the completed Phase 1 and Phase 2 behavior while implementing the next phase.
-3. Use the Phase 3 copyable prompt only after reviewing its external Agent Memory dependency and
-   current security boundaries.
+2. Preserve the verified behavior of all four phases when extending the controlled pilot.
+3. Review the external Agent Memory dependency and current security boundaries before changing
+   persistence or identity behavior.
 4. Review each phase's implementation and verification report before committing or publishing it.
-5. Repeat the same acceptance-gate process for Phase 4.
-6. Keep the hardened Agent Memory project available during Phase 3 so its real API,
+5. Repeat the same acceptance-gate process for every post-Phase-4 release.
+6. Keep the hardened Agent Memory project available so its real API,
    security limitations, and packaging can be inspected rather than assumed.
 
 The prompts deliberately prohibit automatic publishing and deployment. Git
@@ -1166,7 +1210,7 @@ remain separate, explicit user decisions.
 - Smart UI Validator lives in this repository.
 - TypeScript is the default implementation language.
 - The implemented workspace uses pnpm and keeps package boundaries limited to meaningful interfaces.
-- React is implemented first; Angular is completed in Phase 4.
+- React and Angular framework adapters and representative fixtures are implemented.
 - Figma and reference images are the first design sources.
 - Chrome DevTools MCP supports agent-driven inspection, while deterministic
   browser automation or direct CDP is used for repeatable scoring.
@@ -1176,7 +1220,7 @@ remain separate, explicit user decisions.
 - The first release is intended for a controlled internal pilot, not unattended
   production deployment.
 
-Review these remaining assumptions before Phase 3 or when an external integration changes; preserve
+Review these remaining assumptions before a pilot release or when an external integration changes; preserve
 the product principles and explicit acceptance criteria when revising them.
 
 ## 13. Official integration references

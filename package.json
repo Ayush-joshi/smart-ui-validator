@@ -1,6 +1,6 @@
 {
   "name": "smart-ui-validator",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
   "packageManager": "pnpm@10.15.0",
   "engines": {
@@ -15,13 +15,20 @@
     "build": "pnpm -r build",
     "lint": "eslint .",
     "typecheck": "pnpm -r typecheck",
-    "test": "vitest run --exclude tests/e2e/**",
+    "test": "vitest run --exclude 'tests/e2e/**'",
     "test:e2e": "vitest run tests/e2e",
     "format:check": "prettier --check .",
+    "evaluate": "node scripts/run-evaluation.mjs",
+    "security:secrets": "node scripts/check-secrets.mjs",
+    "package:check": "node scripts/check-package.mjs",
+    "sbom": "node scripts/generate-sbom.mjs",
     "fixture:dev": "pnpm --filter @smart-ui/react-fixture dev",
-    "smart-ui": "pnpm --filter @smart-ui/cli start"
+    "fixture:angular:dev": "pnpm --filter @smart-ui/angular-fixture dev",
+    "smart-ui": "pnpm --filter @smart-ui/cli start",
+    "smart-ui-mcp": "node apps/mcp-server/dist/index.js"
   },
   "devDependencies": {
+    "@modelcontextprotocol/sdk": "1.30.0",
     "@eslint/js": "9.34.0",
     "@types/node": "22.18.0",
     "eslint": "9.34.0",

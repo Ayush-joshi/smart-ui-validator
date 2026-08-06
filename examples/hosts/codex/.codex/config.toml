@@ -1,0 +1,33 @@
+[mcp_servers.smart_ui]
+command = "node"
+args = ["/ABSOLUTE/PATH/TO/smart-ui-validator/apps/mcp-server/dist/index.js"]
+cwd = "/ABSOLUTE/PATH/TO/TARGET-REPOSITORY"
+startup_timeout_sec = 20
+tool_timeout_sec = 120
+required = true
+enabled = true
+enabled_tools = [
+  "inspect_project",
+  "normalize_design",
+  "plan_component",
+  "validate_component",
+  "repair_component",
+  "get_run",
+  "get_report",
+  "answer_question",
+  "continue_run",
+  "list_memories",
+  "explain_memory",
+  "confirm_memory",
+  "forget_memory",
+]
+default_tools_approval_mode = "writes"
+
+[mcp_servers.smart_ui.tools.repair_component]
+approval_mode = "prompt"
+
+[mcp_servers.smart_ui.tools.confirm_memory]
+approval_mode = "prompt"
+
+[mcp_servers.smart_ui.tools.forget_memory]
+approval_mode = "prompt"

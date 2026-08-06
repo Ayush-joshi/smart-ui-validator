@@ -1,0 +1,25 @@
+{
+  "servers": {
+    "smart-ui": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["${input:smartUiValidatorRoot}/apps/mcp-server/dist/index.js"],
+      "sandboxEnabled": true
+    }
+  },
+  "inputs": [
+    {
+      "id": "smartUiValidatorRoot",
+      "type": "promptString",
+      "description": "Absolute path to the trusted Smart UI Validator checkout"
+    }
+  ],
+  "sandbox": {
+    "filesystem": {
+      "allowWrite": ["${workspaceFolder}"]
+    },
+    "network": {
+      "allowedDomains": ["127.0.0.1", "localhost"]
+    }
+  }
+}

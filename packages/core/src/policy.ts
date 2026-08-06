@@ -1,3 +1,4 @@
+import { lstatSync, realpathSync } from 'node:fs';
 import { isAbsolute, relative, resolve } from 'node:path';
 import { SmartUiError } from './errors.js';
 import type { PolicyProvider } from './providers.js';
@@ -23,7 +24,7 @@ export class LocalPolicy implements PolicyProvider {
   private readonly endpoints: readonly string[];
 
   constructor(options: LocalPolicyOptions) {
-    this.targetRoot = resolve(options.targetRoot);
+    this.targetRoot = canonicalIfPresent(resolve(options.targetRoot));
     this.dryRun = options.dryRun ?? false;
     this.maxExecutionTimeMs = options.maxExecutionTimeMs ?? 60_000;
     this.writableFiles = [...(options.writableFiles ?? [])];
@@ -73,6 +74,30 @@ export class LocalPolicy implements PolicyProvider {
     if (rel.startsWith('..') || isAbsolute(rel)) {
       throw new SmartUiError('POLICY_VIOLATION', `Path escapes target root: ${path}`);
     }
+    let current = this.targetRoot;
+    for (const segment of rel.split(/[\\/]/).filter(Boolean)) {
+      current = resolve(current, segment);
+      try {
+        if (lstatSync(current).isSymbolicLink()) {
+          throw new SmartUiError(
+            'POLICY_VIOLATION',
+            `Path crosses a symbolic link inside the target root: ${path}`,
+          );
+        }
+      } catch (error) {
+        if (error instanceof Error && 'code' in error && error.code === 'ENOENT') continue;
+        throw error;
+      }
+    }
     return resolved;
+  }
+}
+
+function canonicalIfPresent(path: string): string {
+  try {
+    return realpathSync(path);
+  } catch (error) {
+    if (error instanceof Error && 'code' in error && error.code === 'ENOENT') return path;
+    throw error;
   }
 }

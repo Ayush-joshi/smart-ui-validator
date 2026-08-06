@@ -132,7 +132,7 @@ export class SmartUiComparator {
         const raster = await compareImages(
           reference.bytes,
           evidence.screenshot,
-          this.config.masks,
+          [...this.config.masks, ...(evidence.dynamicRegions ?? [])],
           {
             channelTolerance: this.config.validation.rasterChannelTolerance,
             mediaType1: reference.mediaType,
@@ -415,6 +415,25 @@ function compareElementProperties(
       'accessible_name',
     );
   }
+  if (
+    actual.text.trim().length > 0 &&
+    actual.contrastRatio !== undefined &&
+    actual.contrastRatio < config.validation.minimumContrastRatio
+  ) {
+    record(state, false);
+    mismatch(
+      'accessibility',
+      'contrastRatio',
+      config.validation.minimumContrastRatio,
+      actual.contrastRatio,
+      'color_contrast',
+      'error',
+      0.95,
+      undefined,
+      config.validation.minimumContrastRatio - actual.contrastRatio,
+      false,
+    );
+  }
 
   function compareEdges(
     name: 'padding' | 'margin',
@@ -666,6 +685,26 @@ function compareRuntime(
         }),
       );
     }
+  }
+  for (const violation of evidence.accessibilityViolations ?? []) {
+    if (violation.rule === 'accessible-name' && !config.validation.requireAccessibleNames) continue;
+    record(state, false);
+    const browserElement = evidence.elements.find(
+      (element) => element.selector === violation.selector,
+    );
+    findings.push(
+      finding({
+        category: 'accessibility',
+        severity: 'error',
+        confidence: 1,
+        expected: `no ${violation.rule} violations`,
+        actual: violation.message,
+        message: `${violation.rule}: ${violation.message}`,
+        repair: violation.rule,
+        artifacts: [artifact],
+        ...(browserElement ? { browserElement } : {}),
+      }),
+    );
   }
 }
 

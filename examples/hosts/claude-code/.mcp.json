@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "smart-ui": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["${SMART_UI_VALIDATOR_ROOT}/apps/mcp-server/dist/index.js"],
+      "env": {
+        "SMART_UI_MCP_ROOT": "${CLAUDE_PROJECT_DIR}"
+      }
+    }
+  }
+}

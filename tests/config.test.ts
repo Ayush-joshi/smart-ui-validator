@@ -16,4 +16,34 @@ describe('Phase 2 configuration', () => {
     expect(() => configSchema.parse({ masks: [{ x: 0, y: 0, width: -1, height: 1 }] })).toThrow();
     expect(() => configSchema.parse({ commands: { test: 'pnpm test' } })).toThrow();
   });
+
+  it('requires selectors for pointer and keyboard interaction states', () => {
+    expect(() => configSchema.parse({ states: [{ name: 'hover' }] })).toThrow(
+      "State 'hover' requires a selector.",
+    );
+    expect(
+      configSchema.parse({ states: [{ name: 'focus', selector: '[data-testid="submit"]' }] })
+        .states,
+    ).toEqual([{ name: 'focus', selector: '[data-testid="submit"]' }]);
+  });
+
+  it('fails closed when project configuration conflicts with enterprise policy', () => {
+    expect(() => configSchema.parse({ enterprise: { remoteMcpEnabled: true } })).toThrow(
+      'Remote MCP requires enterprise mode',
+    );
+
+    expect(() =>
+      configSchema.parse({
+        enterprise: { enabled: true },
+        policy: { blockExternalNetwork: false },
+      }),
+    ).toThrow('Administrative policy does not permit browser networking.');
+
+    expect(() =>
+      configSchema.parse({
+        enterprise: { enabled: true },
+        memory: { learningEnabled: true },
+      }),
+    ).toThrow('Administrative policy does not permit learning.');
+  });
 });

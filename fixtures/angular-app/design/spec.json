@@ -1,0 +1,41 @@
+{
+  "name": "AngularFixtureCard",
+  "component": { "name": "FixtureCardComponent", "route": "/" },
+  "viewport": { "width": 800, "height": 600, "deviceScaleFactor": 1 },
+  "elements": [
+    {
+      "validationId": "angular-card",
+      "type": "article",
+      "x": 140,
+      "y": 174,
+      "width": 520,
+      "height": 252,
+      "backgroundColor": "#ffffff",
+      "borderRadius": 18
+    },
+    {
+      "validationId": "angular-title",
+      "type": "text",
+      "x": 172,
+      "y": 233,
+      "fontFamily": "Arial",
+      "fontSize": 32,
+      "fontWeight": 700,
+      "color": "#111827",
+      "text": "Validated interface"
+    },
+    {
+      "validationId": "angular-action",
+      "type": "button",
+      "x": 172,
+      "y": 343,
+      "width": 140,
+      "height": 44,
+      "role": "button",
+      "accessibleName": "Review report",
+      "keyboardReachable": true,
+      "focusVisible": true,
+      "backgroundColor": "#3155c6"
+    }
+  ]
+}

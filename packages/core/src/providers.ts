@@ -7,12 +7,29 @@ export interface DesignProvider<Input = unknown> {
 
 export interface RepositoryInspection {
   root: string;
-  framework: 'react' | 'unknown';
+  framework: 'react' | 'angular' | 'unknown';
   buildSystem: string | null;
   packageManager: string | null;
   styling: string[];
   testFrameworks: string[];
   componentLocations: string[];
+  routing?: string[];
+  stateManagement?: string[];
+  storybook?: boolean;
+  componentCandidates?: Array<{
+    name: string;
+    relativePath: string;
+    kind: 'component' | 'directive' | 'service';
+    selector?: string;
+  }>;
+  designTokens?: Array<{
+    name: string;
+    source: string;
+    kind: 'css-custom-property' | 'typescript' | 'scss';
+    value?: string;
+  }>;
+  conventions?: string[];
+  ambiguities?: string[];
 }
 
 export interface FrameworkAdapter {
@@ -71,6 +88,7 @@ export interface BrowserElementEvidence {
   accessibleState: Record<string, string | boolean | number>;
   keyboardReachable: boolean;
   focusVisible: boolean;
+  contrastRatio?: number;
 }
 
 export interface BrowserEvidence {
@@ -78,7 +96,24 @@ export interface BrowserEvidence {
   elements: BrowserElementEvidence[];
   consoleErrors: string[];
   failedRequests: string[];
+  accessibilityViolations?: Array<{
+    rule: string;
+    selector: string;
+    message: string;
+  }>;
+  dynamicRegions?: Array<{ x: number; y: number; width: number; height: number }>;
+  interactionState?: string;
 }
+
+export type BrowserInteractionState =
+  | 'default'
+  | 'hover'
+  | 'focus'
+  | 'active'
+  | 'disabled'
+  | 'loading'
+  | 'empty'
+  | 'error';
 
 export interface BrowserCaptureOptions {
   url: string;
@@ -88,6 +123,11 @@ export interface BrowserCaptureOptions {
   theme: 'light' | 'dark';
   allowedEndpoints: string[];
   blockExternalNetwork: boolean;
+  interaction?: {
+    name: BrowserInteractionState;
+    selector?: string;
+  };
+  dynamicRegionSelectors?: string[];
   evidenceLimits: {
     maxElements: number;
     maxTextLength: number;

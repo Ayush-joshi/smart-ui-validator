@@ -1,5 +1,6 @@
 node_modules/
 dist/
+.angular/
 coverage/
 .smart-ui/
 playwright-report/
@@ -7,3 +8,6 @@ test-results/
 *.log
 .DS_Store
 design-contract.json
+evaluation-scorecard.json
+*.tgz
+sbom*.json

@@ -9,6 +9,7 @@ import { runAllowedProcess } from './process.js';
 import { redactSensitiveText } from './security.js';
 import type {
   ArtifactStore,
+  BrowserCaptureOptions,
   BrowserProvider,
   CodingProvider,
   FrameworkAdapter,
@@ -39,6 +40,7 @@ export interface RunOptions {
   signal?: AbortSignal;
   memoryContext?: MemoryContext;
   memoryBudget?: RecallBudget;
+  interaction?: BrowserCaptureOptions['interaction'];
 }
 
 export interface OrchestratorDependencies {
@@ -109,6 +111,19 @@ export class SmartUiOrchestrator {
       decisions.push({
         kind: 'framework',
         message: `Detected ${inspection.framework} with ${inspection.buildSystem ?? 'unknown build system'}`,
+      });
+      decisions.push({
+        kind: 'component-reuse',
+        message: JSON.stringify({
+          componentCandidates: (inspection.componentCandidates ?? []).slice(0, 50),
+          designTokens: (inspection.designTokens ?? []).slice(0, 100),
+          conventions: inspection.conventions ?? [],
+          ambiguities: inspection.ambiguities ?? [],
+          decision:
+            (inspection.componentCandidates ?? []).length > 0
+              ? 'Validate a compatible existing component API before creating a replacement.'
+              : 'No compatible existing component was discovered; creation requires explicit plan evidence.',
+        }),
       });
 
       if (this.dependencies.memory && options.memoryContext) {
@@ -395,7 +410,13 @@ export class SmartUiOrchestrator {
       completedAt: completedAt.toISOString(),
       targetRoot: resolve(options.targetRoot),
       designContract: options.designContractPath,
-      inputs: { url: options.url, designId: options.contract.id },
+      inputs: {
+        url: options.url,
+        designId: options.contract.id,
+        viewport: `${options.contract.viewport.width}x${options.contract.viewport.height}@${options.contract.viewport.deviceScaleFactor}`,
+        state: options.interaction?.name ?? 'default',
+        ...(options.interaction?.selector ? { stateSelector: options.interaction.selector } : {}),
+      },
       decisions,
       targetArtifact: options.contract.reference,
       artifacts: uniqueArtifacts(artifacts),
@@ -403,7 +424,7 @@ export class SmartUiOrchestrator {
       timingsMs: timings,
       warnings: [...options.contract.ambiguities, ...options.contract.sourceEvidence.uncertainties],
       failures,
-      provenance: { tool: 'smart-ui', version: '0.3.0' },
+      provenance: { tool: 'smart-ui', version: '0.4.0' },
       passes,
       ...(finalScore === undefined ? {} : { score: finalScore }),
       stoppedReason,
@@ -466,6 +487,8 @@ export class SmartUiOrchestrator {
       theme: options.contract.theme,
       allowedEndpoints: config.policy.endpointAllowlist,
       blockExternalNetwork: config.policy.blockExternalNetwork,
+      ...(options.interaction ? { interaction: options.interaction } : {}),
+      dynamicRegionSelectors: config.dynamicRegions.map((region) => region.selector),
       evidenceLimits: config.evidence,
     });
     timings.capture = performance.now() - captureStart;

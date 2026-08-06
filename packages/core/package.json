@@ -1,6 +1,11 @@
 {
   "name": "@smart-ui/core",
-  "version": "0.3.0",
+  "version": "0.4.0",
+  "files": [
+    "dist/**/*.js",
+    "dist/**/*.d.ts",
+    "!dist/**/*.map"
+  ],
   "type": "module",
   "exports": {
     ".": {

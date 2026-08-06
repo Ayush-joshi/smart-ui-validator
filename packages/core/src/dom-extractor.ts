@@ -132,6 +132,45 @@ export function extractElements(options: DomExtractionOptions): BrowserElementEv
     return Math.max(1, tops.size);
   }
 
+  function getContrastRatio(element: HTMLElement, style: CSSStyleDeclaration): number | undefined {
+    function color(value: string): [number, number, number, number] | undefined {
+      const match = value.match(
+        /rgba?\(\s*([\d.]+)[, ]+\s*([\d.]+)[, ]+\s*([\d.]+)(?:\s*[,/]\s*([\d.]+))?\s*\)/i,
+      );
+      if (!match) return undefined;
+      return [
+        Number(match[1]),
+        Number(match[2]),
+        Number(match[3]),
+        match[4] === undefined ? 1 : Number(match[4]),
+      ];
+    }
+    function luminance(rgb: [number, number, number]): number {
+      const values = rgb.map((channel) => {
+        const normalized = channel / 255;
+        return normalized <= 0.04045 ? normalized / 12.92 : ((normalized + 0.055) / 1.055) ** 2.4;
+      });
+      return 0.2126 * values[0]! + 0.7152 * values[1]! + 0.0722 * values[2]!;
+    }
+    const foreground = color(style.color);
+    let current: Element | null = element;
+    let background: [number, number, number, number] | undefined;
+    while (current) {
+      const candidate = color(window.getComputedStyle(current).backgroundColor);
+      if (candidate && candidate[3] > 0) {
+        background = candidate;
+        break;
+      }
+      current = current.parentElement;
+    }
+    if (!foreground || !background || foreground[3] < 1 || background[3] < 1) return undefined;
+    const left = luminance([foreground[0], foreground[1], foreground[2]]);
+    const right = luminance([background[0], background[1], background[2]]);
+    return (
+      Math.round(((Math.max(left, right) + 0.05) / (Math.min(left, right) + 0.05)) * 100) / 100
+    );
+  }
+
   const candidates = [...document.querySelectorAll<HTMLElement>('body, body *')].filter(
     (element) => {
       if (['SCRIPT', 'STYLE', 'NOSCRIPT', 'TEMPLATE'].includes(element.tagName)) return false;
@@ -195,6 +234,10 @@ export function extractElements(options: DomExtractionOptions): BrowserElementEv
       accessibleState: getAccessibleState(element),
       keyboardReachable: isKeyboardReachable(element, style),
       focusVisible: false,
+      ...(() => {
+        const contrastRatio = getContrastRatio(element, style);
+        return contrastRatio === undefined ? {} : { contrastRatio };
+      })(),
     };
   });
 }

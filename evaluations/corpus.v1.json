@@ -1,0 +1,24 @@
+{
+  "schemaVersion": "1.0",
+  "id": "smart-ui-owned-fixtures-v1",
+  "license": "Repository-owned synthetic fixtures; no third-party design assets.",
+  "provenance": "Created specifically for deterministic Smart UI Validator release evaluation.",
+  "scenarios": [
+    {
+      "id": "react-fixture-responsive-states",
+      "framework": "react",
+      "design": "fixtures/react-app/design/reference.svg",
+      "target": "fixtures/react-app",
+      "states": ["default", "hover", "focus"],
+      "viewports": ["desktop", "mobile"]
+    },
+    {
+      "id": "angular-fixture-responsive-states",
+      "framework": "angular",
+      "design": "fixtures/angular-app/design/reference.svg",
+      "target": "fixtures/angular-app",
+      "states": ["default", "hover", "focus", "disabled", "loading", "empty", "error"],
+      "viewports": ["desktop", "mobile"]
+    }
+  ]
+}

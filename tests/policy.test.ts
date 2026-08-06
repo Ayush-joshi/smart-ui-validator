@@ -1,3 +1,6 @@
+import { mkdtemp, mkdir, symlink } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { LocalPolicy, SmartUiError } from '../packages/core/src/index.js';
 
@@ -14,6 +17,15 @@ describe('LocalPolicy', () => {
 
   it('rejects traversal outside the target', () => {
     expect(() => policy.assertReadable('../secret')).toThrow(SmartUiError);
+  });
+
+  it('rejects contained-looking paths that cross a symbolic link', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'smart-ui-policy-'));
+    const outside = await mkdtemp(join(tmpdir(), 'smart-ui-outside-'));
+    await mkdir(join(root, 'src'));
+    await symlink(outside, join(root, 'src', 'linked'));
+    const linkedPolicy = new LocalPolicy({ targetRoot: root });
+    expect(() => linkedPolicy.assertReadable('src/linked/Card.tsx')).toThrow(/symbolic link/);
   });
 
   it('only permits explicitly writable files', () => {

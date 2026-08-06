@@ -14,22 +14,28 @@ pnpm typecheck
 pnpm build
 pnpm test
 pnpm test:e2e
+pnpm evaluate
+pnpm security:secrets
+pnpm package:check
+pnpm audit --prod --audit-level high
+pnpm sbom
 ```
 
-The end-to-end suite starts Vite on `127.0.0.1:4173`, normalizes the checked-in reference, captures
-Chromium at desktop and mobile viewports, localizes intentional mismatches, and checks evidence
-repeatability across identical runs. Locale, timezone, color scheme, reduced motion, animations,
-viewport, clock, and fixture data are fixed. Arial avoids downloading fonts. Use `pnpm fixture:dev`
-for manual CLI testing.
+The end-to-end suite starts Vite on `127.0.0.1:4173` and Angular on `127.0.0.1:4273`, normalizes the
+owned checked-in references, captures Chromium at desktop/mobile and focus state, localizes
+intentional mismatches, and checks evidence repeatability. Locale, timezone, color scheme, reduced
+motion, animations, viewport, clock, and fixture data are fixed. Arial avoids downloading fonts.
+Use `pnpm fixture:dev` or `pnpm fixture:angular:dev` for manual CLI testing.
 
 ## Repository configuration
 
 `smart-ui.config.json` is optional and strictly validated. Unknown keys and unsafe values fail the
-run. These are the Phase 2 defaults; commands are disabled until both the command and its exact
+run. Commands are disabled until both the command and its exact
 executable/argument tuple are allowlisted.
 
 ```json
 {
+  "schemaVersion": "1.0",
   "validation": {
     "geometryTolerancePx": 2,
     "typographyTolerancePx": 1,
@@ -40,6 +46,8 @@ executable/argument tuple are allowlisted.
     "requireNoConsoleErrors": true,
     "requireNoNetworkFailures": true,
     "requireKeyboardNavigation": true,
+    "requireAccessibleNames": true,
+    "minimumContrastRatio": 4.5,
     "maxRepairPasses": 5,
     "minimumScoreImprovement": 0.01
   },
@@ -81,10 +89,11 @@ executable/argument tuple are allowlisted.
     { "name": "desktop", "width": 800, "height": 600, "deviceScaleFactor": 1 },
     { "name": "mobile", "width": 390, "height": 844, "deviceScaleFactor": 1 }
   ],
-  "masks": [{ "x": 0, "y": 0, "width": 100, "height": 24 }]
+  "states": [{ "name": "default" }],
+  "masks": [{ "x": 0, "y": 0, "width": 100, "height": 24 }],
+  "dynamicRegions": []
 }
 ```
 
-The current CLI validates the viewport pinned in each design contract. The `viewports` list records
-repository policy for hosts that schedule multiple contracts; the checked-in end-to-end suite covers
-both desktop and mobile contracts.
+The CLI validates one pinned contract or schedules the configured viewports/states with
+`validate-matrix`. See the README for the complete memory/enterprise defaults and operator workflow.

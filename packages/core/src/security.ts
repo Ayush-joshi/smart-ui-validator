@@ -21,7 +21,14 @@ export function redactSensitiveValue(value: unknown, seen = new WeakSet<object>(
   seen.add(value);
   if (Array.isArray(value)) return value.map((item) => redactSensitiveValue(item, seen));
   return Object.fromEntries(
-    Object.entries(value).map(([key, item]) => [key, redactSensitiveValue(item, seen)]),
+    Object.entries(value).map(([key, item]) => [
+      key,
+      /^(?:api[_-]?key|access[_-]?token|refresh[_-]?token|token|authorization|cookie|password|secret)$/i.test(
+        key,
+      )
+        ? '[REDACTED]'
+        : redactSensitiveValue(item, seen),
+    ]),
   );
 }
 

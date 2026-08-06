@@ -1,0 +1,36 @@
+# Threat model
+
+## Assets
+
+Protected assets include target source, design evidence, screenshots, DOM/style evidence, memory,
+identity/scope, audit logs, credentials, reports, baselines, browser sessions, model context, and
+approval decisions.
+
+## Trust boundaries
+
+- CLI/MCP/channel input to strict schemas.
+- Target repository and design/DOM/memory text to advisory evidence.
+- Core to filesystem/process/network policy.
+- Core to isolated browser context.
+- Local process to Agent Memory SQLite or other storage.
+- Optional channel/remote transport to authenticated actor and tenant mapping.
+- Deployment storage to injected encryption/KMS and backup systems.
+
+## Primary threats and mitigations
+
+| Threat                                                        | Mitigation                                                                                                                                  | Residual risk                                                                        |
+| ------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| Prompt injection in design, DOM, repository, memory, or Slack | Inputs are labeled untrusted; only typed data reaches providers; content never changes policy; poisoning patterns and budgets are enforced. | A production model adapter still needs prompt isolation and output validation.       |
+| Path traversal/symlink escape                                 | Resolved target containment, exact file allowlist, realpath/lstat checks, artifact hash verification.                                       | OS compromise can bypass process-level controls.                                     |
+| Arbitrary command execution                                   | Executable plus exact argument arrays; `shell:false`; timeouts/output caps; no MCP shell tool.                                              | An allowlisted executable may itself be vulnerable.                                  |
+| Network/data exfiltration                                     | Isolated browser, service workers blocked, endpoint/path allowlist, external network blocked, output policy.                                | Live Chrome MCP cannot enforce Playwright interception equivalently.                 |
+| Cross-tenant/user/repository leakage                          | Explicit authenticated context placeholder, opaque namespaces, authorization provider, scope-first memory filtering, tests.                 | The included local stores remain single-process/local; deployment auth must be real. |
+| Baseline laundering                                           | Human actor/reason/approval required; no auto-update.                                                                                       | Reviewer can intentionally approve a bad baseline.                                   |
+| Audit tampering                                               | Append-only interface and hash-chain verification/export.                                                                                   | Local files are not immutable/WORM; ship and protect them externally.                |
+| Secret/personal data persistence                              | Recursive redaction, URL sanitization, secret scan, output policy, evidence budgets.                                                        | Detection is defense in depth and not a full DLP system.                             |
+| Backup disclosure/corruption                                  | Optional AES-GCM with scope AAD, per-file hashes, non-overwriting restore.                                                                  | Key lifecycle/KMS and encrypted volume are deployment duties.                        |
+| Retry/replay                                                  | Channel event deduplication; deterministic patch/findings hashes; run IDs.                                                                  | In-memory dedup state needs a durable backend for multi-instance routing.            |
+| Denial of service                                             | Evidence/file/context/pass/time limits and cancellation.                                                                                    | No remote rate limiter is shipped because remote MCP is disabled.                    |
+
+Report security issues through the repository owner's private process. Do not put secrets or private
+designs in public issues.

@@ -1,0 +1,16 @@
+{
+  "schemaVersion": "1.0",
+  "minimumAggregateFidelity": 90,
+  "minimumComponentCorrectnessRate": 1,
+  "minimumReuseRate": 0.5,
+  "minimumResponsiveCoveragePercent": 100,
+  "minimumInteractionCoveragePercent": 80,
+  "maximumAccessibilityRegressions": 0,
+  "minimumConvergenceRate": 0.9,
+  "maximumRollbackRate": 0.1,
+  "maximumEstimatedTokens": 20000,
+  "maximumP95LatencyMs": 30000,
+  "minimumMemoryPrecision": 0.9,
+  "requiredLeakageBlockRate": 1,
+  "requiredInjectionBlockRate": 1
+}

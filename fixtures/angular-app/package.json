@@ -1,0 +1,24 @@
+{
+  "name": "@smart-ui/angular-fixture",
+  "version": "0.4.0",
+  "private": true,
+  "scripts": {
+    "dev": "ng serve",
+    "build": "ng build",
+    "typecheck": "ngc -p tsconfig.app.json"
+  },
+  "dependencies": {
+    "@angular/common": "21.2.19",
+    "@angular/core": "21.2.19",
+    "@angular/platform-browser": "21.2.19",
+    "rxjs": "7.8.2",
+    "zone.js": "0.16.2"
+  },
+  "devDependencies": {
+    "@angular/build": "21.2.20",
+    "@angular/compiler": "21.2.19",
+    "@angular/compiler-cli": "21.2.19",
+    "typescript": "5.9.2",
+    "vitest": "4.1.10"
+  }
+}

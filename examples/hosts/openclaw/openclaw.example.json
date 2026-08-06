@@ -1,0 +1,26 @@
+{
+  "smartUi": {
+    "enabled": false,
+    "transport": "stdio",
+    "command": "node",
+    "args": ["/ABSOLUTE/PATH/TO/smart-ui-validator/apps/mcp-server/dist/index.js"],
+    "workspaceTenantMap": {
+      "T_WORKSPACE_ID": "tenant-id"
+    },
+    "outputPolicy": {
+      "allowSource": false,
+      "allowScreenshots": false,
+      "allowPrivateDesign": false,
+      "allowMemory": false,
+      "allowArtifactLinks": true
+    },
+    "permissions": {
+      "permissionMode": "approve-reads",
+      "nonInteractivePermissions": "fail"
+    },
+    "approval": {
+      "requireOriginatingThread": true,
+      "requireOriginatingUser": true
+    }
+  }
+}
