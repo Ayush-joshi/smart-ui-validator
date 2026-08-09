@@ -293,8 +293,8 @@ Every assembled runtime contains a signed or hash-covered manifest:
   },
   "agentMemory": {
     "package": "dev-agent-memory",
-    "version": "<reviewed-agent-memory-version>",
-    "integrity": "<npm-dist-integrity>"
+    "version": "0.4.1",
+    "integrity": "sha512-zCsywPV6fFWa8riWxbjQ0sAgff7vL1nulSpUjHcTeLjMlHEe/kA4Ra88ssmNLxgJq057l5Wrl5bPIFUw6AIdhw=="
   },
   "playwright": {
     "version": "1.55.1",
@@ -1013,8 +1013,8 @@ Resolve and record the remaining decisions in ADRs before Phase 1:
 ## 32. Immediate next sequence
 
 ```text
-1. Publish a patched dev-agent-memory version that passes the clean npm consumer audit
-2. Pin that exact version in Smart UI and record its registry integrity
+1. Use the reviewed dev-agent-memory 0.4.1 release that passes the clean npm consumer audit
+2. Pin dev-agent-memory 0.4.1 in Smart UI and retain its registry integrity
 3. Pass publish:check, consumer:check, and every Smart UI verification gate
 4. Recheck npm name availability immediately before publication
 5. Publish smart-ui-validator-core, smart-ui-validator, and smart-ui-validator-mcp in order

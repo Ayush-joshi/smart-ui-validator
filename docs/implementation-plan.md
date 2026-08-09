@@ -389,7 +389,7 @@ Exit criteria:
 - Terminal question/answer workflow and non-interactive behavior for CI.
 - Candidate, confirmed, rejected, superseded, and expired memory states.
 - Scope and precedence enforcement.
-- Agent Memory adapter using the exact public `dev-agent-memory@0.4.0` npm dependency, with a local
+- Agent Memory adapter using the exact public `dev-agent-memory@0.4.1` npm dependency, with a local
   fallback for deployments that do not enable the SQLite backend.
 - L0-L3 mapping and artifact references without binary prompt bloat.
 - `memory list`, `show`, `explain`, `confirm`, `correct`, `forget`, `export`, and

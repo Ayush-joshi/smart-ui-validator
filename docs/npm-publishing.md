@@ -6,14 +6,12 @@ This is the release runbook for publishing the host-neutral engine, CLI, and std
 does not authorize publication. Publishing remains a separate release-owner action after the
 repositories are public and every gate below passes.
 
-Current blockers:
+Current release status:
 
-1. Resolve the clean npm consumer's high-severity transitive `undici` advisory. The affected path is
-   currently introduced by `dev-agent-memory@0.4.0` through AI SDK provider utilities; the
-   workspace-only pnpm override does not protect npm consumers.
-2. Make the Smart UI repository public under a neutral owner before adding repository metadata or
-   enabling provenance-based trusted publishing. Agent Memory and its npm package are already
-   public.
+- The Smart UI repository and Agent Memory package are public.
+- The previous clean-consumer advisory blocker was resolved by `dev-agent-memory@0.4.1`.
+- Repository metadata and provenance-based trusted publishing remain deferred until the source has
+  a stable long-term owner.
 
 Run `pnpm publish:check` to see the remaining local blockers.
 
@@ -35,10 +33,9 @@ The reviewed public dependency is:
 
 ```text
 Package name:  dev-agent-memory
-Version:       0.4.0
+Version:       0.4.1
 npm URL:       https://www.npmjs.com/package/dev-agent-memory
-Source commit: 6331957a16f652889c65719538042d30455fc96b
-Integrity:     sha512-EFdjhoX1uxoAmfarGxtkuML20n+GuEE4udRdpdcUmSYmUAHUDkQ4LVU9jnH3YpTAZpvvHGK9TYXaJb6kxlL0Gw==
+Integrity:     sha512-zCsywPV6fFWa8riWxbjQ0sAgff7vL1nulSpUjHcTeLjMlHEe/kA4Ra88ssmNLxgJq057l5Wrl5bPIFUw6AIdhw==
 Node engine:   >=22.16.0
 License:       MIT
 ```
@@ -48,7 +45,7 @@ Smart UI initially pins the exact reviewed version:
 ```json
 {
   "dependencies": {
-    "dev-agent-memory": "0.4.0"
+    "dev-agent-memory": "0.4.1"
   }
 }
 ```
@@ -58,11 +55,10 @@ The clean-install compatibility test must confirm that `VectorStore`, `TdaiCore`
 proven, a patch-compatible range may be considered. Do not use `latest`, a Git branch or commit,
 HTTP tarball, `file:`, or `link:` in a published production manifest.
 
-`latest` is a mutable registry tag, not an immutable dependency version. It currently resolves to
-the same `dev-agent-memory@0.4.0` release that fails the clean npm consumer audit, and a future tag
-move would silently change new installations without changing Smart UI's version. Publish Agent
-Memory's fix first, pin that exact reviewed version, rerun the gates, and release a new Smart UI
-version whenever the Agent Memory pin changes.
+`latest` is a mutable registry tag, not an immutable dependency version. Although it currently
+resolves to the reviewed `dev-agent-memory@0.4.1` release, a future tag move would silently change
+new installations without changing Smart UI's version. Keep the exact reviewed pin, rerun the gates,
+and release a new Smart UI version whenever the Agent Memory pin changes.
 
 ## Package-name decision — completed
 

@@ -31,7 +31,7 @@ import { registerMemoryCommands } from './memory-cli.js';
 const program = new Command()
   .name('smart-ui')
   .description('Normalize, validate, and repair UI implementations with deterministic evidence')
-  .version('0.4.0')
+  .version('0.4.1')
   .showSuggestionAfterError();
 
 const invocationRoot = process.env['INIT_CWD'] ?? process.cwd();

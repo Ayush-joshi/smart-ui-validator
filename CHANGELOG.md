@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.4.1 - 2026-08-09
 
 - Added public npm package metadata, package-level usage documentation, and an explicit publication
   readiness gate that rejects missing licensing and non-registry production dependencies.
@@ -10,7 +10,7 @@
 - Added the supported `smart-ui setup` workflow for package-local Chromium provisioning, real
   browser launch diagnostics, and an optional disposable Agent Memory SQLite persistence canary.
 - Replaced the development-only Agent Memory Git dependency with the exact public
-  `dev-agent-memory@0.4.0` npm release.
+  `dev-agent-memory@0.4.1` npm release.
 - Adopted the MIT license, finalized the unscoped `smart-ui-validator`,
   `smart-ui-validator-core`, and `smart-ui-validator-mcp` package names, removed personal metadata
   from the public tree, and added a repeatable privacy gate.

@@ -5,7 +5,7 @@ settings:
   excludeLinksFromLockfile: false
 
 overrides:
-  '@ai-sdk/provider-utils>undici': 6.28.0
+  '@ai-sdk/provider-utils>undici': 7.29.0
 
 importers:
   .:
@@ -122,8 +122,8 @@ importers:
   packages/core:
     dependencies:
       dev-agent-memory:
-        specifier: 0.4.0
-        version: 0.4.0
+        specifier: 0.4.1
+        version: 0.4.1
       playwright:
         specifier: 1.55.1
         version: 1.55.1
@@ -132,39 +132,39 @@ importers:
         version: 4.1.5
 
 packages:
-  '@ai-sdk/gateway@3.0.165':
+  '@ai-sdk/gateway@4.0.46':
     resolution:
       {
-        integrity: sha512-tDodJ6kNMvTql5gm5U35khO282BLV4tEs+uf76lektINYB2vk3ifcZLnkktZhYIwiP5r95s52Ytqp1HXKjKdZw==,
+        integrity: sha512-LIAO6kAG8fpXQb9L0iwPk1FIbXftvqnyC56v5NEAzeWTeL8fUsy/Hx86VPBTWEDFdwbVprjWifJOAqS6AOj3mA==,
       }
-    engines: { node: '>=18' }
+    engines: { node: '>=22' }
     peerDependencies:
       zod: ^3.25.76 || ^4.1.8
 
-  '@ai-sdk/openai@3.0.90':
+  '@ai-sdk/openai@4.0.36':
     resolution:
       {
-        integrity: sha512-GIucFshCN7JZwTDur25PsnLEMRUFfAKuLaA9TP9fzGxPC2Zxzl94tvat93ZdZLURkKOrDukU0E4fj73tKDWjTA==,
+        integrity: sha512-wHJNArBdjJPXb8GXcA+FslbRt+7qIE1KoHSAVi+CeBFidinVrTVBZKFMJz3mNZMj8YILBMl/VIvTD/oGFjX6/g==,
       }
-    engines: { node: '>=18' }
+    engines: { node: '>=22' }
     peerDependencies:
       zod: ^3.25.76 || ^4.1.8
 
-  '@ai-sdk/provider-utils@4.0.41':
+  '@ai-sdk/provider-utils@5.0.25':
     resolution:
       {
-        integrity: sha512-I7hhjfw01yEI8NkuAsT8Mv6xbWFr/lqLXMdaJQ2zWfXEpxog1eT7skDcv1+RY29/+5btzH8wD+vVvy48bk9oNQ==,
+        integrity: sha512-xscPPHCSjCHWrdhai25sbHCJeKNLW/3D1uSpUZa4cEtTKXA8OnPQ3+Rfu1SmM5Ea/Mf8Dfn3cllw9zeMzo/zFA==,
       }
-    engines: { node: '>=18' }
+    engines: { node: '>=22' }
     peerDependencies:
       zod: ^3.25.76 || ^4.1.8
 
-  '@ai-sdk/provider@3.0.14':
+  '@ai-sdk/provider@4.0.7':
     resolution:
       {
-        integrity: sha512-5X1k57JBJ4H7H1QjX7CnJYAB1I19r/trVZTMcSms7/kLNZ8RaU4Nt2agcwZzv82Hfx6Q7/TOLU7agAKeFfc8cA==,
+        integrity: sha512-6or44XprPzKbr8zkmzosowSE0pxkvJcoojBL+mCZvPUt3kvXp3XSNqeVun9golb1acEfSo6yaEBRT18h2VU+1Q==,
       }
-    engines: { node: '>=18' }
+    engines: { node: '>=22' }
 
   '@algolia/abtesting@1.14.1':
     resolution:
@@ -3135,6 +3135,12 @@ packages:
         integrity: sha512-fy9am/HWxbaGt/Sawrp90vt6Y6jQwf1RX77cz3uwoJwJVMli/e1IEwRPnMNJ7vKfPTwo0diXifkpPvwH9v7nGA==,
       }
 
+  '@workflow/serde@4.1.0':
+    resolution:
+      {
+        integrity: sha512-pav4F2BoirECWR7Nf1TKt+2eETcBj7jj4cBefQ8VXQCA6NPkaKeLfj/zMgi+3zYV5ZIBT4GuUiphsj0/b9hPQQ==,
+      }
+
   '@yarnpkg/lockfile@1.1.0':
     resolution:
       {
@@ -3178,12 +3184,12 @@ packages:
       }
     engines: { node: '>= 14' }
 
-  ai@6.0.243:
+  ai@7.0.58:
     resolution:
       {
-        integrity: sha512-brpUfeNJX/pHdMvRCtUkxTQEn4iUvumTTZilrbsDyt2naivxa1c2/896l4wKENAtu6twethhN9KN3cB57ul9jw==,
+        integrity: sha512-GfgO90CQQ0yYuoxJAUOeQ6tviyYw1BUIDygSZ1q3Ce6kSc93tYmB5eltKY/NxC0YOouAax7JvDqVnYxvIAr04Q==,
       }
-    engines: { node: '>=18' }
+    engines: { node: '>=22' }
     peerDependencies:
       zod: ^3.25.76 || ^4.1.8
 
@@ -3654,10 +3660,10 @@ packages:
       }
     engines: { node: '>=8' }
 
-  dev-agent-memory@0.4.0:
+  dev-agent-memory@0.4.1:
     resolution:
       {
-        integrity: sha512-EFdjhoX1uxoAmfarGxtkuML20n+GuEE4udRdpdcUmSYmUAHUDkQ4LVU9jnH3YpTAZpvvHGK9TYXaJb6kxlL0Gw==,
+        integrity: sha512-zCsywPV6fFWa8riWxbjQ0sAgff7vL1nulSpUjHcTeLjMlHEe/kA4Ra88ssmNLxgJq057l5Wrl5bPIFUw6AIdhw==,
       }
     engines: { node: '>=22.16.0' }
     hasBin: true
@@ -5966,6 +5972,13 @@ packages:
       }
     engines: { node: '>=20.18.1' }
 
+  undici@7.29.0:
+    resolution:
+      {
+        integrity: sha512-IDxfleLmmbSskfWSUATiN1nfn2rDuvnMOqb5CWR92iIfojA0Ud+ulOAAEQ57LPr9rWmsreUyf5lwyao+7GNNVw==,
+      }
+    engines: { node: '>=20.18.1' }
+
   undici@8.10.0:
     resolution:
       {
@@ -6440,28 +6453,29 @@ packages:
       }
 
 snapshots:
-  '@ai-sdk/gateway@3.0.165(zod@4.4.3)':
+  '@ai-sdk/gateway@4.0.46(zod@4.4.3)':
     dependencies:
-      '@ai-sdk/provider': 3.0.14
-      '@ai-sdk/provider-utils': 4.0.41(zod@4.4.3)
+      '@ai-sdk/provider': 4.0.7
+      '@ai-sdk/provider-utils': 5.0.25(zod@4.4.3)
       '@vercel/oidc': 3.2.0
       zod: 4.4.3
 
-  '@ai-sdk/openai@3.0.90(zod@4.4.3)':
+  '@ai-sdk/openai@4.0.36(zod@4.4.3)':
     dependencies:
-      '@ai-sdk/provider': 3.0.14
-      '@ai-sdk/provider-utils': 4.0.41(zod@4.4.3)
+      '@ai-sdk/provider': 4.0.7
+      '@ai-sdk/provider-utils': 5.0.25(zod@4.4.3)
       zod: 4.4.3
 
-  '@ai-sdk/provider-utils@4.0.41(zod@4.4.3)':
+  '@ai-sdk/provider-utils@5.0.25(zod@4.4.3)':
     dependencies:
-      '@ai-sdk/provider': 3.0.14
+      '@ai-sdk/provider': 4.0.7
       '@standard-schema/spec': 1.1.0
+      '@workflow/serde': 4.1.0
       eventsource-parser: 3.1.0
-      undici: 6.28.0
+      undici: 7.29.0
       zod: 4.4.3
 
-  '@ai-sdk/provider@3.0.14':
+  '@ai-sdk/provider@4.0.7':
     dependencies:
       json-schema: 0.4.0
 
@@ -7614,7 +7628,8 @@ snapshots:
       node-gyp: 12.4.0
       proc-log: 6.1.0
 
-  '@opentelemetry/api@1.9.1': {}
+  '@opentelemetry/api@1.9.1':
+    optional: true
 
   '@oxc-project/types@0.113.0': {}
 
@@ -8115,6 +8130,8 @@ snapshots:
       convert-source-map: 2.0.0
       tinyrainbow: 3.1.1
 
+  '@workflow/serde@4.1.0': {}
+
   '@yarnpkg/lockfile@1.1.0': {}
 
   abbrev@4.0.0: {}
@@ -8132,12 +8149,11 @@ snapshots:
 
   agent-base@7.1.4: {}
 
-  ai@6.0.243(zod@4.4.3):
+  ai@7.0.58(zod@4.4.3):
     dependencies:
-      '@ai-sdk/gateway': 3.0.165(zod@4.4.3)
-      '@ai-sdk/provider': 3.0.14
-      '@ai-sdk/provider-utils': 4.0.41(zod@4.4.3)
-      '@opentelemetry/api': 1.9.1
+      '@ai-sdk/gateway': 4.0.46(zod@4.4.3)
+      '@ai-sdk/provider': 4.0.7
+      '@ai-sdk/provider-utils': 5.0.25(zod@4.4.3)
       zod: 4.4.3
 
   ajv-formats@3.0.1(ajv@8.18.0):
@@ -8409,12 +8425,12 @@ snapshots:
 
   detect-libc@2.1.2: {}
 
-  dev-agent-memory@0.4.0:
+  dev-agent-memory@0.4.1:
     dependencies:
-      '@ai-sdk/openai': 3.0.90(zod@4.4.3)
+      '@ai-sdk/openai': 4.0.36(zod@4.4.3)
       '@node-rs/jieba': 2.0.1
       '@tencentdb-agent-memory/tcvdb-text': 0.1.1
-      ai: 6.0.243(zod@4.4.3)
+      ai: 7.0.58(zod@4.4.3)
       js-tiktoken: 1.0.21
       json5: 2.2.3
       sqlite-vec: 0.1.7-alpha.2
@@ -9880,6 +9896,8 @@ snapshots:
   undici@6.28.0: {}
 
   undici@7.28.0: {}
+
+  undici@7.29.0: {}
 
   undici@8.10.0: {}
 

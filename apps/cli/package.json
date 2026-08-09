@@ -1,6 +1,6 @@
 {
   "name": "smart-ui-validator",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "license": "MIT",
   "description": "Command-line interface for deterministic Smart UI inspection, validation, repair, reporting, and governed memory.",
   "keywords": [
