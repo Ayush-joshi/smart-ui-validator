@@ -22,7 +22,7 @@ jobs:
           node-version: 22.16.0
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm --filter @smart-ui/core exec playwright install --with-deps chromium
+      - run: pnpm --filter smart-ui-validator-core exec playwright install --with-deps chromium
       - run: pnpm format:check
       - run: pnpm lint
       - run: pnpm typecheck
@@ -31,6 +31,7 @@ jobs:
       - run: pnpm test:e2e
       - run: pnpm evaluate
       - run: pnpm security:secrets
+      - run: pnpm privacy:check
       - run: pnpm package:check
       - run: pnpm audit --prod --audit-level high
       - run: pnpm sbom

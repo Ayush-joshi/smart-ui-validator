@@ -25,7 +25,7 @@ owning orchestration logic. `SmartUiOrchestrator` coordinates narrow interfaces:
   `LocalBackupManager`, and `RetentionManager` define deployment control boundaries without coupling
   orchestration to one identity, KMS, telemetry, or storage vendor.
 - `LocalBaselineStore` keeps explicit, attributed visual-regression approvals.
-- `@smart-ui/mcp-server` is a thin stdio adapter. Codex, Claude Code, Copilot, and optional
+- `smart-ui-validator-mcp` is a thin stdio adapter. Codex, Claude Code, Copilot, and optional
   OpenClaw/Slack use the same core and schemas.
 
 Data flows from untrusted design and repository inputs through strict schemas and policy boundaries,

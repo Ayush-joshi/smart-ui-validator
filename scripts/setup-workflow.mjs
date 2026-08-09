@@ -238,7 +238,7 @@ async function ensureEngine() {
     throw new Error(`Node.js 22.16 or newer is required; found ${process.versions.node}.`);
   }
   runPnpm(['install', '--frozen-lockfile']);
-  runPnpm(['--filter', '@smart-ui/core', 'exec', 'playwright', 'install', 'chromium']);
+  runPnpm(['--filter', 'smart-ui-validator-core', 'exec', 'playwright', 'install', 'chromium']);
   if (!(await isMcpCurrent())) runPnpm(['build']);
 }
 

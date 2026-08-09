@@ -1,6 +1,7 @@
 {
-  "name": "@smart-ui/mcp-server",
+  "name": "smart-ui-validator-mcp",
   "version": "0.4.0",
+  "license": "MIT",
   "description": "Approval-gated stdio MCP server for Smart UI inspection, deterministic validation, bounded repair, reports, and governed memory.",
   "keywords": [
     "mcp",
@@ -10,15 +11,7 @@
     "playwright",
     "figma"
   ],
-  "homepage": "https://github.com/Ayush-joshi/smart-ui-validator#readme",
-  "bugs": {
-    "url": "https://github.com/Ayush-joshi/smart-ui-validator/issues"
-  },
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/Ayush-joshi/smart-ui-validator.git",
-    "directory": "apps/mcp-server"
-  },
+  "homepage": "https://www.npmjs.com/package/smart-ui-validator-mcp",
   "publishConfig": {
     "access": "public"
   },
@@ -27,7 +20,8 @@
   },
   "type": "module",
   "bin": {
-    "smart-ui-mcp": "dist/index.js"
+    "smart-ui-mcp": "dist/index.js",
+    "smart-ui-validator-mcp": "dist/index.js"
   },
   "exports": {
     ".": {
@@ -47,7 +41,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.30.0",
-    "@smart-ui/core": "workspace:*",
+    "smart-ui-validator-core": "workspace:*",
     "zod": "4.1.5"
   }
 }

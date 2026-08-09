@@ -37,12 +37,12 @@ importers:
 
   apps/cli:
     dependencies:
-      '@smart-ui/core':
-        specifier: workspace:*
-        version: link:../../packages/core
       commander:
         specifier: 14.0.0
         version: 14.0.0
+      smart-ui-validator-core:
+        specifier: workspace:*
+        version: link:../../packages/core
     devDependencies:
       tsx:
         specifier: 4.20.5
@@ -53,7 +53,7 @@ importers:
       '@modelcontextprotocol/sdk':
         specifier: 1.30.0
         version: 1.30.0(zod@4.1.5)
-      '@smart-ui/core':
+      smart-ui-validator-core:
         specifier: workspace:*
         version: link:../../packages/core
       zod:
@@ -118,9 +118,9 @@ importers:
 
   packages/core:
     dependencies:
-      agent-memory:
-        specifier: github:Ayush-joshi/agent-memory#da87697
-        version: '@internal/agent-memory@https://codeload.github.com/Ayush-joshi/agent-memory/tar.gz/da87697'
+      dev-agent-memory:
+        specifier: 0.4.0
+        version: 0.4.0
       playwright:
         specifier: 1.55.1
         version: 1.55.1
@@ -1327,20 +1327,6 @@ packages:
       '@types/node': '>=18'
     peerDependenciesMeta:
       '@types/node':
-        optional: true
-
-  '@internal/agent-memory@https://codeload.github.com/Ayush-joshi/agent-memory/tar.gz/da87697':
-    resolution: { tarball: https://codeload.github.com/Ayush-joshi/agent-memory/tar.gz/da87697 }
-    version: 0.3.6
-    engines: { node: '>=22.16.0' }
-    hasBin: true
-    peerDependencies:
-      node-llama-cpp: ^3.16.2
-      openclaw: '>=2026.3.7'
-    peerDependenciesMeta:
-      node-llama-cpp:
-        optional: true
-      openclaw:
         optional: true
 
   '@istanbuljs/schema@0.1.6':
@@ -3163,6 +3149,22 @@ packages:
         integrity: sha512-Btj2BOOO83o3WyH59e8MgXsxEQVcarkUOpEYrubB0urwnN10yQ364rsiByU11nZlqWYZm05i/of7io4mzihBtQ==,
       }
     engines: { node: '>=8' }
+
+  dev-agent-memory@0.4.0:
+    resolution:
+      {
+        integrity: sha512-EFdjhoX1uxoAmfarGxtkuML20n+GuEE4udRdpdcUmSYmUAHUDkQ4LVU9jnH3YpTAZpvvHGK9TYXaJb6kxlL0Gw==,
+      }
+    engines: { node: '>=22.16.0' }
+    hasBin: true
+    peerDependencies:
+      node-llama-cpp: ^3.16.2
+      openclaw: '>=2026.3.7'
+    peerDependenciesMeta:
+      node-llama-cpp:
+        optional: true
+      openclaw:
+        optional: true
 
   dom-serializer@2.0.0:
     resolution:
@@ -6126,20 +6128,6 @@ snapshots:
     optionalDependencies:
       '@types/node': 22.18.0
 
-  '@internal/agent-memory@https://codeload.github.com/Ayush-joshi/agent-memory/tar.gz/da87697':
-    dependencies:
-      '@ai-sdk/openai': 3.0.90(zod@4.4.3)
-      '@node-rs/jieba': 2.0.1
-      '@tencentdb-agent-memory/tcvdb-text': 0.1.1
-      ai: 6.0.243(zod@4.4.3)
-      js-tiktoken: 1.0.21
-      json5: 2.2.3
-      sqlite-vec: 0.1.7-alpha.2
-      tsx: 4.23.8
-      undici: 8.10.0
-      yaml: 2.9.0
-      zod: 4.4.3
-
   '@istanbuljs/schema@0.1.6': {}
 
   '@jridgewell/gen-mapping@0.3.13':
@@ -7105,6 +7093,20 @@ snapshots:
   depd@2.0.0: {}
 
   detect-libc@2.1.2: {}
+
+  dev-agent-memory@0.4.0:
+    dependencies:
+      '@ai-sdk/openai': 3.0.90(zod@4.4.3)
+      '@node-rs/jieba': 2.0.1
+      '@tencentdb-agent-memory/tcvdb-text': 0.1.1
+      ai: 6.0.243(zod@4.4.3)
+      js-tiktoken: 1.0.21
+      json5: 2.2.3
+      sqlite-vec: 0.1.7-alpha.2
+      tsx: 4.23.8
+      undici: 8.10.0
+      yaml: 2.9.0
+      zod: 4.4.3
 
   dom-serializer@2.0.0:
     dependencies:

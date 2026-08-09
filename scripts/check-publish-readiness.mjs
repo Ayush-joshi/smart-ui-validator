@@ -8,9 +8,9 @@ import { fileURLToPath } from 'node:url';
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const rootManifest = await readJson(join(root, 'package.json'));
 const packages = [
-  { path: 'packages/core', expectedDirectory: 'packages/core' },
-  { path: 'apps/cli', expectedDirectory: 'apps/cli' },
-  { path: 'apps/mcp-server', expectedDirectory: 'apps/mcp-server' },
+  { path: 'packages/core', expectedName: 'smart-ui-validator-core' },
+  { path: 'apps/cli', expectedName: 'smart-ui-validator' },
+  { path: 'apps/mcp-server', expectedName: 'smart-ui-validator-mcp' },
 ];
 const errors = [];
 const warnings = [];
@@ -41,12 +41,15 @@ for (const entry of packages) {
   } else {
     names.add(manifest.name);
   }
+  if (manifest.name !== entry.expectedName) {
+    errors.push(`${entry.path}: package name must be ${entry.expectedName}.`);
+  }
   if (manifest.version !== rootManifest.version) {
     errors.push(`${label}: version must match workspace version ${rootManifest.version}.`);
   }
   if (manifest.private === true) errors.push(`${label}: publishable package must not be private.`);
   if (manifest.publishConfig?.access !== 'public') {
-    errors.push(`${label}: publishConfig.access must be public for a scoped public package.`);
+    errors.push(`${label}: publishConfig.access must be public.`);
   }
   if (typeof manifest.description !== 'string' || manifest.description.trim().length < 20) {
     errors.push(`${label}: add a meaningful package description.`);
@@ -59,18 +62,8 @@ for (const entry of packages) {
       `${label}: Node engine must match workspace requirement ${rootManifest.engines?.node}.`,
     );
   }
-  if (manifest.repository?.url !== 'git+https://github.com/Ayush-joshi/smart-ui-validator.git') {
-    errors.push(`${label}: repository.url must match the public GitHub source for npm provenance.`);
-  }
-  if (manifest.repository?.directory !== entry.expectedDirectory) {
-    errors.push(`${label}: repository.directory must be ${entry.expectedDirectory}.`);
-  }
   if (!(await exists(join(directory, 'README.md')))) errors.push(`${label}: README.md is missing.`);
-  if (!manifest.license) {
-    errors.push(
-      `${label}: add the chosen SPDX license identifier after the root license is selected.`,
-    );
-  }
+  if (manifest.license !== 'MIT') errors.push(`${label}: license must be MIT.`);
   for (const binary of Object.values(manifest.bin ?? {})) {
     if (typeof binary !== 'string') continue;
     const builtBinary = join(directory, binary);
@@ -103,13 +96,8 @@ for (const entry of packages) {
   }
 }
 
-if (![...names].every((name) => name.startsWith('@smart-ui/'))) {
-  warnings.push(
-    'Package names no longer share the expected @smart-ui scope; review public import compatibility.',
-  );
-}
 warnings.push(
-  'Registry scope ownership cannot be proven from a tarball. Before release, run npm whoami and verify publish rights for @smart-ui.',
+  'Registry availability is not a reservation. Recheck all three unscoped names immediately before publication.',
 );
 
 for (const warning of warnings) console.warn(`WARN: ${warning}`);

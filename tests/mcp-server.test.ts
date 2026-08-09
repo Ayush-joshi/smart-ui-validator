@@ -153,7 +153,7 @@ describe('stable host-neutral MCP contract', () => {
       return client;
     };
 
-    const identity = { targetRoot, tenantId: 'local', userId: 'ayushjoshi' };
+    const identity = { targetRoot, tenantId: 'local', userId: 'test-user' };
     const first = await connect();
     const normalized = await first.callTool({
       name: 'normalize_design',

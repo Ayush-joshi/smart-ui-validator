@@ -40,7 +40,7 @@ Status: Implemented and verified on 2026-08-06.
 
 Current repository capabilities include:
 
-- pnpm TypeScript workspace with `@smart-ui/core`, CLI, and React fixture.
+- pnpm TypeScript workspace with `smart-ui-validator-core`, CLI, and React fixture.
 - Versioned `DesignContract` and `RunRecord` schemas with runtime validation.
 - Provider interfaces for design, framework, coding, browser, artifacts, policy, and reporting.
 - React/Vite repository inspection.

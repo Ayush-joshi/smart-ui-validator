@@ -27,7 +27,7 @@ import {
   type BrowserInteractionState,
   type MemoryProvider,
   type RunRecord,
-} from '@smart-ui/core';
+} from 'smart-ui-validator-core';
 
 export const MCP_PROTOCOL_VERSION = '1.0';
 

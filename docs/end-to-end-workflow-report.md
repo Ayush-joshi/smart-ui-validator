@@ -35,7 +35,7 @@ contract/artifact paths, inspecting the project, normalizing the design, and res
 - Reference: native `1920x1080` SVG.
 - Reference semantics: raster/vector appearance only; no sidecar element contract.
 - Browser: isolated Playwright Chromium.
-- Memory identity: tenant `local`, user `ayushjoshi`, repository-scoped.
+- Memory identity: tenant `local`, user `test-user`, repository-scoped.
 
 ### Observed validation behavior
 

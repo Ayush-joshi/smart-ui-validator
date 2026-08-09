@@ -5,7 +5,7 @@
     "rootDir": "../..",
     "baseUrl": ".",
     "paths": {
-      "@smart-ui/core": ["../../packages/core/src/index.ts"]
+      "smart-ui-validator-core": ["../../packages/core/src/index.ts"]
     }
   }
 }

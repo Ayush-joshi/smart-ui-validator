@@ -10,7 +10,7 @@ import {
   type MemoryRecord,
   type MemoryProvider,
   type MemoryScope,
-} from '@smart-ui/core';
+} from 'smart-ui-validator-core';
 
 interface CommonOptions {
   target: string;

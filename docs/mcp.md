@@ -1,6 +1,6 @@
 # MCP server
 
-`@smart-ui/mcp-server` exposes the host-neutral core over MCP stdio. Stdio is the only enabled
+`smart-ui-validator-mcp` exposes the host-neutral core over MCP stdio. Stdio is the only enabled
 transport in 0.4.0. Streamable HTTP must not be enabled until a deployment supplies authenticated
 tenant/user identity, authorization, TLS, request limits, audit correlation, and secure token
 handling.

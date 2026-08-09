@@ -25,7 +25,7 @@ import {
   resolveMemoryPath,
   runDoctor,
   runSetup,
-} from '@smart-ui/core';
+} from 'smart-ui-validator-core';
 import { registerMemoryCommands } from './memory-cli.js';
 
 const program = new Command()

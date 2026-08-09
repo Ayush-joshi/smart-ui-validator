@@ -1,5 +1,5 @@
 {
-  "name": "smart-ui-validator",
+  "name": "smart-ui-validator-workspace",
   "version": "0.4.0",
   "private": true,
   "packageManager": "pnpm@10.15.0",
@@ -20,13 +20,15 @@
     "format:check": "prettier --check .",
     "evaluate": "node scripts/run-evaluation.mjs",
     "security:secrets": "node scripts/check-secrets.mjs",
+    "privacy:check": "node scripts/check-personal-data.mjs",
     "package:check": "node scripts/check-package.mjs",
+    "consumer:check": "node scripts/check-clean-consumer.mjs",
     "publish:check": "node scripts/check-publish-readiness.mjs",
     "sbom": "node scripts/generate-sbom.mjs",
     "fixture:dev": "pnpm --filter @smart-ui/react-fixture dev",
     "fixture:angular:dev": "pnpm --filter @smart-ui/angular-fixture dev",
     "workflow:setup": "node scripts/setup-workflow.mjs",
-    "smart-ui": "pnpm --filter @smart-ui/cli start",
+    "smart-ui": "pnpm --filter smart-ui-validator start",
     "smart-ui-mcp": "node apps/mcp-server/dist/index.js"
   },
   "devDependencies": {

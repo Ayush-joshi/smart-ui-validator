@@ -1,4 +1,4 @@
-# `@smart-ui/cli`
+# `smart-ui-validator`
 
 Command-line interface for Smart UI Validator.
 
@@ -14,7 +14,7 @@ embedded SQLite support and remains optional.
 ## First-time setup
 
 ```bash
-npm install --save-dev @smart-ui/cli
+npm install --save-dev smart-ui-validator
 npx smart-ui setup --target . --agent-memory
 npx smart-ui doctor --target .
 ```
@@ -31,13 +31,12 @@ offline. A setup or doctor readiness failure exits with code `4`.
 ## Usage
 
 ```bash
-npx @smart-ui/cli doctor --target /absolute/project
-npx @smart-ui/cli inspect --target /absolute/project --json
+npx smart-ui-validator doctor --target /absolute/project
+npx smart-ui-validator inspect --target /absolute/project --json
 ```
 
 The CLI can normalize local design evidence, validate one state or a viewport/state matrix, apply
 approval-bounded repairs, generate reports, manage governed memories, and verify audit records.
 
-Run `smart-ui --help` for the complete command list. See the
-[main repository](https://github.com/Ayush-joshi/smart-ui-validator) for configuration, security,
-exit codes, and workflow documentation.
+Run `smart-ui --help` for the complete command list. This README documents the supported setup
+workflow; the CLI help lists every available command.

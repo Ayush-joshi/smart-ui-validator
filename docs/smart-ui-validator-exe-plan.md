@@ -7,7 +7,7 @@ Status: Planned; implementation starts only after the npm handoff gate passes
 Target repository: a new, separately maintained public repository named
 `smart-ui-validator-exe`
 
-Source dependencies: versioned public npm releases from `agent-memory` and
+Source dependencies: versioned public npm releases from `dev-agent-memory` and
 `smart-ui-validator`
 
 Primary first platform: Windows 11 and supported Windows 10 x64
@@ -36,8 +36,8 @@ scoring, repair, policy, memory governance, or MCP schemas.
 Do not begin the desktop implementation until all of the following pass:
 
 - Agent Memory is public on npm at an immutable reviewed version.
-- `@smart-ui/core`, `@smart-ui/cli`, and `@smart-ui/mcp-server` are public on npm at one compatible
-  version.
+- `smart-ui-validator-core`, `smart-ui-validator`, and `smart-ui-validator-mcp` are public on npm at
+  one compatible version.
 - A clean Windows machine can install the npm packages without Git or private credentials.
 - Agent Memory opens and persists a disposable SQLite record on Windows.
 - The Smart UI CLI starts and reports its version.
@@ -284,8 +284,9 @@ Every assembled runtime contains a signed or hash-covered manifest:
     "configSchema": "1.0"
   },
   "agentMemory": {
-    "package": "@scope/agent-memory",
-    "version": "0.4.0"
+    "package": "dev-agent-memory",
+    "version": "0.4.0",
+    "integrity": "sha512-EFdjhoX1uxoAmfarGxtkuML20n+GuEE4udRdpdcUmSYmUAHUDkQ4LVU9jnH3YpTAZpvvHGK9TYXaJb6kxlL0Gw=="
   },
   "playwright": {
     "version": "1.55.1",

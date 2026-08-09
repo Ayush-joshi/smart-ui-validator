@@ -70,7 +70,7 @@ Install the CLI in the React or Angular project that Smart UI will validate, the
 first-time setup command:
 
 ```bash
-npm install --save-dev @smart-ui/cli
+npm install --save-dev smart-ui-validator
 npx smart-ui setup --target . --agent-memory
 npx smart-ui doctor --target .
 ```
@@ -99,7 +99,7 @@ strict configuration, or an enabled Agent Memory canary fails.
 Contributors can clone and build the complete workspace:
 
 ```bash
-git clone https://github.com/Ayush-joshi/smart-ui-validator.git
+git clone <public-repository-url>
 cd smart-ui-validator
 pnpm install --frozen-lockfile
 pnpm build

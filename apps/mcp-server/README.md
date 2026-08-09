@@ -16,7 +16,7 @@ After publication, an MCP host can start the server with:
 
 ```text
 command: npx
-args: -y @smart-ui/mcp-server@<exact-version>
+args: -y smart-ui-validator-mcp@<exact-version>
 cwd: <absolute-target-project>
 ```
 
@@ -26,5 +26,5 @@ The server publishes capabilities, a workflow guide, run resources, the `impleme
 prompt, and approval-annotated tools. Set `SMART_UI_MCP_ROOT` when the host cannot supply the exact
 target as `cwd`. Never set the root to a drive, home directory, or another broad shared path.
 
-See the [main repository](https://github.com/Ayush-joshi/smart-ui-validator) for host-specific
-configuration, tool schemas, workflow setup, and security guidance.
+The package documentation covers host configuration, tool schemas, workflow setup, and security
+guidance without requiring personal repository metadata.

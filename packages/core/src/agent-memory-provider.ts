@@ -4,7 +4,7 @@ import {
   VectorStore,
   type L0Record as AgentL0Record,
   type MemoryRecord as AgentRecord,
-} from 'agent-memory';
+} from 'dev-agent-memory';
 import type {
   MemoryContext,
   MemoryExplanation,
@@ -51,7 +51,7 @@ export class AgentMemoryProvider implements MemoryProvider {
   async integrationStatus(): Promise<AgentMemoryIntegrationStatus> {
     try {
       await this.initialize();
-      const packageName: string = 'agent-memory';
+      const packageName: string = 'dev-agent-memory';
       const module = (await import(packageName)) as Record<string, unknown>;
       const publicExports = Object.keys(module).sort();
       const required = ['StandaloneHostAdapter', 'TdaiCore', 'VectorStore', 'parseConfig'];

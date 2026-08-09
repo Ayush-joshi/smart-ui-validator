@@ -1,6 +1,7 @@
 {
-  "name": "@smart-ui/cli",
+  "name": "smart-ui-validator",
   "version": "0.4.0",
+  "license": "MIT",
   "description": "Command-line interface for deterministic Smart UI inspection, validation, repair, reporting, and governed memory.",
   "keywords": [
     "ui-validation",
@@ -10,15 +11,7 @@
     "react",
     "angular"
   ],
-  "homepage": "https://github.com/Ayush-joshi/smart-ui-validator#readme",
-  "bugs": {
-    "url": "https://github.com/Ayush-joshi/smart-ui-validator/issues"
-  },
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/Ayush-joshi/smart-ui-validator.git",
-    "directory": "apps/cli"
-  },
+  "homepage": "https://www.npmjs.com/package/smart-ui-validator",
   "publishConfig": {
     "access": "public"
   },
@@ -33,7 +26,8 @@
   ],
   "type": "module",
   "bin": {
-    "smart-ui": "dist/index.js"
+    "smart-ui": "dist/index.js",
+    "smart-ui-validator": "dist/index.js"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
@@ -41,7 +35,7 @@
     "start": "tsx src/index.ts"
   },
   "dependencies": {
-    "@smart-ui/core": "workspace:*",
+    "smart-ui-validator-core": "workspace:*",
     "commander": "14.0.0"
   },
   "devDependencies": {

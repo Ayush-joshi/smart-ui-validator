@@ -4,9 +4,9 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
 const packages = [
-  ['@smart-ui/core', 'packages/core'],
-  ['@smart-ui/cli', 'apps/cli'],
-  ['@smart-ui/mcp-server', 'apps/mcp-server'],
+  ['smart-ui-validator-core', 'packages/core'],
+  ['smart-ui-validator', 'apps/cli'],
+  ['smart-ui-validator-mcp', 'apps/mcp-server'],
 ];
 const forbidden = [
   /node_modules\//,
@@ -32,5 +32,6 @@ for (const [name, directory] of packages) {
   const rejected = files.filter((file) => forbidden.some((pattern) => pattern.test(file)));
   if (rejected.length > 0)
     throw new Error(`${name} package contains forbidden files: ${rejected.join(', ')}`);
+  if (!files.includes('package/LICENSE')) throw new Error(`${name} package is missing LICENSE.`);
   console.log(`${name}: ${files.length} package files; forbidden content absent.`);
 }
