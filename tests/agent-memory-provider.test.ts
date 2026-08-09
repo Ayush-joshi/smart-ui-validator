@@ -94,9 +94,23 @@ describe('live Agent Memory adapter', () => {
       [candidate.id, raw.id].sort(),
     );
     expect(recalled.context).toContain('spacing-source=repository-tokens');
-    expect(await second.forget(candidate.id)).toBe(true);
-    expect(await second.forget(raw.id)).toBe(true);
     await second.close();
+
+    const usageReader = new AgentMemoryProvider(
+      new LocalMemoryProvider(
+        join(directory, 'governance-usage.json'),
+        () => new Date(),
+        false,
+        identity,
+      ),
+      { databasePath, identity },
+    );
+    expect(
+      await usageReader.explain(candidate.id, { ...identity, repositoryId: 'repo-a' }),
+    ).toMatchObject({ affectedDecision: expect.stringContaining('Included as advisory recall') });
+    expect(await usageReader.forget(candidate.id)).toBe(true);
+    expect(await usageReader.forget(raw.id)).toBe(true);
+    await usageReader.close();
 
     const third = new AgentMemoryProvider(
       new LocalMemoryProvider(

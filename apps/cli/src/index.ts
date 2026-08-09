@@ -94,6 +94,12 @@ program
     'default',
   )
   .option('--selector <selector>', 'target selector for hover, focus, or active state')
+  .option('--memory', 'enable scoped advisory memory recall')
+  .option('--tenant <id>', 'explicit tenant identity', 'local')
+  .option('--user <id>', 'explicit user identity', 'default')
+  .option('--project <id>', 'project identity')
+  .option('--component <id>', 'component identity')
+  .option('--session <id>', 'session identity')
   .option('--json', 'emit JSON')
   .action(async (options: ValidateCliOptions) => {
     const result = await execute(options, false);
@@ -111,6 +117,12 @@ program
   .requiredOption('--route <url>', 'default fully qualified target URL')
   .option('--artifacts <path>', 'artifact directory (defaults under target)')
   .option('--out <path>', 'also write the matrix result JSON to this path')
+  .option('--memory', 'enable scoped advisory memory recall')
+  .option('--tenant <id>', 'explicit tenant identity', 'local')
+  .option('--user <id>', 'explicit user identity', 'default')
+  .option('--project <id>', 'project identity')
+  .option('--component <id>', 'component identity')
+  .option('--session <id>', 'session identity')
   .option('--json', 'emit JSON')
   .action(async (options: ValidateCliOptions) => {
     const target = userPath(options.target);
@@ -339,6 +351,10 @@ async function execute(
       localMemory && config.memory.backend === 'agent-memory'
         ? new AgentMemoryProvider(localMemory, {
             databasePath: resolveMemoryPath(target, config.memory.agentMemoryDatabasePath),
+            identity: {
+              tenantId: 'tenant' in options ? options.tenant : 'local',
+              userId: 'user' in options ? options.user : 'default',
+            },
           })
         : localMemory;
     return await new SmartUiOrchestrator({
@@ -457,6 +473,12 @@ interface ValidateCliOptions {
   json?: boolean;
   state: 'default' | 'hover' | 'focus' | 'active' | 'disabled' | 'loading' | 'empty' | 'error';
   selector?: string;
+  memory?: boolean;
+  tenant: string;
+  user: string;
+  project?: string;
+  component?: string;
+  session?: string;
 }
 
 interface MatrixExecution {

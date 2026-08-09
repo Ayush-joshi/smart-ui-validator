@@ -101,6 +101,27 @@ Create a `.mcp.json` file in your target project (where you want Claude to work)
 
 _(For VS Code Copilot or Codex, see the [Host Setup Guide](docs/hosts.md) for configuration examples)._
 
+### Faster first run: generate the workflow once
+
+Instead of manually copying design evidence, choosing artifact paths, and restating arguments to the
+agent, run:
+
+```bash
+pnpm workflow:setup -- \
+  --target /absolute/path/to/your/project \
+  --design /absolute/path/to/reference.svg \
+  --url http://127.0.0.1:4200/ \
+  --component LoginComponent \
+  --host codex \
+  --ensure-engine
+```
+
+This produces a target-contained `.smart-ui/workflow.json`, exact agent instructions, and a host
+configuration snippet. After connecting or restarting the host once, ask the agent to call
+`prepare_workflow` with the manifest. It will inspect and normalize once, then reuse the returned
+compact validation arguments. See the [agent-first workflow](docs/agent-workflow.md) for the full
+state machine, retry limits, and recovery rules.
+
 ### 3. Set the Rules (The Sandbox)
 
 Create a `smart-ui.config.json` in the root of your target project. This tells the Validator what the AI is allowed to do.
@@ -198,6 +219,7 @@ For administrators, security audits, and advanced integrations, see the detailed
 
 - [Architecture & Interfaces](docs/architecture.md)
 - [MCP Server Details](docs/mcp.md)
+- [Agent-first Workflow](docs/agent-workflow.md)
 - [Host Integrations (Claude, Copilot, Codex)](docs/hosts.md)
 - [Security & Sandboxing](docs/security.md)
 - [Threat Model](docs/threat-model.md)

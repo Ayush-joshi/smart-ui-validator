@@ -1233,3 +1233,26 @@ the product principles and explicit acceptance criteria when revising them.
 - VS Code MCP configuration: <https://code.visualstudio.com/docs/agent-customization/mcp-servers>
 - Anthropic MCP documentation: <https://docs.anthropic.com/en/docs/mcp>
 - OpenClaw ACP agents: <https://docs.openclaw.ai/tools/acp-agents>
+
+## 14. Post-Phase-4 workflow efficiency and recovery plan
+
+The controlled Angular/SVG/Agent Memory end-to-end exercise on 2026-08-09 is documented in
+[`docs/end-to-end-workflow-report.md`](./end-to-end-workflow-report.md). Treat its P0/P1/P2 roadmap
+and acceptance criteria as the authoritative post-Phase-4 workflow-hardening plan.
+
+The immediate retained requirements are:
+
+1. MCP validation and repair return compact summaries by default; full evidence remains explicitly
+   available through artifacts and `get_run`.
+2. Normalization can persist the contract directly, and normalization/validation reuse one artifact
+   root.
+3. MCP exposes lazy recovery guidance for path containment, artifact stores, runtime state, scoring,
+   memory eligibility, and stale server processes.
+4. Check score and proportional visual similarity are reported separately.
+5. Agent Memory recall remains confirmed, advisory, identity-scoped, budgeted, explainable, and
+   mirrored durably across restarts.
+6. Future changes must meet the report's response-budget, recovery, isolation, deletion, and full
+   verification acceptance criteria without weakening earlier phase gates.
+7. A first run can be prepared idempotently with one setup command. The generated target-local
+   manifest is consumed once by MCP to inspect and normalize evidence and return reusable compact
+   validation arguments without repeated path discovery.

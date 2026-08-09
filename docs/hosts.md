@@ -2,12 +2,17 @@
 
 All hosts call the same MCP schemas; none owns or forks core orchestration.
 
+For the shortest first-run path, use the one-command setup in
+[`docs/agent-workflow.md`](./agent-workflow.md). It generates target-contained design evidence, a
+stable workflow manifest, exact agent instructions, and a host-specific configuration snippet.
+
 ## Codex CLI, app, and IDE
 
 Copy `examples/hosts/codex/.codex/config.toml` into a trusted target repository and replace both
 absolute paths. Build Smart UI first. The ChatGPT desktop app, Codex CLI, and Codex IDE extension
-share MCP configuration. Restart the client, run `codex mcp list` or open `/mcp`, and verify all 13
-tools. Keep the default approval mode at `writes` and explicit prompts for repair and memory mutation.
+share MCP configuration. Restart the client, run `codex mcp list` or open `/mcp`, and verify that
+`prepare_workflow`, validation, repair, reporting, and governed-memory tools are present. Keep the
+default approval mode at `writes` and explicit prompts for repair and memory mutation.
 
 Copy the relevant content from `AGENTS.example.md` into the target's existing `AGENTS.md`; merge it
 with repository instructions rather than replacing them.

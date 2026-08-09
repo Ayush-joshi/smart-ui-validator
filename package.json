@@ -24,6 +24,7 @@
     "sbom": "node scripts/generate-sbom.mjs",
     "fixture:dev": "pnpm --filter @smart-ui/react-fixture dev",
     "fixture:angular:dev": "pnpm --filter @smart-ui/angular-fixture dev",
+    "workflow:setup": "node scripts/setup-workflow.mjs",
     "smart-ui": "pnpm --filter @smart-ui/cli start",
     "smart-ui-mcp": "node apps/mcp-server/dist/index.js"
   },

@@ -185,6 +185,7 @@ function provider(options: CommonOptions, invocationRoot: string): MemoryProvide
     throw new Error("Backend must be 'local' or 'agent-memory'.");
   return new AgentMemoryProvider(local, {
     databasePath: resolveMemoryPath(target, options.agentDatabase),
+    identity: identity(options),
   });
 }
 

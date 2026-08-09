@@ -7,6 +7,7 @@ tool_timeout_sec = 120
 required = true
 enabled = true
 enabled_tools = [
+  "prepare_workflow",
   "inspect_project",
   "normalize_design",
   "plan_component",
@@ -16,9 +17,12 @@ enabled_tools = [
   "get_report",
   "answer_question",
   "continue_run",
+  "memory_status",
   "list_memories",
   "explain_memory",
+  "propose_memory",
   "confirm_memory",
+  "reject_memory",
   "forget_memory",
 ]
 default_tools_approval_mode = "writes"

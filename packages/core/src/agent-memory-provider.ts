@@ -29,6 +29,7 @@ export interface AgentMemoryIntegrationStatus {
 
 export interface AgentMemoryProviderOptions {
   databasePath: string;
+  identity?: MemoryIdentity;
 }
 
 /**
@@ -83,7 +84,13 @@ export class AgentMemoryProvider implements MemoryProvider {
 
   async recall(context: MemoryContext, budget: RecallBudget): Promise<RecallResult> {
     await this.initialize();
-    return this.governance.recall(context, budget);
+    const recalled = await this.governance.recall(context, budget);
+    const records: MemoryRecord[] = [];
+    for (const record of recalled.records) {
+      const updated = await this.governance.show(record.id);
+      records.push(updated ? await this.persist(updated) : record);
+    }
+    return { ...recalled, records };
   }
 
   async propose(input: Parameters<MemoryProvider['propose']>[0]): Promise<MemoryRecord> {
@@ -198,7 +205,11 @@ export class AgentMemoryProvider implements MemoryProvider {
     const records = [
       ...(await store.queryL1Records()).map((row) => decodeRecord(row.content)),
       ...(await store.getAllL0Texts()).map((row) => decodeRecord(row.message_text)),
-    ].filter((record): record is MemoryRecord => record !== null);
+    ].filter(
+      (record): record is MemoryRecord =>
+        record !== null &&
+        (!this.options.identity || sameIdentity(record.identity, this.options.identity)),
+    );
     if (records.length)
       await this.governance.import(
         { schemaVersion: '1.0', exportedAt: new Date().toISOString(), records },
@@ -215,6 +226,10 @@ export class AgentMemoryProvider implements MemoryProvider {
     if (!stored) throw new Error(`Agent Memory failed to persist '${record.id}'.`);
     return record;
   }
+}
+
+function sameIdentity(left: MemoryIdentity, right: MemoryIdentity): boolean {
+  return left.tenantId === right.tenantId && left.userId === right.userId;
 }
 
 function encodeL0Record(record: MemoryRecord): AgentL0Record {
