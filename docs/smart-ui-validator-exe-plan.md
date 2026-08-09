@@ -2,9 +2,9 @@
 
 ## Product, architecture, and implementation plan
 
-Status: Planned; pre-publication source plan. After the npm handoff gate passes, copy this plan into
-the new desktop repository and replace every publication placeholder with verified registry data
-before implementation starts.
+Status: Planned; npm handoff completed on 2026-08-09. The exact public package versions and registry
+integrities are frozen below. Validate this package set on Windows x64, then copy the plan into the
+new desktop repository before implementation starts.
 
 Target repository: a new, separately maintained public repository named
 `smart-ui-validator-exe`
@@ -35,7 +35,8 @@ scoring, repair, policy, memory governance, or MCP schemas.
 
 ## 2. Dependency gate before repository creation
 
-Do not begin the desktop implementation until all of the following pass:
+The npm publication portion of this gate is complete. Do not begin the desktop implementation until
+the remaining Windows validation items also pass:
 
 - Agent Memory is public on npm at an immutable reviewed version that passes a clean npm consumer
   audit with no high or critical vulnerability.
@@ -229,7 +230,7 @@ Use a versioned, strict schema similar to:
   "realRoot": "C:\\Projects\\customer-portal",
   "framework": "react",
   "runtimeVersion": "0.1.0",
-  "smartUiVersion": "<published-smart-ui-version>",
+  "smartUiVersion": "0.4.1",
   "host": {
     "kind": "codex",
     "scope": "project",
@@ -282,12 +283,12 @@ Every assembled runtime contains a signed or hash-covered manifest:
   "architecture": "x86_64-pc-windows-msvc",
   "nodeVersion": "22.23.0",
   "smartUi": {
-    "core": "<published-smart-ui-version>",
-    "cli": "<published-smart-ui-version>",
-    "mcpServer": "<published-smart-ui-version>",
-    "coreIntegrity": "<npm-dist-integrity>",
-    "cliIntegrity": "<npm-dist-integrity>",
-    "mcpServerIntegrity": "<npm-dist-integrity>",
+    "core": "0.4.1",
+    "cli": "0.4.1",
+    "mcpServer": "0.4.1",
+    "coreIntegrity": "sha512-JkBwHgZAQZoeO4z//y54ESqER90L6eyHhrqziDiPufmCIN9xrNy4FCaB/TAeU8obBhQhMdOOkMDCmZFxB9gntA==",
+    "cliIntegrity": "sha512-GrOtUfCgx6Vq+ZpiRL/SX7vWXGgjwajdjcDq76h0YiLhP+2iXKoFE5+2WpovXehhEoOTzuK0x4fpg36G5rR/Tg==",
+    "mcpServerIntegrity": "sha512-hmGuybI0VPvo/AxAGknmhXrwK52wmZQJ4+xyaf6tsM7XcrSENw58lNPR1K/3Ft0knveLah5H/y3fZap4OY83mQ==",
     "mcpProtocol": "1.0",
     "configSchema": "1.0"
   },
@@ -997,34 +998,44 @@ Already resolved:
 - MIT license.
 - Public package names: `smart-ui-validator-core`, `smart-ui-validator`, and
   `smart-ui-validator-mcp`.
-- Agent Memory package name: `dev-agent-memory`.
+- Smart UI package version: `0.4.1` for core, CLI, and MCP.
+- Agent Memory package and reviewed version: `dev-agent-memory@0.4.1`.
 
 Resolve and record the remaining decisions in ADRs before Phase 1:
 
-1. Final reviewed Agent Memory version and support boundary.
-2. Minimum supported Windows versions and architectures.
-3. Offline-only first release versus offline plus web installer.
-4. Code-signing provider and certificate custody.
-5. Update distribution origin and signing key rotation.
-6. Whether target dev-server startup is UI-managed in v1 or remains user/host-managed.
-7. Retention limits for logs, downloads, old runtimes, and support bundles.
-8. Branding, icons, publisher identity, support URL, privacy notice, and telemetry policy.
+1. Minimum supported Windows versions and architectures.
+2. Offline-only first release versus offline plus web installer.
+3. Code-signing provider and certificate custody.
+4. Update distribution origin and signing key rotation.
+5. Whether target dev-server startup is UI-managed in v1 or remains user/host-managed.
+6. Retention limits for logs, downloads, old runtimes, and support bundles.
+7. Branding, icons, publisher identity, support URL, privacy notice, and telemetry policy.
 
 ## 32. Immediate next sequence
 
 ```text
-1. Use the reviewed dev-agent-memory 0.4.1 release that passes the clean npm consumer audit
-2. Pin dev-agent-memory 0.4.1 in Smart UI and retain its registry integrity
-3. Pass publish:check, consumer:check, and every Smart UI verification gate
-4. Recheck npm name availability immediately before publication
-5. Publish smart-ui-validator-core, smart-ui-validator, and smart-ui-validator-mcp in order
-6. Record the exact published versions, tarball integrities, provenance, and compatibility evidence
-7. Update this plan's publication placeholders and copy the finalized plan into smart-ui-validator-exe
-8. Run clean Windows registry-consumer tests using only those exact published versions
-9. Create/bootstrap smart-ui-validator-exe Phase 0 from the finalized plan
+1. Validate smart-ui-validator 0.4.1 against the existing bdoom project
+2. Run clean Windows x64 registry-consumer tests using only the exact versions frozen above
+3. Prove stdio MCP initialize/tool-list, Chromium launch, and Agent Memory persistence on Windows
+4. Resolve and record the remaining desktop ADR decisions
+5. Copy this finalized plan into the new smart-ui-validator-exe repository
+6. Create/bootstrap smart-ui-validator-exe Phase 0 from the finalized plan
 ```
 
-## 33. Primary references
+## 33. Published dependency evidence
+
+| Package                   | Version | npm integrity                                                                                     |
+| ------------------------- | ------- | ------------------------------------------------------------------------------------------------- |
+| `dev-agent-memory`        | `0.4.1` | `sha512-zCsywPV6fFWa8riWxbjQ0sAgff7vL1nulSpUjHcTeLjMlHEe/kA4Ra88ssmNLxgJq057l5Wrl5bPIFUw6AIdhw==` |
+| `smart-ui-validator-core` | `0.4.1` | `sha512-JkBwHgZAQZoeO4z//y54ESqER90L6eyHhrqziDiPufmCIN9xrNy4FCaB/TAeU8obBhQhMdOOkMDCmZFxB9gntA==` |
+| `smart-ui-validator`      | `0.4.1` | `sha512-GrOtUfCgx6Vq+ZpiRL/SX7vWXGgjwajdjcDq76h0YiLhP+2iXKoFE5+2WpovXehhEoOTzuK0x4fpg36G5rR/Tg==` |
+| `smart-ui-validator-mcp`  | `0.4.1` | `sha512-hmGuybI0VPvo/AxAGknmhXrwK52wmZQJ4+xyaf6tsM7XcrSENw58lNPR1K/3Ft0knveLah5H/y3fZap4OY83mQ==` |
+
+Smart UI source tag: `v0.4.1` at commit `120b22c060cc94bc3d4d5ae1aeb8863715fdad6a`.
+Both the main CI and tagged release-candidate workflow passed before publication. The desktop
+assembler must compare registry metadata with this table and fail closed on any mismatch.
+
+## 34. Primary references
 
 - [Smart UI npm publication runbook](./npm-publishing.md)
 - [Smart UI architecture](./architecture.md)

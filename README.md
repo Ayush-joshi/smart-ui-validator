@@ -64,13 +64,13 @@ Before starting, you need:
 
 ## 🚀 Getting Started (Setup)
 
-### 1. Install from npm (recommended after publication)
+### 1. Install from npm (recommended)
 
 Install the CLI in the React or Angular project that Smart UI will validate, then run the supported
 first-time setup command:
 
 ```bash
-npm install --save-dev smart-ui-validator
+npm install --save-dev smart-ui-validator@0.4.1
 npx smart-ui setup --target . --agent-memory
 npx smart-ui doctor --target .
 ```
@@ -119,8 +119,9 @@ Create a `.mcp.json` file in your target project (where you want Claude to work)
 {
   "mcpServers": {
     "smart-ui": {
-      "command": "node",
-      "args": ["/absolute/path/to/smart-ui-validator/apps/mcp-server/dist/index.js"],
+      "command": "npx",
+      "args": ["-y", "smart-ui-validator-mcp@0.4.1"],
+      "cwd": "/absolute/path/to/your/project",
       "env": {
         "SMART_UI_MCP_ROOT": "/absolute/path/to/your/project"
       }

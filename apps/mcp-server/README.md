@@ -12,11 +12,11 @@ the same exact path, command, endpoint, pass, timeout, and evidence policies as 
 
 ## Usage
 
-After publication, an MCP host can start the server with:
+An MCP host can start the published server with:
 
 ```text
 command: npx
-args: -y smart-ui-validator-mcp@<exact-version>
+args: -y smart-ui-validator-mcp@0.4.1
 cwd: <absolute-target-project>
 ```
 

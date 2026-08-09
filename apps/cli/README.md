@@ -14,7 +14,7 @@ embedded SQLite support and remains optional.
 ## First-time setup
 
 ```bash
-npm install --save-dev smart-ui-validator
+npm install --save-dev smart-ui-validator@0.4.1
 npx smart-ui setup --target . --agent-memory
 npx smart-ui doctor --target .
 ```

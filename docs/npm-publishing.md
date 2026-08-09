@@ -2,20 +2,23 @@
 
 ## Status
 
-This is the release runbook for publishing the host-neutral engine, CLI, and stdio MCP server. It
-does not authorize publication. Publishing remains a separate release-owner action after the
-repositories are public and every gate below passes.
+This is the release runbook for the host-neutral engine, CLI, and stdio MCP server. The first public
+release completed on 2026-08-09 from source tag `v0.4.1`.
 
 Current release status:
 
 - The Smart UI repository and Agent Memory package are public.
 - The previous clean-consumer advisory blocker was resolved by `dev-agent-memory@0.4.1`.
+- `smart-ui-validator-core`, `smart-ui-validator`, and `smart-ui-validator-mcp` are public at
+  `0.4.1`, and each `latest` tag resolves to `0.4.1`.
+- Public metadata, a clean registry installation, Chromium launch, and Agent Memory persistence were
+  verified on macOS. Existing-project and Windows verification remain scheduled.
 - Repository metadata and provenance-based trusted publishing remain deferred until the source has
   a stable long-term owner.
 
-Run `pnpm publish:check` to see the remaining local blockers.
+Run `pnpm publish:check` before every future release candidate.
 
-## Intended public packages
+## Public packages
 
 | Package                   | Source            | Purpose                                     | Depends on                                       |
 | ------------------------- | ----------------- | ------------------------------------------- | ------------------------------------------------ |
@@ -62,18 +65,11 @@ and release a new Smart UI version whenever the Agent Memory pin changes.
 
 ## Package-name decision — completed
 
-The public packages use unscoped product names. Registry lookups on 2026-08-09 returned `E404` for
-all three names:
+The public packages use unscoped product names. All three were published on 2026-08-09:
 
-```bash
-npm view smart-ui-validator
-npm view smart-ui-validator-core
-npm view smart-ui-validator-mcp
-```
-
-Registry absence is not a reservation. Recheck immediately before publishing, authenticate the
-release owner, and publish the core first so workspace dependencies resolve. Do not substitute a
-temporary package name.
+- `smart-ui-validator-core@0.4.1`
+- `smart-ui-validator@0.4.1`
+- `smart-ui-validator-mcp@0.4.1`
 
 ## License decision — completed
 
@@ -217,9 +213,9 @@ Prove that:
 Run this on Windows x64, Windows ARM64 when supported, macOS, and Linux. The desktop project cannot
 start until Windows x64 passes using the same runtime assembly approach planned for the installer.
 
-## First publication
+## First npm publication — completed
 
-The initial sequence is:
+The completed publication sequence was:
 
 1. Complete the public-source audit and make the source repository public.
 2. Publish Agent Memory and verify an independent registry install.
@@ -228,8 +224,13 @@ The initial sequence is:
 5. Publish `smart-ui-validator-core` and verify a registry install.
 6. Publish `smart-ui-validator`.
 7. Publish `smart-ui-validator-mcp`.
-8. Verify CLI, MCP, memory, and Chromium behavior from registry packages.
-9. Create the GitHub release for the exact tag with checksums and SBOM evidence.
+
+Remaining release follow-up:
+
+1. Verify the published CLI and MCP against the existing `bdoom` project.
+2. Complete clean Windows x64 CLI, MCP, memory, and Chromium verification.
+3. Create the GitHub release for the exact tag with checksums and SBOM evidence when the release
+   owner is ready.
 
 Publish the reviewed unscoped tarballs in dependency order:
 
@@ -268,11 +269,21 @@ Do not add the live publish workflow until the scope and license are final, Agen
 from npm, clean-consumer tests pass, and the GitHub environment and npm trusted-publisher records
 exist.
 
+## Published 0.4.1 evidence
+
+| Package                   | npm integrity                                                                                     | Candidate SHA-256                                                  |
+| ------------------------- | ------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| `smart-ui-validator-core` | `sha512-JkBwHgZAQZoeO4z//y54ESqER90L6eyHhrqziDiPufmCIN9xrNy4FCaB/TAeU8obBhQhMdOOkMDCmZFxB9gntA==` | `51c6455c53e8021ce60c791c05ddfc394d6fa5752d36ab40e1720ddb9ebe87fa` |
+| `smart-ui-validator`      | `sha512-GrOtUfCgx6Vq+ZpiRL/SX7vWXGgjwajdjcDq76h0YiLhP+2iXKoFE5+2WpovXehhEoOTzuK0x4fpg36G5rR/Tg==` | `4d235694aaf30f62016c752640fff6950af593d046a22f8d2610497d7c1656c6` |
+| `smart-ui-validator-mcp`  | `sha512-hmGuybI0VPvo/AxAGknmhXrwK52wmZQJ4+xyaf6tsM7XcrSENw58lNPR1K/3Ft0knveLah5H/y3fZap4OY83mQ==` | `8ad13a65d97f75d7f8a6fc3eb19a39dbe368dfc46bdedb4252136422515d9ffd` |
+
+Source commit: `120b22c060cc94bc3d4d5ae1aeb8863715fdad6a`; tag: `v0.4.1`.
+
 ## Post-publication verification
 
 ```bash
-npm view <package>@X.Y.Z name version license homepage dist.integrity dist.tarball
-npm install <package>@X.Y.Z
+npm view <package>@0.4.1 name version license homepage dist.integrity dist.tarball
+npm install <package>@0.4.1
 ```
 
 Confirm the npm page is public, its README/license/homepage are correct, integrity matches the
