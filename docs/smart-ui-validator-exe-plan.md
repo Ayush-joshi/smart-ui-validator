@@ -2,13 +2,15 @@
 
 ## Product, architecture, and implementation plan
 
-Status: Planned; implementation starts only after the npm handoff gate passes
+Status: Planned; pre-publication source plan. After the npm handoff gate passes, copy this plan into
+the new desktop repository and replace every publication placeholder with verified registry data
+before implementation starts.
 
 Target repository: a new, separately maintained public repository named
 `smart-ui-validator-exe`
 
-Source dependencies: versioned public npm releases from `dev-agent-memory` and
-`smart-ui-validator`
+Source dependencies: exact reviewed npm releases of `dev-agent-memory`,
+`smart-ui-validator-core`, `smart-ui-validator`, and `smart-ui-validator-mcp`
 
 Primary first platform: Windows 11 and supported Windows 10 x64
 
@@ -35,7 +37,8 @@ scoring, repair, policy, memory governance, or MCP schemas.
 
 Do not begin the desktop implementation until all of the following pass:
 
-- Agent Memory is public on npm at an immutable reviewed version.
+- Agent Memory is public on npm at an immutable reviewed version that passes a clean npm consumer
+  audit with no high or critical vulnerability.
 - `smart-ui-validator-core`, `smart-ui-validator`, and `smart-ui-validator-mcp` are public on npm at
   one compatible version.
 - A clean Windows machine can install the npm packages without Git or private credentials.
@@ -44,6 +47,8 @@ Do not begin the desktop implementation until all of the following pass:
 - The Smart UI MCP package completes initialize and tool-list over stdio.
 - The pinned Playwright Chromium revision launches and exits cleanly.
 - Package integrity, repository links, licenses, and provenance are verified.
+- The exact Smart UI and Agent Memory versions and `dist.integrity` values are recorded in the
+  desktop repository's initial compatibility manifest.
 
 Production EXE builds consume exact npm versions. They must not clone either source repository,
 resolve a branch, or install `latest`.
@@ -224,7 +229,7 @@ Use a versioned, strict schema similar to:
   "realRoot": "C:\\Projects\\customer-portal",
   "framework": "react",
   "runtimeVersion": "0.1.0",
-  "smartUiVersion": "0.5.0",
+  "smartUiVersion": "<published-smart-ui-version>",
   "host": {
     "kind": "codex",
     "scope": "project",
@@ -277,16 +282,19 @@ Every assembled runtime contains a signed or hash-covered manifest:
   "architecture": "x86_64-pc-windows-msvc",
   "nodeVersion": "22.23.0",
   "smartUi": {
-    "core": "0.5.0",
-    "cli": "0.5.0",
-    "mcpServer": "0.5.0",
+    "core": "<published-smart-ui-version>",
+    "cli": "<published-smart-ui-version>",
+    "mcpServer": "<published-smart-ui-version>",
+    "coreIntegrity": "<npm-dist-integrity>",
+    "cliIntegrity": "<npm-dist-integrity>",
+    "mcpServerIntegrity": "<npm-dist-integrity>",
     "mcpProtocol": "1.0",
     "configSchema": "1.0"
   },
   "agentMemory": {
     "package": "dev-agent-memory",
-    "version": "0.4.0",
-    "integrity": "sha512-EFdjhoX1uxoAmfarGxtkuML20n+GuEE4udRdpdcUmSYmUAHUDkQ4LVU9jnH3YpTAZpvvHGK9TYXaJb6kxlL0Gw=="
+    "version": "<reviewed-agent-memory-version>",
+    "integrity": "<npm-dist-integrity>"
   },
   "playwright": {
     "version": "1.55.1",
@@ -303,8 +311,10 @@ Every assembled runtime contains a signed or hash-covered manifest:
 }
 ```
 
-The assembler fails when package versions diverge, the Playwright browser is incompatible, a hash
-changes, a required public export is absent, or an unexpected executable enters the payload.
+The post-publication handoff replaces every placeholder before the manifest schema is used by a
+build. The assembler fails when a placeholder remains, package versions diverge, the Playwright
+browser is incompatible, a hash changes, a required public export is absent, or an unexpected
+executable enters the payload.
 
 ## 10. EXE and launcher model
 
@@ -982,31 +992,36 @@ Exit criteria:
 
 ## 31. Decisions required before implementation
 
-Resolve and record these in ADRs before Phase 1:
+Already resolved:
 
-1. Final npm scope and package names.
-2. Smart UI license.
-3. Published Agent Memory name/version and support boundary.
-4. Minimum supported Windows versions and architectures.
-5. Offline-only first release versus offline plus web installer.
-6. Code-signing provider and certificate custody.
-7. Update distribution origin and signing key rotation.
-8. Whether target dev-server startup is UI-managed in v1 or remains user/host-managed.
-9. Retention limits for logs, downloads, old runtimes, and support bundles.
-10. Branding, icons, publisher identity, support URL, privacy notice, and telemetry policy.
+- MIT license.
+- Public package names: `smart-ui-validator-core`, `smart-ui-validator`, and
+  `smart-ui-validator-mcp`.
+- Agent Memory package name: `dev-agent-memory`.
+
+Resolve and record the remaining decisions in ADRs before Phase 1:
+
+1. Final reviewed Agent Memory version and support boundary.
+2. Minimum supported Windows versions and architectures.
+3. Offline-only first release versus offline plus web installer.
+4. Code-signing provider and certificate custody.
+5. Update distribution origin and signing key rotation.
+6. Whether target dev-server startup is UI-managed in v1 or remains user/host-managed.
+7. Retention limits for logs, downloads, old runtimes, and support bundles.
+8. Branding, icons, publisher identity, support URL, privacy notice, and telemetry policy.
 
 ## 32. Immediate next sequence
 
 ```text
-1. Publish Agent Memory
-2. Provide its npm coordinates and integrity
-3. Replace Smart UI's Git dependency
-4. Select Smart UI license and confirm npm scope
-5. Pass Smart UI publish:check and all verification gates
-6. Publish Smart UI packages in dependency order
-7. Run clean Windows registry-consumer tests
-8. Create smart-ui-validator-exe
-9. Bootstrap Phase 0 from this plan
+1. Publish a patched dev-agent-memory version that passes the clean npm consumer audit
+2. Pin that exact version in Smart UI and record its registry integrity
+3. Pass publish:check, consumer:check, and every Smart UI verification gate
+4. Recheck npm name availability immediately before publication
+5. Publish smart-ui-validator-core, smart-ui-validator, and smart-ui-validator-mcp in order
+6. Record the exact published versions, tarball integrities, provenance, and compatibility evidence
+7. Update this plan's publication placeholders and copy the finalized plan into smart-ui-validator-exe
+8. Run clean Windows registry-consumer tests using only those exact published versions
+9. Create/bootstrap smart-ui-validator-exe Phase 0 from the finalized plan
 ```
 
 ## 33. Primary references

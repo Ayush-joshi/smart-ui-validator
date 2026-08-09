@@ -58,6 +58,12 @@ The clean-install compatibility test must confirm that `VectorStore`, `TdaiCore`
 proven, a patch-compatible range may be considered. Do not use `latest`, a Git branch or commit,
 HTTP tarball, `file:`, or `link:` in a published production manifest.
 
+`latest` is a mutable registry tag, not an immutable dependency version. It currently resolves to
+the same `dev-agent-memory@0.4.0` release that fails the clean npm consumer audit, and a future tag
+move would silently change new installations without changing Smart UI's version. Publish Agent
+Memory's fix first, pin that exact reviewed version, rerun the gates, and release a new Smart UI
+version whenever the Agent Memory pin changes.
+
 ## Package-name decision — completed
 
 The public packages use unscoped product names. Registry lookups on 2026-08-09 returned `E404` for
