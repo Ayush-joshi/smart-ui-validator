@@ -56,29 +56,59 @@ It uses a powerful mix of **auto-discovery** and **strict user boundaries**:
 Before starting, you need:
 
 - **Node.js** (v22.16 or newer)
-- **pnpm** (v10.15.0)
-- **Playwright Chromium** (installed automatically via the setup steps below)
+- **pnpm** (v10.15.0, only when building this repository from source)
+- **Playwright Chromium** (provisioned and launch-tested by `smart-ui setup`)
 - **An MCP-Compatible AI Host** (e.g., Claude Code, GitHub Copilot, or Codex)
 
 ---
 
 ## 🚀 Getting Started (Setup)
 
-### 1. Clone and Build the Engine
+### 1. Install from npm (recommended after publication)
 
-First, clone this repository to your machine and build the Validator.
+Install the CLI in the React or Angular project that Smart UI will validate, then run the supported
+first-time setup command:
+
+```bash
+npm install --save-dev @smart-ui/cli
+npx smart-ui setup --target . --agent-memory
+npx smart-ui doctor --target .
+```
+
+`setup` installs the Chromium revision pinned by this Smart UI release using the package-local
+Playwright installer; it never relies on a global Playwright version. It then launches a disposable
+browser page to prove the executable works. `--agent-memory` additionally performs a disposable
+write, close, reopen, read, and delete canary against embedded SQLite. It does not require SQL
+Server, PostgreSQL, or a separately installed SQLite service.
+
+Agent Memory is optional and disabled by default. Omit `--agent-memory` when you do not intend to use
+the Agent Memory backend. If `memory.enabled` is true and `memory.backend` is `agent-memory` in the
+project configuration, setup checks it automatically.
+
+For automation and support bundles, use `--json`:
+
+```bash
+npx smart-ui setup --target . --agent-memory --json
+```
+
+The command exits with code `4` when installation, the browser launch canary, target inspection,
+strict configuration, or an enabled Agent Memory canary fails.
+
+### 2. Build the Engine from source
+
+Contributors can clone and build the complete workspace:
 
 ```bash
 git clone https://github.com/Ayush-joshi/smart-ui-validator.git
 cd smart-ui-validator
 pnpm install --frozen-lockfile
-pnpm --filter @smart-ui/core exec playwright install chromium
 pnpm build
+pnpm smart-ui setup --target fixtures/react-app
 ```
 
-_(Optional: Run `pnpm smart-ui doctor --target .` to ensure your environment is healthy)._
+The repository root is not itself a React or Angular target, so setup points at the React fixture.
 
-### 2. Wire up your AI Host
+### 3. Wire up your AI Host
 
 Because the Validator is an MCP server, you must connect your AI to it.
 
@@ -122,7 +152,7 @@ configuration snippet. After connecting or restarting the host once, ask the age
 compact validation arguments. See the [agent-first workflow](docs/agent-workflow.md) for the full
 state machine, retry limits, and recovery rules.
 
-### 3. Set the Rules (The Sandbox)
+### 4. Set the Rules (The Sandbox)
 
 Create a `smart-ui.config.json` in the root of your target project. This tells the Validator what the AI is allowed to do.
 
@@ -190,7 +220,14 @@ If you are using the CLI manually, pay attention to the exit codes:
 
 **Common Issues:**
 
-- **Chromium missing:** Run `pnpm --filter @smart-ui/core exec playwright install chromium`.
+- **Chromium missing or cannot launch:** Run `smart-ui setup --target <project>`. For a local npm
+  installation, use `npx smart-ui setup --target <project>`.
+- **Agent Memory fails:** No system database server is required. Confirm Node 22.16+, then run
+  `smart-ui setup --target <project> --agent-memory`. Without that backend, keep memory disabled or
+  use the default local JSON memory store.
+- **Install succeeds but setup fails:** This is expected when a runtime asset is unavailable. npm
+  installs JavaScript packages only; Smart UI intentionally avoids a large, network-dependent
+  Chromium `postinstall` download.
 - **Write rejected:** Ensure the file you want the AI to edit is explicitly listed in `smart-ui.config.json` under `allowedPaths`.
 - **Command rejected:** Ensure your `allowedCommands` (like `pnpm test`) match exactly what the AI is trying to execute.
 - **MCP path rejected:** Ensure `SMART_UI_MCP_ROOT` is set strictly to your target project folder, not a home directory.
@@ -226,5 +263,7 @@ For administrators, security audits, and advanced integrations, see the detailed
 - [Governed Memory Details](docs/memory.md)
 - [Enterprise & Operations (Backups, Audits, Retention)](docs/operations.md)
 - [Evaluation & Release Process](docs/release.md)
+- [Publishing to npm](docs/npm-publishing.md)
+- [Windows EXE/Desktop Plan](docs/smart-ui-validator-exe-plan.md)
 - [Local Development & Testing](docs/development.md)
 - [The Authoritative Implementation Plan](docs/implementation-plan.md)

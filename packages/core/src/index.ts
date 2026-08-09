@@ -30,6 +30,7 @@ export * from './agent-memory-provider.js';
 export * from './baseline.js';
 export * from './enterprise.js';
 export * from './doctor.js';
+export * from './setup.js';
 export * from './evaluation.js';
 export * from './channel.js';
 export * from './operations.js';

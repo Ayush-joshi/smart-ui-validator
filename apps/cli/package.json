@@ -1,10 +1,35 @@
 {
   "name": "@smart-ui/cli",
   "version": "0.4.0",
+  "description": "Command-line interface for deterministic Smart UI inspection, validation, repair, reporting, and governed memory.",
+  "keywords": [
+    "ui-validation",
+    "visual-regression",
+    "cli",
+    "playwright",
+    "react",
+    "angular"
+  ],
+  "homepage": "https://github.com/Ayush-joshi/smart-ui-validator#readme",
+  "bugs": {
+    "url": "https://github.com/Ayush-joshi/smart-ui-validator/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Ayush-joshi/smart-ui-validator.git",
+    "directory": "apps/cli"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=22.16"
+  },
   "files": [
     "dist/**/*.js",
     "dist/**/*.d.ts",
-    "!dist/**/*.map"
+    "!dist/**/*.map",
+    "README.md"
   ],
   "type": "module",
   "bin": {

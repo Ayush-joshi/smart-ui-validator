@@ -121,9 +121,6 @@ importers:
       agent-memory:
         specifier: github:Ayush-joshi/agent-memory#da87697
         version: '@internal/agent-memory@https://codeload.github.com/Ayush-joshi/agent-memory/tar.gz/da87697'
-      image-size:
-        specifier: 2.0.2
-        version: 2.0.2
       playwright:
         specifier: 1.55.1
         version: 1.55.1
@@ -3748,14 +3745,6 @@ packages:
         integrity: sha512-BAg6QkE8W+TuQLrrw0Ugr7HegXduRuuj8/ti2kSOc+jz1dmx8/WNcjr6XGnq5YpDWxFwwaavqD0+jIUOKelTsw==,
       }
     engines: { node: '>= 4' }
-
-  image-size@2.0.2:
-    resolution:
-      {
-        integrity: sha512-IRqXKlaXwgSMAMtpNzZa1ZAe8m+Sa1770Dhk8VkSsP9LS+iHD62Zd8FQKs8fbPiagBE7BzoFX23cxFnwshpV6w==,
-      }
-    engines: { node: '>=16.x' }
-    hasBin: true
 
   immutable@5.1.9:
     resolution:
@@ -7542,8 +7531,6 @@ snapshots:
   ignore@5.3.2: {}
 
   ignore@7.0.6: {}
-
-  image-size@2.0.2: {}
 
   immutable@5.1.9: {}
 

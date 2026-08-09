@@ -1,6 +1,30 @@
 {
   "name": "@smart-ui/mcp-server",
   "version": "0.4.0",
+  "description": "Approval-gated stdio MCP server for Smart UI inspection, deterministic validation, bounded repair, reports, and governed memory.",
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "ui-validation",
+    "visual-regression",
+    "playwright",
+    "figma"
+  ],
+  "homepage": "https://github.com/Ayush-joshi/smart-ui-validator#readme",
+  "bugs": {
+    "url": "https://github.com/Ayush-joshi/smart-ui-validator/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Ayush-joshi/smart-ui-validator.git",
+    "directory": "apps/mcp-server"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=22.16"
+  },
   "type": "module",
   "bin": {
     "smart-ui-mcp": "dist/index.js"

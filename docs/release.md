@@ -3,6 +3,10 @@
 Smart UI uses semantic versioning. Schema compatibility and migration behavior are public
 commitments; breaking schema semantics require a major version and an explicit migration.
 
+The public-registry sequence, current blockers, package order, clean-consumer tests, and trusted
+publishing setup are defined in [`npm-publishing.md`](./npm-publishing.md). The Windows desktop
+product consumes only releases that pass that contract.
+
 1. Update `CHANGELOG.md` and package versions.
 2. Run the complete README verification sequence from a clean install.
 3. Review production dependencies, licenses, `pnpm audit`, local secret scan, SBOM, and package dry

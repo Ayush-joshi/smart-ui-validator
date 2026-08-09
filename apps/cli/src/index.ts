@@ -24,6 +24,7 @@ import {
   runRecordSchema,
   resolveMemoryPath,
   runDoctor,
+  runSetup,
 } from '@smart-ui/core';
 import { registerMemoryCommands } from './memory-cli.js';
 
@@ -44,6 +45,31 @@ program
   .action(async ({ target, json }: { target: string; json?: boolean }) => {
     print(await new AutoFrameworkAdapter().inspect(userPath(target)), json);
   });
+
+program
+  .command('setup')
+  .description('Install pinned local runtime assets and verify this project from scratch')
+  .option('--target <path>', 'React or Angular repository root', '.')
+  .option('--agent-memory', 'run a disposable embedded SQLite persistence canary')
+  .option('--json', 'emit JSON and suppress installer progress')
+  .action(
+    async ({
+      target,
+      agentMemory,
+      json,
+    }: {
+      target: string;
+      agentMemory?: boolean;
+      json?: boolean;
+    }) => {
+      const result = await runSetup(userPath(target), {
+        verifyAgentMemory: agentMemory ?? false,
+        ...(!json ? { onBrowserInstallOutput: (text: string) => process.stderr.write(text) } : {}),
+      });
+      print(result, json);
+      if (!result.ready) process.exitCode = 4;
+    },
+  );
 
 program
   .command('doctor')

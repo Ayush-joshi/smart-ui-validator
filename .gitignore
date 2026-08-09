@@ -10,4 +10,5 @@ test-results/
 design-contract.json
 evaluation-scorecard.json
 *.tgz
+release-artifacts/
 sbom*.json

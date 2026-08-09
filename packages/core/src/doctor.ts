@@ -1,4 +1,3 @@
-import { access } from 'node:fs/promises';
 import { chromium } from 'playwright';
 import { AutoFrameworkAdapter } from './auto-framework-adapter.js';
 import { loadConfig } from './config.js';
@@ -51,17 +50,17 @@ export async function runDoctor(targetRoot: string): Promise<{
     checks.push({ name: 'config', status: 'fail', message: messageOf(error) });
   }
   try {
-    await access(chromium.executablePath());
+    await probeChromium();
     checks.push({
       name: 'chromium',
       status: 'pass',
-      message: 'Isolated Playwright Chromium is installed.',
+      message: 'Isolated Playwright Chromium launched successfully.',
     });
-  } catch {
+  } catch (error) {
     checks.push({
       name: 'chromium',
       status: 'fail',
-      message: 'Chromium is missing; run pnpm exec playwright install chromium.',
+      message: `Chromium launch failed: ${messageOf(error)} Run "smart-ui setup --target <project>" to install and verify it.`,
     });
   }
   return {
@@ -69,6 +68,20 @@ export async function runDoctor(targetRoot: string): Promise<{
     ready: !checks.some((check) => check.status === 'fail'),
     checks: redactSensitiveValue(checks) as DoctorCheck[],
   };
+}
+
+/** Launches an isolated browser canary so readiness proves more than file presence. */
+export async function probeChromium(): Promise<void> {
+  const browser = await chromium.launch({ headless: true, timeout: 30_000 });
+  try {
+    const page = await browser.newPage();
+    await page.setContent('<!doctype html><title>Smart UI browser canary</title>');
+    const title = await page.title();
+    if (title !== 'Smart UI browser canary')
+      throw new Error('Browser canary returned bad content.');
+  } finally {
+    await browser.close();
+  }
 }
 
 function messageOf(error: unknown): string {

@@ -1,8 +1,8 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { readFile } from 'node:fs/promises';
+import { readFile, stat } from 'node:fs/promises';
 import { extname, resolve } from 'node:path';
-import { imageSize } from 'image-size';
 import { SmartUiError } from './errors.js';
+import { readImageDimensions } from './image-dimensions.js';
 import type { ArtifactStore, DesignProvider } from './providers.js';
 import { designContractSchema, type DesignContract } from './schemas.js';
 
@@ -24,17 +24,36 @@ export interface LocalImageInput {
 
 export class LocalImageDesignProvider implements DesignProvider<LocalImageInput> {
   readonly name = 'local-image';
-  constructor(private readonly artifacts: ArtifactStore) {}
+  constructor(
+    private readonly artifacts: ArtifactStore,
+    private readonly maxBinaryBytes = 20_000_000,
+  ) {}
 
   async normalize(input: LocalImageInput): Promise<DesignContract> {
     const source = resolve(input.imagePath);
+    const details = await stat(source);
+    if (!details.isFile() || details.size > this.maxBinaryBytes) {
+      throw new SmartUiError(
+        'INVALID_INPUT',
+        `Local design evidence must be a file no larger than ${this.maxBinaryBytes} bytes.`,
+      );
+    }
     const bytes = await readFile(source);
-    const dimensions = imageSize(bytes);
     const mediaType = mediaTypeFor(source);
+    if (bytes.byteLength > this.maxBinaryBytes) {
+      throw new SmartUiError(
+        'INVALID_INPUT',
+        `Local design evidence exceeds the ${this.maxBinaryBytes} byte budget.`,
+      );
+    }
+    const dimensions =
+      input.spec?.viewport?.width !== undefined && input.spec.viewport.height !== undefined
+        ? undefined
+        : readImageDimensions(bytes, mediaType);
     const reference = await this.artifacts.put(bytes, mediaType, source);
     const sourceHash = `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
-    const width = input.spec?.viewport?.width ?? dimensions.width;
-    const height = input.spec?.viewport?.height ?? dimensions.height;
+    const width = input.spec?.viewport?.width ?? dimensions?.width;
+    const height = input.spec?.viewport?.height ?? dimensions?.height;
     if (width === undefined || height === undefined) {
       throw new SmartUiError(
         'INVALID_INPUT',

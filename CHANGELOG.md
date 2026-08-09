@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+- Added public npm package metadata, package-level usage documentation, and an explicit publication
+  readiness gate that rejects missing licensing and non-registry production dependencies.
+- Replaced the newly vulnerable general-purpose image dimension dependency with bounded PNG, JPEG,
+  WebP, and SVG header parsing plus a local-evidence byte budget.
+- Added the versioned plan for the separate Smart UI Validator Windows desktop and installer product.
+- Added the supported `smart-ui setup` workflow for package-local Chromium provisioning, real
+  browser launch diagnostics, and an optional disposable Agent Memory SQLite persistence canary.
+
 ## 0.4.0 - 2026-08-06
 
 - Added bounded production React/Angular framework discovery and representative Angular fixture.

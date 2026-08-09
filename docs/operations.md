@@ -11,17 +11,23 @@
    volumes; inject AES keys from KMS when application-layer encryption is required.
 6. Keep remote MCP and channel integrations disabled for the initial local pilot.
 7. Allowlist exact writable files, commands/args, routes, and required network endpoints.
-8. Start the stdio MCP server under the target host and run `smart-ui doctor`.
+8. Run `smart-ui setup --target <repo> --agent-memory`, start the stdio MCP server under the target
+   host, and run `smart-ui doctor`.
 9. Exercise a validation-only canary, inspect the offline report, then dry-run one repair.
 10. Enable real writes for a small reviewed cohort and monitor failures, rollback rate, latency,
     artifact volume, and audit-chain health.
 
 ## Health and readiness
 
-`smart-ui doctor --target <repo> --json` checks runtime, framework, strict config, and Chromium.
-Readiness also requires the target dev server to be reachable at an allowlisted route. For Agent
-Memory, run its integration test or an explicit propose/list/restart/forget canary. Verify audit logs
-regularly with `smart-ui audit-verify`.
+`smart-ui setup --target <repo> --agent-memory --json` provisions the pinned Playwright Chromium
+revision when needed, launches it, and runs a disposable Agent Memory SQLite persistence canary.
+The canary writes, closes, reopens, reads, deletes, and removes its temporary store. No external SQL
+service is involved.
+
+`smart-ui doctor --target <repo> --json` checks runtime, framework, strict config, and a real
+Chromium launch without downloading anything. Readiness also requires the target dev server to be
+reachable at an allowlisted route before validation. Verify audit logs regularly with
+`smart-ui audit-verify`.
 
 ## Backup and restore
 

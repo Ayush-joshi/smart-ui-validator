@@ -21,6 +21,7 @@
     "evaluate": "node scripts/run-evaluation.mjs",
     "security:secrets": "node scripts/check-secrets.mjs",
     "package:check": "node scripts/check-package.mjs",
+    "publish:check": "node scripts/check-publish-readiness.mjs",
     "sbom": "node scripts/generate-sbom.mjs",
     "fixture:dev": "pnpm --filter @smart-ui/react-fixture dev",
     "fixture:angular:dev": "pnpm --filter @smart-ui/angular-fixture dev",
