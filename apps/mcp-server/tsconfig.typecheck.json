@@ -2,7 +2,11 @@
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "rootDir": "../..",
-    "noEmit": true
+    "noEmit": true,
+    "baseUrl": ".",
+    "paths": {
+      "smart-ui-validator-core": ["../../packages/core/src/index.ts"]
+    }
   },
   "include": ["src/**/*.ts", "../../packages/core/src/**/*.ts"]
 }
