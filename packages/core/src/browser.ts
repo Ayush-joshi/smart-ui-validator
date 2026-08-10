@@ -1,4 +1,4 @@
-import { chromium, type Page } from 'playwright';
+import { chromium, type Browser, type Page } from 'playwright';
 import { extractElements } from './dom-extractor.js';
 import { SmartUiError } from './errors.js';
 import type {
@@ -15,7 +15,12 @@ export class PlaywrightBrowserProvider implements BrowserProvider {
   readonly name = 'playwright-chromium';
 
   async capture(options: BrowserCaptureOptions): Promise<BrowserEvidence> {
-    let browser;
+    let browser: Browser | undefined;
+    const cancel = () => void browser?.close();
+    if (options.signal?.aborted) {
+      throw new SmartUiError('PROVIDER_FAILURE', 'Browser capture was canceled.');
+    }
+    options.signal?.addEventListener('abort', cancel, { once: true });
     try {
       browser = await chromium.launch({ headless: true });
       const context = await browser.newContext({
@@ -94,19 +99,14 @@ export class PlaywrightBrowserProvider implements BrowserProvider {
         maxElements: options.evidenceLimits.maxElements,
         maxTextLength: options.evidenceLimits.maxTextLength,
       });
+      const defaultScreenshot = options.screenshotBeforeFocusProbe
+        ? await captureScreenshot(page, options.evidenceLimits.maxArtifactBytes)
+        : undefined;
       await captureKeyboardFocus(page, elements);
       const accessibilityViolations = await collectAccessibilityViolations(page);
-      const screenshot = await page.screenshot({
-        type: 'png',
-        animations: 'disabled',
-        fullPage: false,
-      });
-      if (screenshot.byteLength > options.evidenceLimits.maxArtifactBytes) {
-        throw new SmartUiError(
-          'PROVIDER_FAILURE',
-          `Screenshot exceeds evidence budget (${screenshot.byteLength} bytes).`,
-        );
-      }
+      const screenshot =
+        defaultScreenshot ??
+        (await captureScreenshot(page, options.evidenceLimits.maxArtifactBytes));
 
       return {
         screenshot,
@@ -123,9 +123,25 @@ export class PlaywrightBrowserProvider implements BrowserProvider {
         provider: this.name,
       });
     } finally {
+      options.signal?.removeEventListener('abort', cancel);
       await browser?.close();
     }
   }
+}
+
+async function captureScreenshot(page: Page, maxArtifactBytes: number): Promise<Uint8Array> {
+  const screenshot = await page.screenshot({
+    type: 'png',
+    animations: 'disabled',
+    fullPage: false,
+  });
+  if (screenshot.byteLength > maxArtifactBytes) {
+    throw new SmartUiError(
+      'PROVIDER_FAILURE',
+      `Screenshot exceeds evidence budget (${screenshot.byteLength} bytes).`,
+    );
+  }
+  return screenshot;
 }
 
 async function applyInteractionState(

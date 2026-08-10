@@ -36,6 +36,7 @@ const accessibleStateSchema = z.record(z.string(), z.union([z.string(), z.boolea
 export const designElementSchema = z
   .object({
     validationId: z.string().min(1).optional(),
+    sourceNodeId: z.string().min(1).optional(),
     selector: z.string().min(1).optional(),
     figmaNodeId: z.string().min(1).optional(),
     type: z.string().min(1),
@@ -100,6 +101,7 @@ export const validationFindingSchema = z
     severity: z.enum(['error', 'warning', 'info']),
     confidence: z.number().min(0).max(1),
     designNodeId: z.string().optional(),
+    sourceNodeId: z.string().optional(),
     targetDomLocator: z.string().optional(),
     expected: z.unknown().optional(),
     actual: z.unknown().optional(),

@@ -119,6 +119,17 @@ enterprise identity/KMS, and multi-node persistence remain deployment-owned and 
 stores are plaintext and single-writer by default, Node SQLite remains experimental, and the bundled
 heuristic repair provider is intentionally narrow.
 
+### SVG-to-HTML extension — Phase 1
+
+Status: Implemented and verified on 2026-08-10.
+
+The repository now includes the additive, repository-free `smart-ui generate` vertical slice from
+`docs/svg-to-html-generation-plan.md`: bounded fail-closed SVG intake, hierarchical design bundles,
+deterministic exact/hybrid HTML/CSS generation, contained loopback preview, existing comparator
+reuse, separate immutable generation records, responsive-robustness classification, offline reports,
+reproducible ZIPs, and empty-directory export. MCP generation is Phase 2 and Studio is Phase 3; do
+not claim or emulate those hosts before they are implemented.
+
 ## Working rules
 
 - Inspect the full repository, git status, and this file before each phase.

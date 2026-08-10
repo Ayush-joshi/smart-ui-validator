@@ -4,6 +4,18 @@ This runbook is the default first-run and recovery contract for an agent using S
 It turns target setup into one user command and one MCP preparation call. The agent must not repeat
 successful setup work merely to regain context.
 
+## Direct SVG-to-HTML generation
+
+When the requested outcome is standalone HTML/CSS from a local SVG—not a React or Angular
+implementation—use `smart-ui generate` instead of this repository inspection/repair state machine.
+Declare the exact workspace and SVG path; do not infer a workspace or start a target application.
+Phase 1 generation is local CLI functionality. MCP generation tools are introduced separately in
+Phase 2, so an agent must not emulate them with generic file writes or claim MCP support early.
+
+Use hybrid mode for readable, structurally simple SVGs and exact mode for artwork-heavy or outlined
+content. Treat the resulting deterministic mismatch, uncertainties, offline report, and ZIP as the
+review evidence. A narrow robustness result without its own SVG reference is not visual fidelity.
+
 ## User setup command
 
 Run from the Smart UI Validator checkout:

@@ -35,6 +35,7 @@ export class SmartUiComparator {
     contract: DesignContract,
     evidence: BrowserEvidence,
     reference: ReferenceImage | null,
+    signal?: AbortSignal,
   ): Promise<ComparisonResult> {
     const findings: ValidationFinding[] = [];
     const state: CheckState = { total: 0, passed: 0 };
@@ -137,6 +138,7 @@ export class SmartUiComparator {
             channelTolerance: this.config.validation.rasterChannelTolerance,
             mediaType1: reference.mediaType,
             mediaType2: 'image/png',
+            ...(signal ? { signal } : {}),
           },
         );
         diff = raster.diff;
@@ -724,12 +726,14 @@ interface FindingInput {
 
 function finding(input: FindingInput): ValidationFinding {
   const designNodeId = input.designElement?.figmaNodeId;
+  const sourceNodeId = input.designElement?.sourceNodeId;
   const targetDomLocator = input.browserElement?.validationId ?? input.browserElement?.selector;
   const id = createHash('sha256')
     .update(
       stableJson({
         category: input.category,
         designNodeId,
+        sourceNodeId,
         targetDomLocator,
         expected: input.expected,
         actual: input.actual,
@@ -744,6 +748,7 @@ function finding(input: FindingInput): ValidationFinding {
     severity: input.severity,
     confidence: input.confidence,
     ...(designNodeId ? { designNodeId } : {}),
+    ...(sourceNodeId ? { sourceNodeId } : {}),
     ...(targetDomLocator ? { targetDomLocator } : {}),
     ...(input.expected !== undefined ? { expected: input.expected } : {}),
     ...(input.actual !== undefined ? { actual: input.actual } : {}),
@@ -760,9 +765,20 @@ export async function compareImages(
   image1: Uint8Array,
   image2: Uint8Array,
   masks: Array<{ x: number; y: number; width: number; height: number }> = [],
-  options: { channelTolerance?: number; mediaType1?: string; mediaType2?: string } = {},
+  options: {
+    channelTolerance?: number;
+    mediaType1?: string;
+    mediaType2?: string;
+    signal?: AbortSignal;
+  } = {},
 ): Promise<{ diffPercent: number; diff: Uint8Array; heatmap: Uint8Array; overlay: Uint8Array }> {
   const browser = await chromium.launch({ headless: true });
+  const cancel = () => void browser.close();
+  if (options.signal?.aborted) {
+    await browser.close();
+    throw new Error('Image comparison was canceled.');
+  }
+  options.signal?.addEventListener('abort', cancel, { once: true });
   try {
     const page = await browser.newPage();
     const result = await page.evaluate(
@@ -857,6 +873,7 @@ export async function compareImages(
       overlay: decodeDataUrl(result.overlayUrl),
     };
   } finally {
+    options.signal?.removeEventListener('abort', cancel);
     await browser.close();
   }
 }

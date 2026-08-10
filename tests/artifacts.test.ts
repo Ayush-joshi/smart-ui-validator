@@ -45,4 +45,15 @@ describe('LocalArtifactStore', () => {
       new LocalArtifactStore(root).put(expected, 'application/json', 'expected.json'),
     ).rejects.toThrow(/content hash check/);
   });
+
+  it('uses owned extensions for generation artifacts', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'smart-ui-generation-artifacts-'));
+    const store = new LocalArtifactStore(root);
+    expect(
+      (await store.put(new TextEncoder().encode('body{}'), 'text/css', 'styles.css')).relativePath,
+    ).toMatch(/\.css$/);
+    expect(
+      (await store.put(new Uint8Array([80, 75]), 'application/zip', 'generated.zip')).relativePath,
+    ).toMatch(/\.zip$/);
+  });
 });

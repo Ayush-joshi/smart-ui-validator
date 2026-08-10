@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { randomUUID } from 'node:crypto';
 import { readFile, writeFile } from 'node:fs/promises';
 import { extname, join, resolve } from 'node:path';
 import { Command, Option } from 'commander';
@@ -7,14 +8,20 @@ import {
   AutoFrameworkAdapter,
   FileAuditLog,
   HeuristicRepairProvider,
+  HtmlGenerationReporter,
   HtmlReporter,
+  DeterministicHtmlGenerationProvider,
+  GenerationOrchestrator,
   LocalArtifactStore,
   LocalImageDesignProvider,
   LocalMemoryProvider,
   LocalBaselineStore,
   LocalPolicy,
+  LocalSvgStructureProvider,
+  LoopbackGeneratedPreviewProvider,
   MockCodingProvider,
   PlaywrightBrowserProvider,
+  ReproducibleGenerationExporter,
   SmartUiError,
   SmartUiOrchestrator,
   compareImages,
@@ -37,6 +44,82 @@ const program = new Command()
 const invocationRoot = process.env['INIT_CWD'] ?? process.cwd();
 
 registerMemoryCommands(program, invocationRoot);
+
+program
+  .command('generate')
+  .description('Generate offline standalone HTML and CSS from a local SVG')
+  .requiredOption('--workspace <path>', 'exact workspace and containment boundary')
+  .requiredOption('--design <path>', 'local SVG inside the workspace')
+  .option('--output <path>', 'materialize accepted files into this new empty directory')
+  .option('--artifacts <path>', 'artifact base inside the workspace')
+  .addOption(new Option('--mode <mode>').choices(['exact', 'hybrid']).default('hybrid'))
+  .addOption(
+    new Option('--layout <layout>')
+      .choices(['fixed', 'responsive', 'component'])
+      .default('responsive'),
+  )
+  .option('--name <name>', 'friendly generated UI name')
+  .option('--instructions <text>', 'bounded implementation note')
+  .option('--viewport <width>x<height>', 'explicit source viewport', parseGenerationViewport)
+  .option('--timeout <milliseconds>', 'generation timeout', parseGenerationTimeout)
+  .option(
+    '--max-passes <count>',
+    'maximum deterministic regeneration passes (0 or 1)',
+    parseGenerationPassCount,
+  )
+  .option('--dry-run', 'inspect SVG safety and capability without a generated deliverable')
+  .option('--json', 'emit one compact JSON result')
+  .action(async (options: GenerateCliOptions) => {
+    const workspace = userPath(options.workspace);
+    const config = await loadConfig(workspace);
+    const artifactBase = options.artifacts
+      ? userPath(options.artifacts)
+      : resolve(workspace, config.generation.artifactBase);
+    const runRoot = join(artifactBase, `generation-${Date.now()}-${randomUUID()}`);
+    const store = new LocalArtifactStore(runRoot);
+    const controller = new AbortController();
+    const cancel = () => controller.abort();
+    process.once('SIGINT', cancel);
+    try {
+      const result = await new GenerationOrchestrator({
+        structure: new LocalSvgStructureProvider(store, config.generation.limits),
+        generator: new DeterministicHtmlGenerationProvider(),
+        preview: new LoopbackGeneratedPreviewProvider(),
+        browser: new PlaywrightBrowserProvider(),
+        artifacts: store,
+        reporter: new HtmlGenerationReporter(store),
+        exporter: new ReproducibleGenerationExporter(workspace),
+        config,
+      }).run(
+        {
+          workspaceRoot: workspace,
+          svgPath: userPath(options.design),
+          artifactRoot: runRoot,
+          ...(options.output ? { exportRoot: userPath(options.output) } : {}),
+          ...(options.name ? { name: options.name } : {}),
+          mode: options.mode,
+          layout: options.layout,
+          ...(options.instructions ? { instructions: options.instructions } : {}),
+          ...(options.viewport ? { viewport: options.viewport } : {}),
+          rendering: {
+            background: { kind: 'transparent' },
+            locale: 'en-US',
+            theme: 'light',
+          },
+          dryRun: options.dryRun ?? false,
+          ...(options.timeout !== undefined ? { timeoutMs: options.timeout } : {}),
+          ...(options.maxPasses !== undefined ? { maxPasses: options.maxPasses } : {}),
+        },
+        controller.signal,
+      );
+      const summary = generationSummary(result, runRoot);
+      if (options.json) console.log(JSON.stringify(summary));
+      else printGenerationSummary(summary);
+      process.exitCode = generationExitCode(result.record);
+    } finally {
+      process.removeListener('SIGINT', cancel);
+    }
+  });
 
 program
   .command('inspect')
@@ -452,6 +535,133 @@ function parsePassCount(value: string): number {
   return parsed;
 }
 
+function parseGenerationPassCount(value: string): number {
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < 0 || parsed > 1) {
+    throw new SmartUiError('INVALID_INPUT', '--max-passes must be 0 or 1 for SVG generation.');
+  }
+  return parsed;
+}
+
+function parseGenerationTimeout(value: string): number {
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < 1 || parsed > 300_000) {
+    throw new SmartUiError('INVALID_INPUT', '--timeout must be from 1 to 300000 milliseconds.');
+  }
+  return parsed;
+}
+
+function parseGenerationViewport(value: string): {
+  width: number;
+  height: number;
+  deviceScaleFactor: number;
+} {
+  const [rawWidth, rawHeight, ...rest] = value.toLowerCase().split('x');
+  const width = Number(rawWidth);
+  const height = Number(rawHeight);
+  if (
+    rest.length > 0 ||
+    !Number.isInteger(width) ||
+    !Number.isInteger(height) ||
+    width < 1 ||
+    height < 1 ||
+    width > 10_000 ||
+    height > 10_000
+  ) {
+    throw new SmartUiError(
+      'INVALID_INPUT',
+      '--viewport must use WIDTHxHEIGHT with values from 1 to 10000.',
+    );
+  }
+  return { width, height, deviceScaleFactor: 1 };
+}
+
+function generationSummary(
+  result: Awaited<ReturnType<GenerationOrchestrator['run']>>,
+  artifactRoot: string,
+) {
+  const finalPass = result.record.passes.at(-1);
+  return {
+    generationId: result.record.id,
+    status: result.record.status,
+    stoppedReason: result.record.stoppedReason,
+    requestedMode: result.record.input.requestedMode,
+    finalMode: result.record.input.finalMode,
+    files: result.record.generatedFiles.map((file) => ({
+      relativePath: file.relativePath,
+      hash: file.hash,
+      byteLength: file.byteLength,
+    })),
+    sanitization: {
+      accepted: result.record.sanitization.accepted,
+      nodeCount: result.record.sanitization.nodeCount,
+      rejectionCodes: result.record.sanitization.rejectionCodes,
+      originalInputHash: result.record.originalInputHash,
+      sanitizedHash: result.record.sanitizedHash,
+    },
+    uncertaintyCount: result.record.uncertainties.length,
+    uncertainties: result.record.uncertainties.slice(0, 5),
+    similarity: finalPass ? Math.max(0, 100 - finalPass.diffPercent) : undefined,
+    diffPercent: finalPass?.diffPercent,
+    viewports: result.record.viewports.map((item) => ({
+      name: item.name,
+      classification: item.classification,
+      similarity: item.similarity,
+      findingCount: item.findings.length,
+    })),
+    record: resolve(artifactRoot, result.recordArtifact.relativePath),
+    report: result.record.report
+      ? resolve(artifactRoot, result.record.report.relativePath)
+      : undefined,
+    archive: result.record.archive
+      ? resolve(artifactRoot, result.record.archive.relativePath)
+      : undefined,
+    exportedFiles: result.exportedFiles,
+    warnings: result.record.warnings,
+    failures: result.record.failures,
+  };
+}
+
+function printGenerationSummary(summary: ReturnType<typeof generationSummary>): void {
+  console.log(`Generation ${summary.generationId}: ${summary.status} (${summary.stoppedReason})`);
+  console.log(
+    `Mode: ${summary.requestedMode}${summary.finalMode ? ` -> ${summary.finalMode}` : ''}`,
+  );
+  console.log(
+    `Sanitization: ${summary.sanitization.accepted ? 'accepted' : 'rejected'} · ${summary.sanitization.nodeCount} nodes`,
+  );
+  console.log(`Original hash: ${summary.sanitization.originalInputHash}`);
+  if (summary.sanitization.sanitizedHash) {
+    console.log(`Sanitized hash: ${summary.sanitization.sanitizedHash}`);
+  }
+  if (summary.similarity !== undefined) {
+    console.log(`Source visual similarity: ${summary.similarity.toFixed(3)}%`);
+  }
+  for (const file of summary.files)
+    console.log(`File: ${file.relativePath} (${file.hash.slice(0, 19)})`);
+  console.log(`Record: ${summary.record}`);
+  if (summary.report) console.log(`Report: ${summary.report}`);
+  if (summary.archive) console.log(`ZIP: ${summary.archive}`);
+  if (summary.uncertaintyCount > 0) console.log(`Uncertainties: ${summary.uncertaintyCount}`);
+  for (const warning of summary.warnings.slice(0, 10)) console.log(`Warning: ${warning}`);
+  for (const failure of summary.failures)
+    console.log(`Failure: ${failure.code}: ${failure.message}`);
+}
+
+function generationExitCode(record: {
+  status: string;
+  stoppedReason: string;
+  warnings: string[];
+}): number {
+  if (record.stoppedReason === 'canceled') return 130;
+  if (record.stoppedReason === 'unsafe-svg') return 6;
+  if (record.stoppedReason === 'invalid-svg') return 2;
+  if (record.stoppedReason === 'policy-violation') return 4;
+  if (record.status === 'failed') return 5;
+  if (record.status === 'completed-with-warnings' || record.warnings.length > 0) return 3;
+  return 0;
+}
+
 function mediaTypeFor(path: string): string {
   const type = {
     '.png': 'image/png',
@@ -469,6 +679,22 @@ interface NormalizeOptions {
   spec?: string;
   out: string;
   artifacts: string;
+  json?: boolean;
+}
+
+interface GenerateCliOptions {
+  workspace: string;
+  design: string;
+  output?: string;
+  artifacts?: string;
+  mode: 'exact' | 'hybrid';
+  layout: 'fixed' | 'responsive' | 'component';
+  name?: string;
+  instructions?: string;
+  viewport?: { width: number; height: number; deviceScaleFactor: number };
+  timeout?: number;
+  maxPasses?: number;
+  dryRun?: boolean;
   json?: boolean;
 }
 

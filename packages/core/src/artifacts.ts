@@ -122,6 +122,9 @@ function extensionFor(mediaType: string): string {
       'image/svg+xml': '.svg',
       'application/json': '.json',
       'text/html': '.html',
+      'text/css': '.css',
+      'text/plain': '.txt',
+      'application/zip': '.zip',
     }[mediaType] ?? '.bin'
   );
 }

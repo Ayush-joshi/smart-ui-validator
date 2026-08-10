@@ -196,6 +196,10 @@ export function extractElements(options: DomExtractionOptions): BrowserElementEv
     const opacityValue = Number.parseFloat(style.opacity);
     return {
       validationId: element.getAttribute('data-validation-id') ?? undefined,
+      ...(() => {
+        const sourceNodeId = element.getAttribute('data-source-node-id');
+        return sourceNodeId ? { sourceNodeId } : {};
+      })(),
       tagName: element.tagName.toLowerCase(),
       selector: getCssSelector(element),
       x: rect.x + window.scrollX,

@@ -64,6 +64,27 @@ Before starting, you need:
 
 ## 🚀 Getting Started (Setup)
 
+### Generate standalone HTML from an SVG
+
+SVG generation is repository-free and does not require Figma, MCP, a model, a target application, or
+external network access. It produces immutable evidence and a reproducible ZIP; `--output` is
+optional and must name a new empty directory inside the exact workspace.
+
+```bash
+npx smart-ui generate \
+  --workspace /absolute/path/to/svg-workspace \
+  --design /absolute/path/to/svg-workspace/design/hero.svg \
+  --output /absolute/path/to/svg-workspace/generated/hero \
+  --mode hybrid \
+  --layout responsive
+```
+
+Use `--mode exact` for artwork-heavy SVGs. `--dry-run --json` performs strict safety and capability
+inspection without writing an HTML/CSS deliverable. Generated pages use local files only and are
+rendered on a contained loopback preview with browser networking blocked before Smart UI reports
+source-viewport visual fidelity. A configured narrow viewport is reported separately as responsive
+robustness, never as fidelity to the desktop SVG.
+
 ### 1. Install from npm (recommended)
 
 Install the CLI in the React or Angular project that Smart UI will validate, then run the supported
@@ -163,6 +184,11 @@ Create a `smart-ui.config.json` in the root of your target project. This tells t
   "validation": {
     "maxRepairPasses": 5,
     "colorDeltaE": 2.5
+  },
+  "generation": {
+    "artifactBase": ".smart-ui/generations",
+    "timeoutMs": 60000,
+    "maxPasses": 1
   },
   "policy": {
     "allowedPaths": ["src/components/", "src/styles.css"],

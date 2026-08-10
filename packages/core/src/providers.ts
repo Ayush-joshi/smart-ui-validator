@@ -50,6 +50,7 @@ export interface CodingProvider {
 
 export interface BrowserElementEvidence {
   validationId: string | undefined;
+  sourceNodeId?: string;
   tagName: string;
   selector: string;
   x: number;
@@ -128,6 +129,9 @@ export interface BrowserCaptureOptions {
     selector?: string;
   };
   dynamicRegionSelectors?: string[];
+  /** Generation-only opt-in. Existing validation capture ordering remains unchanged by default. */
+  screenshotBeforeFocusProbe?: boolean;
+  signal?: AbortSignal;
   evidenceLimits: {
     maxElements: number;
     maxTextLength: number;

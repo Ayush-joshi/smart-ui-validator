@@ -2,7 +2,7 @@
 
 ## Three-phase implementation plan
 
-Status: Planned
+Status: Phase 1 implemented and verified; Phases 2 and 3 planned
 
 Date: 2026-08-10
 
@@ -309,6 +309,27 @@ fit. Do not duplicate browser or scoring implementations. Extend artifact media-
 CSS, plain text, ZIP, and any other owned generation formats so they do not silently become `.bin`.
 
 ## 5. Phase 1 — Core generation engine and CLI vertical slice
+
+Status: Implemented and verified on 2026-08-10.
+
+The shipped Phase 1 slice includes strict streaming SVG intake, a versioned hierarchical
+`DesignBundle` and separate `GenerationRecord`, deterministic exact/hybrid generation, safe semantic
+text/control/flex inference with exact fallback, manifest-only loopback preview, existing browser and
+comparator reuse, source-fidelity and responsive-robustness classification, offline reporting,
+reproducible ZIPs, optional empty-directory export, and `smart-ui generate` human/JSON/dry-run
+contracts. The parser and archive decisions are recorded in
+[`adr/0002-svg-xml-parser-and-zip.md`](./adr/0002-svg-xml-parser-and-zip.md).
+
+Verification passed Prettier, ESLint, TypeScript typecheck, production build, 114 unit/integration
+tests, 5 real-Chromium React/Angular/SVG end-to-end scenarios, all existing evaluation gates, source
+secret and personal-data checks, package-content and publish-readiness checks, a clean installed
+consumer smoke test, and a production dependency audit with no known vulnerabilities.
+
+Phase 1 intentionally converts only untransformed, high-confidence semantic subtrees. Complex
+transforms, filters, stylesheets, outlined text, path-heavy artwork, and ambiguous layouts remain
+sanitized exact vector content with explicit uncertainties. The configured single optional
+regeneration pass is a hard upper bound; the built-in provider currently completes in its initial
+deterministic pass because it has no separate repair heuristic.
 
 ### 5.1 Goal
 

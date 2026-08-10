@@ -15,6 +15,22 @@ owning orchestration logic. `SmartUiOrchestrator` coordinates narrow interfaces:
   accessibility scoring.
 - `ArtifactStore` persists content-addressed bytes and a manifest.
 - `PolicyProvider` enforces paths, writes, commands, dry-run, and time limits.
+
+## Repository-free SVG generation
+
+`GenerationOrchestrator` is additive to `SmartUiOrchestrator`; it does not fabricate a repository or
+overload `RunRecord`. `SvgStructureProvider` accepts one contained regular SVG, rejects unsafe XML,
+and emits a hierarchical `DesignBundle` plus a content-addressed sanitized source. An
+`HtmlGenerationProvider` creates a bounded file manifest. The core serves only that manifest on an
+ephemeral loopback origin, captures it with the existing isolated browser, and scores source fidelity
+with the existing comparator.
+
+Exact mode compares the source raster without projecting every SVG primitive into DOM expectations.
+Hybrid mode projects only semantic nodes with stable `data-validation-id` and generic
+`sourceNodeId` provenance. Narrow captures without a matching reference are classified as
+responsive robustness and have no visual-fidelity score. `GenerationRecord`, report, and ZIP remain
+separate from repository validation records and repair permissions.
+
 - `Reporter` turns a `RunRecord` into a human-readable artifact.
 - `InteractionProvider` asks bounded host-neutral questions; terminal and non-interactive hosts own
   presentation and timeout behavior.

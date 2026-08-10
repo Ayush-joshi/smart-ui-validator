@@ -80,6 +80,77 @@ export const configSchema = z
         maxArtifactBytes: 20_000_000,
         maxDiagnosticCharacters: 80_000,
       }),
+    generation: z
+      .object({
+        artifactBase: z.string().min(1).default('.smart-ui/generations'),
+        timeoutMs: z.number().int().positive().max(300_000).default(60_000),
+        maxPasses: z.number().int().min(0).max(1).default(1),
+        narrowViewportWidth: z.number().int().positive().max(2_000).default(375),
+        limits: z
+          .object({
+            maxSvgBytes: z.number().int().positive().max(50_000_000).default(5_000_000),
+            maxDecodedCharacters: z.number().int().positive().max(50_000_000).default(5_000_000),
+            maxNodes: z.number().int().positive().max(100_000).default(10_000),
+            maxDepth: z.number().int().positive().max(256).default(64),
+            maxAttributes: z.number().int().positive().max(500_000).default(50_000),
+            maxPathDataCharacters: z
+              .number()
+              .int()
+              .nonnegative()
+              .max(20_000_000)
+              .default(2_000_000),
+            maxGradients: z.number().int().nonnegative().max(10_000).default(1_000),
+            maxFilters: z.number().int().nonnegative().max(1_000).default(100),
+            maxEmbeddedImages: z.number().int().nonnegative().max(1_000).default(100),
+            maxEmbeddedImageBytes: z
+              .number()
+              .int()
+              .nonnegative()
+              .max(20_000_000)
+              .default(2_000_000),
+            maxGeneratedFiles: z.number().int().positive().max(1_000).default(100),
+            maxGeneratedFileBytes: z.number().int().positive().max(50_000_000).default(10_000_000),
+            maxTotalOutputBytes: z.number().int().positive().max(100_000_000).default(20_000_000),
+          })
+          .strict()
+          .default({
+            maxSvgBytes: 5_000_000,
+            maxDecodedCharacters: 5_000_000,
+            maxNodes: 10_000,
+            maxDepth: 64,
+            maxAttributes: 50_000,
+            maxPathDataCharacters: 2_000_000,
+            maxGradients: 1_000,
+            maxFilters: 100,
+            maxEmbeddedImages: 100,
+            maxEmbeddedImageBytes: 2_000_000,
+            maxGeneratedFiles: 100,
+            maxGeneratedFileBytes: 10_000_000,
+            maxTotalOutputBytes: 20_000_000,
+          }),
+      })
+      .strict()
+      .default({
+        artifactBase: '.smart-ui/generations',
+        timeoutMs: 60_000,
+        maxPasses: 1,
+        narrowViewportWidth: 375,
+        limits: {
+          maxSvgBytes: 5_000_000,
+          maxDecodedCharacters: 5_000_000,
+          maxNodes: 10_000,
+          maxDepth: 64,
+          maxAttributes: 50_000,
+          maxPathDataCharacters: 2_000_000,
+          maxGradients: 1_000,
+          maxFilters: 100,
+          maxEmbeddedImages: 100,
+          maxEmbeddedImageBytes: 2_000_000,
+          maxGeneratedFiles: 100,
+          maxGeneratedFileBytes: 10_000_000,
+          maxTotalOutputBytes: 20_000_000,
+        },
+      }),
     memory: z
       .object({
         enabled: z.boolean().default(false),

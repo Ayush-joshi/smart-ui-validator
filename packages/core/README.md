@@ -4,6 +4,12 @@ Host-neutral Smart UI Validator engine for repository inspection, design normali
 deterministic Playwright evidence, visual and structural comparison, bounded repair, reporting,
 policy enforcement, and governed memory.
 
+The core also exports the repository-free SVG generation engine: strict bounded SVG intake,
+hierarchical `DesignBundle`, deterministic exact/hybrid HTML generation, manifest-only loopback
+preview, existing comparator integration, immutable `GenerationRecord`, offline reporting, and
+reproducible ZIP/export providers. CLI, future MCP, and future local-interface hosts share these
+boundaries rather than implementing their own parsers or scores.
+
 This is a library package. Most users should install `smart-ui-validator` for terminal use or
 `smart-ui-validator-mcp` for Codex, Claude Code, VS Code, and other MCP hosts.
 
@@ -12,7 +18,8 @@ This is a library package. Most users should install `smart-ui-validator` for te
 - Node.js 22.16 or newer.
 - A Playwright Chromium revision compatible with the package's pinned Playwright dependency. CLI
   consumers should provision it with `smart-ui setup`.
-- A target React or Angular repository with an explicit Smart UI policy.
+- A target React or Angular repository with an explicit Smart UI policy for validation/repair, or a
+  dedicated workspace boundary for SVG generation.
 
 ## API
 

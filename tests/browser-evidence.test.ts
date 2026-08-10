@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { PlaywrightBrowserProvider } from '../packages/core/src/index.js';
+import { PlaywrightBrowserProvider, compareImages } from '../packages/core/src/index.js';
 
 describe('deterministic browser evidence', () => {
   it('preserves zero values, measures wrapping/focus, and blocks external requests', async () => {
@@ -70,5 +70,37 @@ describe('deterministic browser evidence', () => {
         },
       }),
     ).rejects.toThrow(/explicit masking policy/);
+  });
+
+  it('keeps generation default-state screenshots separate from focus probing without changing validation defaults', async () => {
+    const html = `<html lang="en"><style>body{margin:0;background:#fff}button{width:100px;height:100px}button:focus-visible{outline:3px solid #00f}</style><button>Focus target</button><script>document.querySelector('button').addEventListener('focus',()=>document.body.style.background='#f00')</script></html>`;
+    const provider = new PlaywrightBrowserProvider();
+    const options = {
+      url: `data:text/html,${encodeURIComponent(html)}`,
+      viewport: { width: 120, height: 120, deviceScaleFactor: 1 },
+      timeoutMs: 5_000,
+      locale: 'en-US',
+      theme: 'light' as const,
+      allowedEndpoints: [],
+      blockExternalNetwork: true,
+      evidenceLimits: {
+        maxElements: 100,
+        maxTextLength: 1_000,
+        maxConsoleMessages: 20,
+        maxFailedRequests: 20,
+        maxArtifactBytes: 1_000_000,
+      },
+    };
+    const generation = await provider.capture({ ...options, screenshotBeforeFocusProbe: true });
+    const validation = await provider.capture(options);
+    expect(generation.elements.find((element) => element.tagName === 'button')?.focusVisible).toBe(
+      true,
+    );
+    expect(validation.elements.find((element) => element.tagName === 'button')?.focusVisible).toBe(
+      true,
+    );
+    expect(
+      (await compareImages(generation.screenshot, validation.screenshot)).diffPercent,
+    ).toBeGreaterThan(0);
   });
 });

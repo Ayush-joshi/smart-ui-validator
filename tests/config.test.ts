@@ -8,6 +8,11 @@ describe('Phase 2 configuration', () => {
     expect(config.validation.maxRepairPasses).toBe(5);
     expect(config.policy.blockExternalNetwork).toBe(true);
     expect(config.memory.backend).toBe('local');
+    expect(config.generation).toMatchObject({
+      artifactBase: '.smart-ui/generations',
+      maxPasses: 1,
+      narrowViewportWidth: 375,
+    });
   });
 
   it('fails closed on unknown or unsafe values', () => {
@@ -15,6 +20,7 @@ describe('Phase 2 configuration', () => {
     expect(() => configSchema.parse({ validation: { geometryTolerancePx: -1 } })).toThrow();
     expect(() => configSchema.parse({ masks: [{ x: 0, y: 0, width: -1, height: 1 }] })).toThrow();
     expect(() => configSchema.parse({ commands: { test: 'pnpm test' } })).toThrow();
+    expect(() => configSchema.parse({ generation: { maxPasses: 2 } })).toThrow();
   });
 
   it('requires selectors for pointer and keyboard interaction states', () => {
