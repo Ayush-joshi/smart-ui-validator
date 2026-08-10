@@ -65,7 +65,8 @@ validate or change an external frontend codebase.
 
 ### 2.1 User-visible outcomes
 
-Each successful generation produces a self-contained artifact set similar to:
+Each successful generation produces immutable, content-addressed run artifacts. A user-facing export
+may present a friendly tree similar to:
 
 ```text
 <generation-root>/
@@ -83,22 +84,28 @@ Each successful generation produces a self-contained artifact set similar to:
 └── generated-ui.zip
 ```
 
+The internal artifact store remains manifest-driven and is not required to mirror this export tree.
 The HTML preview must work without a network connection. Generated files may not reference remote
-scripts, stylesheets, fonts, images, or tracking endpoints.
+scripts, stylesheets, fonts, images, or tracking endpoints. Reproducible ZIP entries must have sorted
+paths, normalized permissions, fixed timestamps, and stable byte encoding.
 
 ### 2.2 Output modes
 
 Support three explicit modes with provenance and uncertainty:
 
-| Mode       | Behavior                                                                                                                       | Intended use                                                |
-| ---------- | ------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------- |
-| `exact`    | Place a sanitized SVG inside a minimal semantic HTML document.                                                                 | Guaranteed high-fidelity fallback and artwork-heavy inputs. |
-| `hybrid`   | Generate semantic HTML for recognizable content/layout while retaining complex decorative vectors as local inline or file SVG. | Default and recommended mode.                               |
-| `semantic` | Prefer HTML elements and CSS layout; retain SVG only where conversion would materially reduce fidelity.                        | Accessible, maintainable pages from well-structured SVGs.   |
+| Mode       | Behavior                                                                                                                       | Intended use                                              |
+| ---------- | ------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------- |
+| `exact`    | Place a sanitized SVG inside a minimal semantic HTML document.                                                                 | Highest-fidelity fallback and artwork-heavy inputs.       |
+| `hybrid`   | Generate semantic HTML for recognizable content/layout while retaining complex decorative vectors as local inline or file SVG. | Default and recommended mode.                             |
+| `semantic` | Prefer HTML elements and CSS layout; retain SVG only where conversion would materially reduce fidelity.                        | Accessible, maintainable pages from well-structured SVGs. |
 
 No mode may imply behavior that is absent from the SVG. For example, a visually inferred button can
 be emitted as a non-submitting `<button type="button">`, but the generator must not invent navigation,
 form submission, authentication, or network behavior.
+
+Visual fidelity is measured only under an explicit rendering contract: viewport, device scale,
+background/compositing color, theme, locale, and available fonts. Exact mode is not an unconditional
+pixel-fidelity guarantee when the source depends on unavailable fonts or platform-specific rendering.
 
 ### 2.3 Non-goals for the three phases
 
@@ -165,6 +172,22 @@ MCP may accept an optional host-proposed file batch, similar to the current appr
 The core validates, renders, measures, and accepts or rejects that batch; the host does not calculate
 its own quality score.
 
+### 3.6 Compatibility invariants
+
+Generation must remain an additive capability:
+
+- `SmartUiOrchestrator`, `RunRecord`, `DesignContract`, and existing React/Angular provider behavior
+  retain their current meanings and version compatibility;
+- `LocalImageDesignProvider` remains visual-evidence normalization, not SVG scene parsing;
+- generation-specific configuration is added under a defaulted `generation` section rather than
+  changing validation, repair, browser, or evaluation defaults;
+- browser capture and comparator extensions are opt-in through generation adapters or new options;
+  existing screenshot ordering, thresholds, matching, and baselines do not change implicitly;
+- generation authorization, evaluation, and isolation contracts are additive and do not reuse
+  repository repair actions or fabricate a repository identity; and
+- every phase includes regression tests for the existing CLI, MCP, React, Angular, validation,
+  repair, memory, packaging, and browser flows.
+
 ## 4. Common contracts to establish before host work
 
 The first phase should add strict, versioned contracts similar to the following conceptual shapes.
@@ -174,28 +197,41 @@ Names may be refined during implementation, but responsibilities must remain sep
 
 ```ts
 interface SvgGenerationInput {
+  workspaceRoot: string;
   svgPath: string;
-  outputRoot: string;
+  artifactRoot: string;
+  exportRoot?: string;
   name?: string;
   mode: 'exact' | 'hybrid' | 'semantic';
   layout: 'fixed' | 'responsive' | 'component';
   instructions?: string;
   viewport?: { width: number; height: number; deviceScaleFactor?: number };
+  rendering?: {
+    background: { kind: 'transparent' } | { kind: 'color'; value: string };
+    locale?: string;
+    theme?: 'light' | 'dark';
+  };
 }
 ```
 
-`svgPath` and `outputRoot` must resolve inside one declared generation workspace. `instructions` are
-untrusted evidence; they cannot alter path, command, endpoint, model, or approval policy.
+`workspaceRoot` is the policy and containment boundary. `svgPath`, `artifactRoot`, and optional
+`exportRoot` must resolve inside that exact root without traversing symlinks. `artifactRoot` holds
+core-owned immutable evidence; `exportRoot` is only for an explicitly requested materialized copy.
+Never infer a workspace by finding a common ancestor of input and output paths because that can widen
+the boundary to a home directory, drive root, or filesystem root. `instructions` are untrusted
+evidence; they cannot alter path, command, endpoint, model, or approval policy.
 
 ### 4.2 `DesignBundle`
 
 The bundle should contain:
 
-- schema version, identity, name, source hash, capture time, viewport, and provenance;
+- schema version, identity, name, original-input hash, sanitized hash, capture time, viewport, and
+  provenance;
 - the sanitized SVG artifact and sanitization decisions;
 - a bounded hierarchical scene tree with stable node identifiers;
 - node type, parent/children, geometry, transform, z-order, visibility, and clipping;
 - text content, font properties, text bounds, and whether text was outlined;
+- the resolved font policy, unavailable-font warnings, and reference background/compositing policy;
 - fills, strokes, gradients, opacity, shadows, masks, and local image references;
 - repeated values suitable for CSS custom properties;
 - layout candidates such as horizontal, vertical, grid, overlay, and decorative artwork;
@@ -227,6 +263,11 @@ Generated relative paths must be canonical, unique, non-empty, and restricted to
 directory. Reject absolute paths, traversal, symlinks, device names, case collisions, excessive
 counts, and oversized files.
 
+Every semantic node generated in `hybrid` or `semantic` mode must receive a stable
+`data-validation-id` derived from the normalized source-node identity. Add an optional generic
+`sourceNodeId` to generation comparison evidence; do not store SVG node identifiers in the existing
+Figma-specific field.
+
 ### 4.4 `GenerationRecord`
 
 At minimum, record:
@@ -234,13 +275,15 @@ At minimum, record:
 - schema and generator versions;
 - generation ID and terminal status;
 - start/completion times and stop reason;
-- source hash, sanitized-source artifact, and input preferences;
+- original-input hash, sanitized hash, sanitized-source artifact, and input preferences;
 - generator/provider identity;
 - generated file manifest and hashes;
 - semantic/layout decisions and uncertainty summaries;
 - immutable pass records;
 - generated screenshot, diff, overlay, output archive, and report artifacts;
-- deterministic visual mismatch and similarity values;
+- deterministic source-viewport visual mismatch and similarity values;
+- per-viewport evidence classified as source fidelity, alternate-reference fidelity, or responsive
+  robustness;
 - accessibility/runtime findings calculated from the generated page;
 - timings, warnings, redacted failures, and cancellation state; and
 - provenance for any host-proposed file batch.
@@ -257,11 +300,13 @@ Add narrow interfaces for:
 - `HtmlGenerationProvider`: propose a bounded `GeneratedHtmlBundle`;
 - `GeneratedPreviewProvider`: serve only one generated bundle on an isolated loopback origin;
 - `GenerationReporter`: write the offline generation report; and
-- `GenerationExporter`: create a reproducible ZIP from the accepted file manifest.
+- `GenerationExporter`: create a reproducible ZIP and optionally materialize an already accepted
+  exact file manifest into a newly approved empty export directory.
 
 Reuse the current `ArtifactStore`, `BrowserProvider`, comparator, policy primitives, cancellation,
 redaction, evidence budgets, audit interfaces, and content-addressed storage where their contracts
-fit. Do not duplicate browser or scoring implementations.
+fit. Do not duplicate browser or scoring implementations. Extend artifact media-type handling for
+CSS, plain text, ZIP, and any other owned generation formats so they do not silently become `.bin`.
 
 ## 5. Phase 1 — Core generation engine and CLI vertical slice
 
@@ -282,12 +327,16 @@ Required behavior:
    gradient/filter, embedded-image, and total-output budgets.
 3. Decode strict UTF-8 and reject malformed XML.
 4. Reject `DOCTYPE`, entity declarations, processing instructions, and entity expansion.
-5. Remove or reject `script`, `foreignObject`, event-handler attributes, animation elements,
-   JavaScript URLs, external stylesheets, CSS imports, external fonts, and external resource URLs.
+5. Reject the complete input when it contains `script`, `foreignObject`, event-handler attributes,
+   animation elements, JavaScript URLs, external stylesheets, CSS imports, external fonts, or
+   external resource URLs. Do not silently strip security-relevant content and then imply that the
+   resulting design is equivalent to the submitted source.
 6. Permit local fragments such as `url(#gradient)` only after resolving them within the sanitized
    document.
 7. Bound or reject `data:` resources by approved media type and decoded size.
-8. Canonicalize the accepted SVG and calculate the hash from sanitized bytes.
+8. Hash the original bytes before parsing, then canonicalize the accepted SVG and calculate a
+   separate sanitized hash. Persist the original hash even for a rejected input, but never persist or
+   expose unsafe raw XML as a renderable artifact.
 9. Produce a machine-readable sanitization summary without echoing large or sensitive content.
 10. Never render the original unsanitized SVG.
 
@@ -321,6 +370,15 @@ Detect and report:
 - likely horizontal/vertical groups; and
 - constructs that force an exact SVG fallback.
 
+Fonts are offline inputs, not network dependencies. Package a font only when it is explicitly
+provided inside the workspace, passes type/size validation, and the user confirms it may be embedded.
+Otherwise use a versioned deterministic fallback stack and report the substitution. When text is
+outlined, exact mode retains its paths; semantic modes must not fabricate the missing copy.
+
+Resolve transparency against the explicit rendering background. Use the same compositing rule for
+the reference raster, generated screenshot, diff, and overlay so browser-default background changes
+cannot create false findings.
+
 ### 5.4 Built-in exact and hybrid generator
 
 Implement deterministic generation rules in this order:
@@ -336,7 +394,9 @@ Implement deterministic generation rules in this order:
 8. Inferred controls receive safe semantics but no invented action.
 9. Images receive explicit dimensions; missing alternative text remains a reported question rather
    than a fabricated description.
-10. Generated selectors and filenames are deterministic, stable, and collision-safe.
+10. Generated semantic nodes receive stable `data-validation-id` values tied to normalized source
+    node identifiers.
+11. Generated selectors and filenames are deterministic, stable, and collision-safe.
 
 Semantic generation is permitted in Phase 1 only for high-confidence cases. Fall back per subtree or
 for the full output rather than emitting brittle nested absolute-positioned `<div>` structures while
@@ -354,9 +414,21 @@ Generated files must be previewed through a core-owned, short-lived loopback ser
 - use a fresh isolated Chromium context; and
 - close the server and browser context on success, failure, timeout, or cancellation.
 
-Convert the normalized bundle to a comparator-compatible reference contract. Capture the generated
-page at the resolved viewport and calculate visual mismatch, runtime failures, failed requests, and
-basic accessibility evidence with existing deterministic code.
+Convert the normalized bundle to mode-specific comparator evidence. Capture the default visual state
+before keyboard-focus probing through an additive generation capture option; do not reorder the
+existing validation provider's evidence sequence or alter current baselines. Then calculate runtime
+failures, failed requests, accessibility evidence, and the following bounded comparisons:
+
+- `exact`: source-viewport raster comparison plus document-shell/runtime/accessibility checks; do not
+  flatten every SVG primitive into an expected HTML element;
+- `hybrid` and `semantic`: source-viewport raster comparison plus structural checks only for projected
+  semantic nodes carrying the shared stable `data-validation-id`; and
+- narrow viewports without their own reference SVG: responsive robustness checks such as overflow,
+  clipping, reading/focus order, minimum target sizing, runtime, and accessibility, not visual
+  fidelity against the desktop source.
+
+Only label a non-source viewport as visual fidelity when the user supplies a distinct reference for
+that viewport. Store the reference classification with every viewport result.
 
 Phase 1 may perform one optional deterministic regeneration pass for fixable generator-owned issues.
 It must stop on repeated output, no improvement, timeout, cancellation, or the configured pass limit.
@@ -368,6 +440,7 @@ Add a command similar to:
 
 ```bash
 smart-ui generate \
+  --workspace /absolute/workspace \
   --design /absolute/workspace/design/marketing-hero.svg \
   --output /absolute/workspace/generated/marketing-hero \
   --mode hybrid \
@@ -377,18 +450,26 @@ smart-ui generate \
 
 Required CLI behavior:
 
-- `--design` and `--output` are required in non-interactive use.
+- `--workspace` and `--design` are required in non-interactive use. Never derive the workspace from
+  the design/output common ancestor.
+- `--output` is optional. Supplying it explicitly requests materialization into that exact new empty
+  directory; without it the command returns immutable artifacts, report, and ZIP references only.
+- Resolve a configured artifact base under the workspace and create a unique per-run directory. Do
+  not let two generations update the same artifact manifest.
 - `--mode` defaults to `hybrid`; `--layout` defaults to `responsive`.
 - Add bounded viewport, timeout, maximum-pass, and evidence-budget options through the existing
   configuration model rather than one-off environment variables.
-- `--dry-run` performs SVG safety and capability inspection but writes no generated output.
+- `--dry-run` performs SVG safety and capability inspection, may persist bounded immutable inspection
+  evidence under the artifact root consistently with current dry-run behavior, and writes no
+  generated deliverable or export.
 - `--json` emits one compact machine-readable result without terminal decoration.
 - Human output reports files, sanitization, uncertainties, visual similarity/mismatch, and report
   paths without printing complete HTML or binary evidence.
 - Refuse to merge into or replace a non-empty export directory in Phase 1. Content-addressed run
   artifacts remain immutable; export goes to a new directory or ZIP.
-- Exit codes distinguish invalid input, unsafe SVG, policy failure, provider failure, cancellation,
-  quality completion with warnings, and success.
+- Generation-local exit codes distinguish invalid input, unsafe SVG, policy failure, provider
+  failure, cancellation, quality completion with warnings, and success without changing the meanings
+  of exit codes for existing commands.
 
 Update CLI help, README examples, agent workflow documentation, and capability reporting.
 
@@ -413,6 +494,10 @@ Tests must include:
 - golden/structural tests for generated HTML and CSS without fragile formatting-only assertions;
 - integration tests for CLI dry-run, success, warning, failure, and cancellation;
 - a real-Chromium end-to-end generation with screenshot, diff, overlay, record, report, and ZIP;
+- tests proving a default-state screenshot is not contaminated by focus probing and that existing
+  validation capture ordering remains unchanged;
+- tests proving a source SVG is not scored as narrow-viewport visual fidelity without an explicit
+  narrow reference;
 - repeatability tests proving identical input/config/provider versions produce identical file hashes
   except explicitly excluded timestamps and run identifiers; and
 - regression tests proving the existing normalize, validate, repair, React, and Angular workflows
@@ -428,9 +513,11 @@ Phase 1 is complete only when:
 4. The accepted generated bundle is rendered and compared through the existing isolated browser and
    deterministic comparator.
 5. The immutable `GenerationRecord`, report, evidence, and reproducible ZIP retain provenance and
-   hashes.
+   both original-input and sanitized hashes.
 6. Generated files contain no remote references and work with network disabled.
-7. Existing product gates and end-to-end fixtures remain green.
+7. Source fidelity and responsive robustness are labeled and scored separately.
+8. Existing product gates and end-to-end fixtures remain green without changed browser/comparator
+   defaults or validation schema meanings.
 
 ## 6. Phase 2 — MCP workflow and agent-assisted semantic generation
 
@@ -444,12 +531,13 @@ without coupling the core to one model.
 
 Add a small surface rather than exposing every internal stage:
 
-| Tool                     | Purpose                                                                                        | Mutation/approval                                                                    |
-| ------------------------ | ---------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
-| `inspect_svg`            | Sanitize and return compact SVG capabilities, risks, hierarchy summary, and recommended modes. | Creates evidence artifacts but does not export generated files; annotate accurately. |
-| `generate_html_from_svg` | Generate, render, compare, record, report, and optionally export one HTML bundle.              | Requires explicit approval for the exact output root and proposed file paths.        |
-| `get_generation`         | Return compact or full validated `GenerationRecord` data by generation ID/path.                | Read-only.                                                                           |
-| `get_generation_report`  | Return report, preview, archive, screenshot, diff, and overlay references.                     | Read-only.                                                                           |
+| Tool                     | Purpose                                                                                        | Mutation/approval                                                                     |
+| ------------------------ | ---------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| `inspect_svg`            | Sanitize and return compact SVG capabilities, risks, hierarchy summary, and recommended modes. | May create bounded internal evidence; never exports generated files.                  |
+| `generate_html_from_svg` | Generate, render, compare, record, report, and create an internal ZIP artifact.                | Writes only to a core-owned per-run artifact root inside the configured trusted root. |
+| `export_generation`      | Materialize one accepted manifest or ZIP into a new empty directory.                           | Requires explicit approval for the exact export root and every proposed file path.    |
+| `get_generation`         | Return compact or full validated `GenerationRecord` data by generation ID/path.                | Read-only.                                                                            |
+| `get_generation_report`  | Return report, preview, archive, screenshot, diff, and overlay references.                     | Read-only.                                                                            |
 
 Do not add a generic file writer, shell tool, arbitrary URL fetcher, or arbitrary browser tool.
 
@@ -457,6 +545,7 @@ Publish:
 
 - generation capabilities in `smart-ui://capabilities`;
 - a concise `smart-ui://svg-generation-guide` resource;
+- a bounded, paged generation-context resource keyed by opaque generation ID and cursor;
 - a `generate-from-svg` prompt; and
 - targeted recovery guidance for unsafe SVG, outlined text, unsupported constructs, policy
   containment, missing artifacts, stale server processes, and generation warnings.
@@ -465,14 +554,19 @@ Publish:
 
 `generate_html_from_svg` should accept strict fields for:
 
+- a workspace contained by the server-configured trusted MCP root, which remains authoritative;
 - absolute contained SVG path;
-- absolute contained artifact/output root;
+- core-owned artifact base or run ID, never a combined artifact/export root;
 - mode, layout, viewport, locale, and theme;
 - bounded plain-text instructions;
 - maximum passes and cancellation signal;
 - response detail (`compact` default, `full` opt-in);
-- exact write approval; and
 - optional host-proposed files.
+
+`export_generation` should accept only an existing accepted generation ID, an exact new empty export
+directory, the accepted manifest hash, and explicit approval for the resolved file list. Generation
+does not imply export approval. The CLI's explicit `--output` path is its equivalent user intent;
+Studio downloads stream accepted artifacts and do not materialize arbitrary server paths.
 
 The default result should include only:
 
@@ -487,6 +581,10 @@ The default result should include only:
 
 Full XML, complete HTML, repeated evidence arrays, base64, and full records must remain behind
 artifact reads or explicit full-detail requests.
+
+Host context must also remain bounded. `inspect_svg` returns a compact hierarchy and a context handle;
+hosts obtain additional normalized nodes through the paged resource. Never place complete XML,
+unbounded scene trees, or embedded image data into an agent prompt.
 
 ### 6.4 Host-proposed generation boundary
 
@@ -523,8 +621,10 @@ Expand deterministic analysis and provider context for:
 - focus order and accessible names; and
 - a fixed responsive viewport matrix owned by configuration.
 
-Responsive output must be validated at the requested desktop viewport and at least one configured
-narrow viewport. Do not claim responsive support after validating only one width.
+Responsive output must be validated at the requested source viewport and at least one configured
+narrow viewport. At the source viewport, report visual fidelity. At a narrow viewport without its own
+reference, report responsive robustness only. Do not compare the fixed desktop raster against a
+narrow screenshot or claim narrow-viewport visual fidelity without separate narrow design evidence.
 
 Use the existing `InteractionProvider` to ask only high-impact questions, for example:
 
@@ -544,6 +644,9 @@ cannot override the current SVG or widen permissions.
 - Use progress notifications for long operations without streaming SVG or generated code into host
   context.
 - Keep generation resources isolated by workspace, user/tenant context when supplied, and run ID.
+- Add explicit additive authorization actions such as `generate`, `generation:export`, and
+  `generation:delete`. Do not reuse `repair` permission. Add a workspace-aware isolation contract or
+  versioned optional `workspaceId`; do not invent a repository ID for repository-free generation.
 - Ensure MCP stdout remains protocol-clean.
 - Update the built transport handshake and tool-list tests for the expanded tool count.
 - Version tool schemas and capability fields compatibly; do not silently change existing validation
@@ -560,7 +663,7 @@ Add:
 - cancellation and timeout tests at parsing, generation, preview, and comparison boundaries;
 - prompt-injection tests using SVG text and MCP instructions;
 - cross-workspace, symlink, output-collision, and approval-isolation tests;
-- desktop/narrow real-Chromium generation tests;
+- source-fidelity and narrow-responsive-robustness real-Chromium generation tests;
 - accessibility and network-block tests for generated output; and
 - host configuration smoke tests for Codex, Claude Code, and VS Code/Copilot using the same tool
   schemas.
@@ -574,8 +677,9 @@ Phase 2 is complete only when:
 2. The MCP workflow uses the same engine and produces schema-compatible artifacts as the CLI.
 3. Optional host-proposed HTML is contained, validated, scored deterministically, and rejected on
    policy violation or regression.
-4. Responsive claims are backed by evidence at multiple configured viewports.
-5. Cancellation, timeouts, exact output approval, compact responses, and recovery guidance are
+4. Responsive claims are backed by robustness evidence at multiple configured viewports, while
+   visual-fidelity claims are backed only by a matching reference for that viewport.
+5. Cancellation, timeouts, separate exact export approval, compact responses, and recovery guidance are
    contract-tested.
 6. Existing MCP tools, prompts, resources, and hosts remain compatible.
 
@@ -589,7 +693,7 @@ than a second implementation.
 
 ### 7.2 Product form
 
-Add an `apps/studio` workspace package and expose it through:
+Add `apps/studio` as a private build-time workspace package and expose it through:
 
 ```bash
 smart-ui studio --workspace /absolute/path/to/dedicated-smart-ui-workspace
@@ -599,13 +703,19 @@ The command starts a short-lived local server and prints its exact loopback URL.
 may be offered as an explicit convenience, but headless startup must remain supported for tests and
 restricted environments.
 
+For the first three phases, Studio is not a fourth published package. Its built server and static
+assets are copied into an explicit `dist/studio` subtree of the CLI package, and `smart-ui studio`
+loads only that packaged output. Update package allowlists, publish-readiness checks, clean-consumer
+tests, SBOM input, and package-content inspection to prove Studio is present and version-compatible.
+Publishing Studio separately later requires an ADR and an exact-version compatibility manifest.
+
 This is a local browser interface, not a hosted web application:
 
 - bind only to `127.0.0.1` or `::1`, never all interfaces;
 - do not add login, cloud storage, team accounts, or remote access;
 - do not enable remote MCP;
 - do not collect Figma or model credentials;
-- store each session under the declared dedicated workspace; and
+- store each session in a unique run directory under the declared dedicated workspace; and
 - stop accepting requests when the CLI process exits.
 
 The future Windows desktop repository may embed or launch this capability through published CLI/core
@@ -617,7 +727,8 @@ Provide four clear steps:
 
 1. **Input**
    - Choose or drop one SVG.
-   - Show filename, dimensions, text availability, source hash abbreviation, and sanitization state.
+   - Show filename, dimensions, text availability, original/sanitized hash abbreviations, and
+     sanitization state.
    - Do not render the original unsanitized SVG.
 2. **Preferences**
    - Choose exact, hybrid, or semantic mode.
@@ -678,6 +789,10 @@ Keep interface state separate from authoritative run state:
 - UI preferences become a validated `SvgGenerationInput`; and
 - UI errors use stable core error codes with short recovery guidance.
 
+Do not share one `LocalArtifactStore` manifest between concurrent sessions. Each generation owns one
+immutable run root and manifest. Any optional cross-run registry must serialize writes or use a
+transactional store; a read-modify-rename JSON manifest is not a concurrency boundary.
+
 ### 7.6 Pilot operations and packaging
 
 - Add a dedicated workspace initialization command or first-start flow that refuses broad roots such
@@ -689,16 +804,20 @@ Keep interface state separate from authoritative run state:
   timings and error codes; never SVG text, generated code, screenshots, or paths.
 - Add health checks for the engine, browser, studio assets, loopback binding, write permissions, and
   workspace containment.
-- Package studio assets with the CLI/MCP compatible version set and verify package contents contain
-  no fixtures, source maps, secrets, personal paths, or development servers.
+- Build Studio before CLI packing, copy only reviewed production server/static assets into the CLI
+  package, and verify package contents contain no fixtures, source maps, secrets, personal paths, or
+  development servers.
 - Document that local stores are plaintext unless a deployment/desktop wrapper supplies encryption.
 
 ### 7.7 Evaluation corpus and pilot gates
 
-Create a versioned, permitted SVG generation corpus containing at least:
+Create a new versioned, permitted SVG generation corpus and generation-specific scorecard schema. Do
+not add SVG cases to the existing evaluation schema whose framework dimension is React/Angular.
+The corpus must contain at least:
 
 - simple component, form-like screen, dashboard-like screen, and marketing page;
-- desktop and responsive candidates;
+- desktop candidates, separate desktop/narrow reference pairs, and desktop-only sources used to test
+  responsive robustness without a false narrow-fidelity score;
 - clean text, outlined text, mixed raster/vector, and path-heavy artwork;
 - exact-fallback and hybrid-per-subtree cases;
 - unsafe and adversarial SVGs; and
@@ -708,7 +827,8 @@ Track deterministic measures separately:
 
 - sanitization outcome and reason;
 - output mode requested and final mode used;
-- visual similarity/mismatch by viewport;
+- visual similarity/mismatch only for viewports with matching references;
+- responsive robustness by non-reference viewport;
 - checked and passed structural properties;
 - runtime and failed-request counts;
 - accessibility finding counts;
@@ -733,6 +853,7 @@ Add:
 - malicious-upload and generated-preview origin-isolation tests;
 - refresh and persisted-record recovery tests;
 - multiple concurrent local sessions within configured budgets;
+- manifest-integrity tests with overlapping concurrent artifact writes and session shutdown;
 - verified single-run deletion and retention tests;
 - packaged CLI `studio` startup and health checks; and
 - compatibility tests proving equivalent CLI, MCP, and studio inputs produce equivalent normalized
@@ -750,7 +871,8 @@ Phase 3 is complete only when:
    tests.
 4. CLI, MCP, and studio produce compatible `GenerationRecord` and artifact schemas.
 5. The owned corpus produces a versioned scorecard with separately reported deterministic measures.
-6. Packaging, security, privacy, dependency, secret, and browser checks pass for the controlled
+6. The packed CLI starts Studio from included production assets in a clean consumer installation.
+7. Packaging, security, privacy, dependency, secret, and browser checks pass for the controlled
    internal pilot.
 
 ## 8. Cross-phase security and trust rules
@@ -763,7 +885,8 @@ These rules apply from the first commit and may not be deferred to the local int
 3. Sanitization precedes all rendering and structural interpretation.
 4. The engine never fetches remote SVG resources or generated-page resources.
 5. Generated output contains no script in these phases.
-6. Every generated file is validated against an exact manifest and output root.
+6. Every generated file is validated against an exact manifest and per-run artifact root. Optional
+   materialized export requires a separate exact destination and accepted manifest approval.
 7. Large source, output, screenshot, diff, overlay, trace, and report bodies remain artifacts; records
    retain hashes, metadata, and provenance.
 8. Every bounded revision is immutable and attributable. Repeated or regressing output is rejected.
@@ -771,6 +894,12 @@ These rules apply from the first commit and may not be deferred to the local int
    binary content.
 10. Retention, export, deletion, audit, backup, and migration primitives apply to generation records
     and artifacts as they already do to validation data.
+11. Original-input and sanitized hashes are both retained; unsafe raw XML is never rendered or
+    exposed as a downloadable renderable artifact.
+12. Every run owns an isolated artifact root. Shared mutable manifests are forbidden unless writes
+    are serialized or transactional.
+13. Existing validation browser/comparator/configuration defaults and schema meanings are never
+    changed as an implicit consequence of enabling generation.
 
 ## 9. Repository and API evolution
 
@@ -780,7 +909,7 @@ Prefer the following initial placement while package boundaries remain small:
 apps/
 ├── cli/                         # add generate and studio commands
 ├── mcp-server/                  # add SVG generation tools/resources/prompt
-└── studio/                      # Phase 3 loopback server and static interface
+└── studio/                      # private Phase 3 build input bundled into the CLI package
 
 packages/core/src/
 ├── svg-sanitizer.ts
@@ -810,6 +939,12 @@ one exact schema version.
 Public exports must include only stable contracts and construction APIs. Keep XML parser details,
 sanitizer internals, preview routes, and studio session capabilities private.
 
+Add `generation` as a defaulted strict configuration section. Existing configuration files must
+continue to parse unchanged. Add generation-specific evaluation and workspace-isolation schemas
+rather than broadening the meaning of current React/Angular evaluation or repository isolation
+records. Schema migrations must parse every retained older version and preserve unknown-version
+failure behavior.
+
 ## 10. Documentation changes during implementation
 
 Update the following as each phase lands:
@@ -823,6 +958,9 @@ Update the following as each phase lands:
 - `docs/evaluation.md`: SVG corpus and deterministic metrics;
 - `apps/cli/README.md` and `apps/mcp-server/README.md`; and
 - host setup/examples and release/package documentation.
+
+Record an ADR for mode-specific comparison semantics, viewport evidence classification, Studio
+bundling, and source/background/font rendering policy before their public contracts stabilize.
 
 Do not advertise semantic, responsive, accessible, secure, or offline guarantees beyond the modes,
 constructs, tests, and deployment controls actually verified.
@@ -853,6 +991,10 @@ Before declaring any phase complete, run at minimum:
 - the packaged/manual CLI flow, built stdio MCP handshake from Phase 2 onward, and packaged studio
   flow in Phase 3.
 
+Package checks must install the packed CLI in a clean consumer, confirm `smart-ui studio` can find its
+bundled production assets, and ensure the published package allowlists and compatibility metadata
+cover every shipped Studio file.
+
 Verification reports must state exact test counts, browser scenarios, corpus version, package
 versions, known limitations, and whether evidence came from deterministic local fixtures or a live
 external integration.
@@ -867,8 +1009,9 @@ do not retain user SVGs beyond the configured local retention period.
 
 ### After Phase 2
 
-Enable MCP generation for selected internal users with exact workspace and output approvals. Compare
-CLI and host-proposed results on the same corpus. Keep full evidence opt-in and track response budgets.
+Enable MCP generation for selected internal users with an exact trusted workspace and separate export
+approvals. Compare CLI and host-proposed results on the same corpus. Keep full evidence opt-in and
+track response budgets.
 
 ### After Phase 3
 
@@ -882,13 +1025,18 @@ transport, encryption, quotas, abuse controls, legal review, and operational own
 | ---------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
 | SVG preserves appearance but loses Figma auto-layout, component, and interaction intent. | Report uncertainty, accept small explicit hints, use hybrid/exact fallback, and never invent behavior.           |
 | Text may be outlined into paths.                                                         | Detect missing readable text, ask for copy or fall back to exact mode.                                           |
-| Semantic conversion may reduce visual fidelity.                                          | Preserve complex subtrees as SVG and compare every accepted output deterministically.                            |
+| Fonts may be unavailable or unlicensed for embedding.                                    | Permit only approved local fonts; otherwise use a versioned fallback and report the substitution.                |
+| Transparency may compare differently across renderers.                                   | Normalize one explicit compositing background across reference, screenshot, diff, and overlay.                   |
+| Semantic conversion may reduce visual fidelity.                                          | Preserve complex subtrees as SVG and compare accepted output at each matching-reference viewport.                |
+| One fixed SVG does not prove responsive visual intent.                                   | Score fidelity only at matching-reference viewports and report narrow responsive robustness separately.          |
 | Exact mode may be visually strong but inaccessible or hard to maintain.                  | Label the mode accurately, preserve accessible title/description where possible, and report limitations.         |
 | Malicious SVG or generated HTML may execute content.                                     | Parse before render, reject active/external constructs, isolate preview origin, apply CSP, and block network.    |
 | Agent-proposed HTML may widen scope or fabricate quality.                                | Exact file approval, policy validation, core-owned rendering/scoring, bounded passes, and immutable provenance.  |
 | A loopback UI may be attacked by another local page or process.                          | Session capability, host/origin/CSRF checks, separate preview origin, no CORS, and bounded session workspace.    |
 | New generation schemas may destabilize validation schemas.                               | Separate `GenerationRecord`/`DesignBundle`, compatibility tests, and additive versioned exports.                 |
 | Artifact volume may grow quickly.                                                        | Evidence budgets, content addressing, compact records, retention, deletion, and no binary data in MCP responses. |
+| Concurrent Studio runs may lose artifact-manifest entries.                               | Use one immutable artifact root per run and serialize or transact any shared registry.                           |
+| Studio may work in the monorepo but be absent from the published CLI.                    | Bundle reviewed production assets into the CLI and verify them in packed clean-consumer tests.                   |
 
 ## 14. Decisions to confirm during Phase 1 implementation
 
@@ -906,6 +1054,8 @@ stable:
 6. The studio frontend framework after package-size, accessibility, and maintenance review.
 7. The product-specific dedicated workspace default for installed desktop distributions; the CLI
    continues to require an exact safe workspace path until that decision is implemented.
+8. The versioned deterministic fallback font stack and permitted local font formats.
+9. The default explicit compositing background presented when an SVG is transparent.
 
 None of these decisions may weaken source sanitization, output containment, provenance, deterministic
 measurement, bounded autonomy, or host-neutral core principles.

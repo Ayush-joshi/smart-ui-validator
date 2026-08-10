@@ -18,6 +18,12 @@ This repository copy is the authoritative implementation plan. Phase completion 
 the verification evidence and known integration limitations without reducing later acceptance
 criteria.
 
+Planned additive extension: [`svg-to-html-generation-plan.md`](./svg-to-html-generation-plan.md)
+defines the three-phase CLI, stdio MCP, and loopback Studio roadmap for generating standalone HTML
+from local SVG evidence without an existing frontend repository. Its compatibility invariants and
+acceptance criteria extend this completed roadmap; they do not change or reduce the existing
+validation, repair, React, Angular, browser, memory, security, or distribution requirements.
+
 ## 1. Product definition
 
 Smart UI Validator is a persistent UI engineering agent. A developer can use it
