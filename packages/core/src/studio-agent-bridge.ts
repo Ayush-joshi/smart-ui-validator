@@ -19,6 +19,11 @@ export const AUTHORING_QUEUE_DIRNAME = 'agent-queue';
 const REQUESTS_DIRNAME = 'requests';
 const RESPONSES_DIRNAME = 'responses';
 const ROUND_FILE = /^round-([1-9][0-9]?)\.json$/u;
+/**
+ * Durable per-run high-water mark of issued rounds. Consumed round files are deleted once a round
+ * is answered or abandoned, so this marker is what keeps round numbering strictly increasing.
+ */
+const ISSUED_FILE = 'issued.json';
 
 export const AUTHORING_RUN_ID = /^run-[0-9a-f-]{36}$/u;
 const MAX_SANITIZED_SVG_CHARACTERS = 200_000;
@@ -30,6 +35,9 @@ const MAX_PRIOR_FINDINGS = 20;
 const MAX_EVIDENCE_MESSAGE_CHARACTERS = 400;
 const MAX_RESPONSE_FILES = 100;
 const MAX_RESPONSE_FILE_CHARACTERS = 2_000_000;
+const MAX_VISUAL_EVIDENCE_ITEMS = 4;
+/** Workspace-relative POSIX artifact path with no traversal, drive letter, or absolute prefix. */
+const WORKSPACE_RELATIVE_PATH = /^[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+)*$/u;
 
 /** Hard upper bound on authoring rounds per run; Studio applies its own lower bound. */
 export const MAX_AUTHORING_ROUNDS = 20;
@@ -75,6 +83,29 @@ export const authoringPriorEvidenceSchema = z
 
 export type AuthoringPriorEvidence = z.infer<typeof authoringPriorEvidenceSchema>;
 
+/**
+ * Reference to one rendered PNG the authoring agent may look at. The path is relative to the Studio
+ * workspace so the reader can re-validate containment instead of trusting an absolute path.
+ */
+export const authoringVisualEvidenceSchema = z
+  .object({
+    kind: z.enum(['design-render', 'previous-render', 'previous-diff', 'previous-overlay']),
+    label: z.string().min(1).max(200),
+    mediaType: z.literal('image/png'),
+    workspaceRelativePath: z
+      .string()
+      .min(1)
+      .max(1_024)
+      .regex(WORKSPACE_RELATIVE_PATH, 'Evidence paths must be relative POSIX paths.')
+      .refine((value) => !value.split('/').includes('..'), 'Evidence paths cannot traverse.'),
+    hash: z.string().regex(/^sha256:[a-f0-9]{64}$/u),
+    byteLength: z.number().int().positive().max(50_000_000),
+    round: z.number().int().min(1).max(MAX_AUTHORING_ROUNDS).optional(),
+  })
+  .strict();
+
+export type AuthoringVisualEvidence = z.infer<typeof authoringVisualEvidenceSchema>;
+
 export const authoringRequestSchema = z
   .object({
     schemaVersion: z.literal('1.0'),
@@ -105,6 +136,10 @@ export const authoringRequestSchema = z
       .optional(),
     sanitizedSvg: z.string().min(1).max(MAX_SANITIZED_SVG_CHARACTERS),
     svgTruncated: z.boolean(),
+    visualEvidence: z
+      .array(authoringVisualEvidenceSchema)
+      .max(MAX_VISUAL_EVIDENCE_ITEMS)
+      .optional(),
     createdAt: z.string().datetime(),
     expiresAt: z.string().datetime(),
   })
@@ -164,6 +199,15 @@ export const authoringResponseSchema = z
 
 export type StudioAuthoringResponse = z.infer<typeof authoringResponseSchema>;
 
+const issuedMarkerSchema = z
+  .object({
+    schemaVersion: z.literal('1.0'),
+    runId: z.string().regex(AUTHORING_RUN_ID),
+    highestRound: z.number().int().min(1).max(MAX_AUTHORING_ROUNDS),
+    updatedAt: z.string().datetime(),
+  })
+  .strict();
+
 /** Absolute path of the authoring queue directory inside a Studio workspace. */
 export function agentQueueRoot(studioWorkspace: string): string {
   return join(studioWorkspace, AUTHORING_QUEUE_DIRNAME);
@@ -178,6 +222,7 @@ export function buildAuthoringRequest(options: {
   feedback?: string;
   priorEvidence?: AuthoringPriorEvidence;
   previousResponseHash?: string;
+  visualEvidence?: readonly AuthoringVisualEvidence[];
   timeoutMs?: number;
   now?: Date;
 }): StudioAuthoringRequest {
@@ -217,6 +262,9 @@ export function buildAuthoringRequest(options: {
       ? inspection.sanitizedXml.slice(0, MAX_SANITIZED_SVG_CHARACTERS)
       : inspection.sanitizedXml,
     svgTruncated,
+    ...(options.visualEvidence && options.visualEvidence.length > 0
+      ? { visualEvidence: options.visualEvidence.slice(0, MAX_VISUAL_EVIDENCE_ITEMS) }
+      : {}),
     createdAt: now.toISOString(),
     expiresAt: new Date(now.getTime() + timeoutMs).toISOString(),
   });
@@ -286,6 +334,18 @@ export function authoringResponseHash(response: StudioAuthoringResponse): string
 }
 
 /**
+ * Highest round ever issued for a run, including rounds whose request file was already consumed or
+ * abandoned. Callers derive the next round from this so numbering never collides or dead-ends.
+ */
+export async function highestIssuedAuthoringRound(
+  queueRoot: string,
+  runId: string,
+): Promise<number> {
+  assertRunId(runId);
+  return highestIssued(join(queueRoot, REQUESTS_DIRNAME, runId));
+}
+
+/**
  * Atomically writes a validated authoring request for one round. Rounds must be strictly
  * increasing; a stale or duplicate round is refused.
  */
@@ -296,8 +356,7 @@ export async function writeAuthoringRequest(
   const validated = authoringRequestSchema.parse(request);
   const directory = join(queueRoot, REQUESTS_DIRNAME, validated.runId);
   await mkdir(directory, { recursive: true, mode: 0o700 });
-  const rounds = await listRounds(directory);
-  const latest = rounds.at(-1) ?? 0;
+  const latest = await highestIssued(directory);
   if (validated.round !== latest + 1) {
     throw new SmartUiError(
       'POLICY_VIOLATION',
@@ -306,6 +365,12 @@ export async function writeAuthoringRequest(
   }
   const destination = join(directory, roundFileName(validated.round));
   await atomicWriteJson(destination, validated);
+  await atomicWriteJson(join(directory, ISSUED_FILE), {
+    schemaVersion: '1.0',
+    runId: validated.runId,
+    highestRound: validated.round,
+    updatedAt: validated.createdAt,
+  });
   return destination;
 }
 
@@ -543,6 +608,18 @@ async function listRounds(directory: string): Promise<number[]> {
     .map(Number)
     .filter((round) => round >= 1 && round <= MAX_AUTHORING_ROUNDS)
     .sort((left, right) => left - right);
+}
+
+/**
+ * Highest round issued for one run directory. Round files are removed once consumed, so the marker
+ * is authoritative; a missing or malformed marker degrades to the rounds still on disk.
+ */
+async function highestIssued(directory: string): Promise<number> {
+  const onDisk = (await listRounds(directory)).at(-1) ?? 0;
+  const marker = issuedMarkerSchema.safeParse(
+    safeParseJson((await readOptional(join(directory, ISSUED_FILE))) ?? ''),
+  );
+  return Math.max(onDisk, marker.success ? marker.data.highestRound : 0);
 }
 
 async function atomicWriteJson(destination: string, value: unknown): Promise<void> {

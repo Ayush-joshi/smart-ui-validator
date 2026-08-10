@@ -1,5 +1,6 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
+import { createHash } from 'node:crypto';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -397,6 +398,13 @@ describe('stable host-neutral MCP contract', () => {
     const now = Date.now();
     const requestsDir = join(studioWorkspace, 'agent-queue', 'requests', runId);
     await mkdir(requestsDir, { recursive: true });
+    const png = Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+      'base64',
+    );
+    const evidenceRelativePath = 'runs/design-render.png';
+    await mkdir(join(studioWorkspace, 'runs'), { recursive: true });
+    await writeFile(join(studioWorkspace, 'runs', 'design-render.png'), png);
     await writeFile(
       join(requestsDir, 'round-1.json'),
       JSON.stringify({
@@ -415,6 +423,16 @@ describe('stable host-neutral MCP contract', () => {
         instructions: 'Keep the heading copy.',
         sanitizedSvg: '<svg xmlns="http://www.w3.org/2000/svg" width="320" height="180"></svg>',
         svgTruncated: false,
+        visualEvidence: [
+          {
+            kind: 'design-render',
+            label: 'Rendered reference of the design at 320x180',
+            mediaType: 'image/png',
+            workspaceRelativePath: evidenceRelativePath,
+            hash: `sha256:${createHash('sha256').update(png).digest('hex')}`,
+            byteLength: png.byteLength,
+          },
+        ],
         createdAt: new Date(now).toISOString(),
         expiresAt: new Date(now + 600_000).toISOString(),
       }),
@@ -440,6 +458,14 @@ describe('stable host-neutral MCP contract', () => {
       listed.structuredContent as { requests: Array<{ canvasGuidance: string }> }
     ).requests[0];
     expect(listedRequest?.canvasGuidance).toContain('320x180');
+    expect(listed.structuredContent).toMatchObject({
+      inlineImageCount: 1,
+      requests: [{ visualEvidence: [{ kind: 'design-render', inlined: true, imageIndex: 0 }] }],
+    });
+    const image = (listed.content as Array<{ type: string; data?: string; mimeType?: string }>)[0];
+    expect(image?.type).toBe('image');
+    expect(image?.mimeType).toBe('image/png');
+    expect(image?.data).toBe(png.toString('base64'));
 
     const unapproved = await client.callTool({
       name: 'submit_studio_authored_html',

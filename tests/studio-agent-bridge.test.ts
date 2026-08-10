@@ -13,6 +13,8 @@ import {
   authoringRevisionGuidance,
   buildAuthoringRequest,
   deleteAuthoringRequest,
+  deleteAuthoringResponse,
+  highestIssuedAuthoringRound,
   listPendingAuthoringRequests,
   loadConfig,
   readAuthoringResponse,
@@ -146,7 +148,41 @@ describe('Studio agent authoring bridge', () => {
     expect(pending.map((item) => item.runId)).toEqual([RUN_ID]);
     // No stray temp files remain from the atomic write.
     const files = await readdir(join(queueRoot, 'requests', RUN_ID));
-    expect(files).toEqual(['round-1.json']);
+    expect(files.sort()).toEqual(['issued.json', 'round-1.json']);
+  });
+
+  it('advances to the next round after the previous round is consumed or abandoned', async () => {
+    const ws = await workspace('advance');
+    const queueRoot = agentQueueRoot(ws);
+    await writeAuthoringRequest(queueRoot, await inspectedRequest(ws));
+    await writeAuthoringResponse(queueRoot, validResponse(1));
+    // Studio deletes both sides of a consumed round; numbering must still move forward.
+    await deleteAuthoringRequest(queueRoot, RUN_ID, 1);
+    await deleteAuthoringResponse(queueRoot, RUN_ID, 1);
+    expect(await listPendingAuthoringRequests(queueRoot)).toEqual([]);
+    expect(await highestIssuedAuthoringRound(queueRoot, RUN_ID)).toBe(1);
+
+    await expect(writeAuthoringRequest(queueRoot, await inspectedRequest(ws))).rejects.toThrow(
+      /next expected round is 2/u,
+    );
+    const second = await inspectedRequest(ws, undefined, {
+      round: 2,
+      feedback: 'Tighten the header spacing.',
+      priorEvidence: PRIOR_EVIDENCE,
+    });
+    await writeAuthoringRequest(queueRoot, second);
+    expect((await listPendingAuthoringRequests(queueRoot)).map((item) => item.round)).toEqual([2]);
+
+    // An abandoned round (expired or canceled, never answered) still advances the counter.
+    await deleteAuthoringRequest(queueRoot, RUN_ID, 2);
+    expect(await highestIssuedAuthoringRound(queueRoot, RUN_ID)).toBe(2);
+    const third = await inspectedRequest(ws, undefined, {
+      round: 3,
+      feedback: 'Try again.',
+      priorEvidence: PRIOR_EVIDENCE,
+    });
+    await writeAuthoringRequest(queueRoot, third);
+    expect((await listPendingAuthoringRequests(queueRoot)).map((item) => item.round)).toEqual([3]);
   });
 
   it('carries feedback and prior evidence into a revision round and refuses stale rounds', async () => {

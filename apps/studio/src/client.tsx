@@ -551,7 +551,7 @@ export function StudioApp(): ReactNode {
                   :
                 </p>
                 <code>
-                  {`Use the smart-ui MCP server. Call list_studio_authoring_requests with studioWorkspace "${session?.agent.workspace ?? ''}", author complete offline index.html and styles.css for run ${active.runId} round ${active.pendingAuthoring?.round ?? 1} (no scripts, no external URLs), then call submit_studio_authored_html with approved: true and that exact runId and round.`}
+                  {`Use the smart-ui MCP server. Call list_studio_authoring_requests with studioWorkspace "${session?.agent.workspace ?? ''}", look at the attached rendered design and prior-round images, author complete offline index.html and styles.css for run ${active.runId} round ${active.pendingAuthoring?.round ?? 1} (no scripts, no external URLs), then call submit_studio_authored_html with approved: true and that exact runId and round.`}
                 </code>
                 {active.pendingAuthoring?.feedback && (
                   <p className="feedback-echo">

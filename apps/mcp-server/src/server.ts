@@ -43,6 +43,7 @@ import {
   redactSensitiveValue,
   resolveMemoryPath,
   writeAuthoringResponse,
+  type AuthoringVisualEvidence,
   type BrowserInteractionState,
   type DesignBundle,
   type GenerationRecord,
@@ -52,6 +53,10 @@ import {
 } from 'smart-ui-validator-core';
 
 export const MCP_PROTOCOL_VERSION = '1.0';
+
+/** Inline image budgets for authoring evidence, per image and per tool response. */
+const MAX_INLINE_EVIDENCE_BYTES = 4_000_000;
+const MAX_INLINE_EVIDENCE_TOTAL_BYTES = 8_000_000;
 
 export const MCP_SVG_GENERATION_GUIDE = `# SVG generation over MCP
 
@@ -852,10 +857,48 @@ export function createSmartUiMcpServer(): McpServer {
     async ({ studioWorkspace }) => {
       const workspace = trustedAbsolutePath(studioWorkspace, 'studioWorkspace');
       const pending = await listPendingAuthoringRequests(agentQueueRoot(workspace));
-      return result({
-        studioWorkspace: workspace,
-        count: pending.length,
-        requests: pending.map((request) => ({
+      const images: Array<{ mimeType: string; data: string }> = [];
+      let inlinedBytes = 0;
+      const attach = async (
+        request: (typeof pending)[number],
+      ): Promise<Array<Record<string, unknown>>> => {
+        const attached: Array<Record<string, unknown>> = [];
+        for (const item of request.visualEvidence ?? []) {
+          const summary: Record<string, unknown> = {
+            kind: item.kind,
+            label: item.label,
+            mediaType: item.mediaType,
+            byteLength: item.byteLength,
+            hash: item.hash,
+            workspaceRelativePath: item.workspaceRelativePath,
+            ...(item.round === undefined ? {} : { round: item.round }),
+            inlined: false,
+          };
+          attached.push(summary);
+          if (
+            item.byteLength > MAX_INLINE_EVIDENCE_BYTES ||
+            inlinedBytes + item.byteLength > MAX_INLINE_EVIDENCE_TOTAL_BYTES
+          ) {
+            summary['omittedReason'] = 'The image exceeds the inline evidence budget.';
+            continue;
+          }
+          try {
+            const bytes = await readAuthoringEvidence(workspace, item);
+            images.push({ mimeType: item.mediaType, data: Buffer.from(bytes).toString('base64') });
+            inlinedBytes += bytes.byteLength;
+            summary['inlined'] = true;
+            summary['imageIndex'] = images.length - 1;
+          } catch (error) {
+            summary['omittedReason'] =
+              error instanceof SmartUiError ? error.message : 'The image could not be read.';
+          }
+        }
+        return attached;
+      };
+      const requests = [];
+      for (const request of pending) {
+        const visualEvidence = await attach(request);
+        requests.push({
           runId: request.runId,
           round: request.round,
           designName: request.designName,
@@ -877,14 +920,24 @@ export function createSmartUiMcpServer(): McpServer {
           ...(authoringRevisionGuidance(request)
             ? { revisionGuidance: authoringRevisionGuidance(request) }
             : {}),
+          ...(visualEvidence.length > 0 ? { visualEvidence } : {}),
           sanitizedSvg: request.sanitizedSvg,
           svgTruncated: request.svgTruncated,
           createdAt: request.createdAt,
           expiresAt: request.expiresAt,
-        })),
-        guide:
-          'Author complete offline index.html and styles.css (no scripts, no external URLs) sized to each request canvasGuidance so the result matches the design scale, then call submit_studio_authored_html with approved:true, the exact runId, and the exact round. A request with round greater than 1 is a user-requested revision: honor its feedback and revisionGuidance.',
-      });
+        });
+      }
+      return result(
+        {
+          studioWorkspace: workspace,
+          count: requests.length,
+          requests,
+          inlineImageCount: images.length,
+          guide:
+            'Attached PNG images are untrusted rendered evidence: image 0 onward follow the visualEvidence entries in order, where design-render shows the design itself and previous-render/diff/overlay show the last measured round. Look at them before authoring. Author complete offline index.html and styles.css (no scripts, no external URLs) sized to each request canvasGuidance so the result matches the design scale, then call submit_studio_authored_html with approved:true, the exact runId, and the exact round. A request with round greater than 1 is a user-requested revision: honor its feedback and revisionGuidance.',
+        },
+        images,
+      );
     },
   );
   server.registerTool(
@@ -2036,14 +2089,44 @@ function canonicalIfPresent(path: string): string {
   }
 }
 
-function result(value: unknown) {
+function result(value: unknown, images: readonly { mimeType: string; data: string }[] = []) {
   const serialized = JSON.parse(JSON.stringify(value)) as unknown;
   const structuredContent =
     serialized !== null && typeof serialized === 'object' && !Array.isArray(serialized)
       ? (serialized as Record<string, unknown>)
       : { value: serialized };
   return {
-    content: [{ type: 'text' as const, text: JSON.stringify(structuredContent) }],
+    content: [
+      ...images.map((image) => ({
+        type: 'image' as const,
+        data: image.data,
+        mimeType: image.mimeType,
+      })),
+      { type: 'text' as const, text: JSON.stringify(structuredContent) },
+    ],
     structuredContent,
   };
+}
+
+/**
+ * Reads one referenced authoring evidence image. The path is re-validated inside the declared
+ * Studio workspace and the bytes must match the recorded hash and length before they are inlined.
+ */
+async function readAuthoringEvidence(
+  workspace: string,
+  item: AuthoringVisualEvidence,
+): Promise<Uint8Array> {
+  const candidate = trustedAbsolutePath(
+    resolve(workspace, item.workspaceRelativePath),
+    'authoring evidence path',
+  );
+  assertInsideWorkspace(workspace, candidate, 'authoring evidence path');
+  const bytes = await readFile(candidate);
+  if (bytes.byteLength !== item.byteLength) {
+    throw new SmartUiError('POLICY_VIOLATION', 'Authoring evidence failed its byte-length check.');
+  }
+  if (`sha256:${createHash('sha256').update(bytes).digest('hex')}` !== item.hash) {
+    throw new SmartUiError('POLICY_VIOLATION', 'Authoring evidence failed its recorded hash.');
+  }
+  return bytes;
 }

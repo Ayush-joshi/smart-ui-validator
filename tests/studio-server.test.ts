@@ -4,6 +4,11 @@ import { request as httpRequest } from 'node:http';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
+  agentQueueRoot,
+  listPendingAuthoringRequests,
+  writeAuthoringResponse,
+} from '../packages/core/src/index.js';
+import {
   initializeStudioWorkspace,
   startStudioServer,
   type StudioServer,
@@ -202,8 +207,14 @@ describe('local Studio server security and lifecycle', () => {
     const request = JSON.parse(await readFile(requestPath, 'utf8')) as {
       runId: string;
       round: number;
+      visualEvidence?: Array<{ kind: string; workspaceRelativePath: string; byteLength: number }>;
     };
     expect(request).toMatchObject({ runId: run.runId, round: 1 });
+    const designRender = request.visualEvidence?.find((item) => item.kind === 'design-render');
+    expect(designRender, 'the agent receives a rendered design image').toBeTruthy();
+    await expect(
+      stat(join(context.workspace, designRender!.workspaceRelativePath)),
+    ).resolves.toMatchObject({ size: designRender!.byteLength });
 
     await context.request(`/api/runs/${run.runId}/cancel`, {
       method: 'POST',
@@ -231,11 +242,84 @@ describe('local Studio server security and lifecycle', () => {
     const failed = await waitForPhase(context, run.runId, 'failed');
     expect(failed.error?.message).toMatch(/expired before the agent responded/u);
   });
+
+  it('queues, measures, and isolates a second authoring round after the first is rejected', async () => {
+    const context = await studioFixture(4_000, 60_000);
+    const run = await json<{ runId: string }>(
+      await context.request('/api/runs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'image/svg+xml', 'X-Smart-UI-Filename': 'improve.svg' },
+        body: cleanSvg,
+      }),
+    );
+    const queueRoot = agentQueueRoot(context.workspace);
+    const answerRound = async (round: number, background: string) => {
+      for (let attempt = 0; attempt < 400; attempt += 1) {
+        const pending = await listPendingAuthoringRequests(queueRoot);
+        if (pending.some((item) => item.round === round)) {
+          await writeAuthoringResponse(queueRoot, {
+            schemaVersion: '1.0',
+            runId: run.runId,
+            round,
+            authoringAgent: 'improve-test-agent',
+            createdAt: new Date().toISOString(),
+            files: [
+              {
+                path: 'index.html',
+                content:
+                  '<!doctype html><html lang="en"><head><meta charset="utf-8"><link rel="stylesheet" href="styles.css"></head><body><div class="card">Hello</div></body></html>',
+              },
+              {
+                path: 'styles.css',
+                content: `html,body{margin:0;padding:0;width:120px;height:80px}.card{width:120px;height:80px;background:${background};color:#fff;font-size:18px}`,
+              },
+            ],
+          });
+          return;
+        }
+        await new Promise((accept) => setTimeout(accept, 50));
+      }
+      throw new Error(`Authoring round ${round} was never queued.`);
+    };
+
+    await context.request(`/api/runs/${run.runId}/generate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        engine: 'agent',
+        mode: 'semantic',
+        layout: 'responsive',
+        improve: true,
+      }),
+    });
+    await answerRound(1, '#4f7cff');
+    await waitForPhase(context, run.runId, 'awaiting-decision');
+
+    const improve = await context.request(`/api/runs/${run.runId}/decision`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'improve', feedback: 'Make the card green.' }),
+    });
+    expect(improve.status).toBe(202);
+    await answerRound(2, '#44cc88');
+    const reviewed = await waitForPhase(context, run.runId, 'awaiting-decision');
+    expect(reviewed.error).toBeUndefined();
+    expect(reviewed.rounds?.map((item) => item.round)).toEqual([1, 2]);
+    // Each round owns a separate generation artifact root, as the orchestrator requires.
+    for (const round of [1, 2]) {
+      expect(
+        (
+          await stat(join(context.workspace, 'runs', run.runId, 'artifacts', `round-${round}`))
+        ).isDirectory(),
+      ).toBe(true);
+    }
+  }, 180_000);
 });
 
 interface StudioRunSummary {
   runId: string;
   phase: string;
+  rounds?: Array<{ round: number }>;
   error?: { message: string };
 }
 

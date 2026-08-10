@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- Attached hash-verified rendered PNG evidence to Studio authoring requests. Each request now
+  carries the rendered design image, and revision rounds also carry the previous round's render,
+  pixel difference, and overlay; `list_studio_authoring_requests` returns them as MCP image content
+  within a bounded inline budget so the authoring agent can see the design instead of only parsing
+  SVG paths.
+- Fixed a confirm-then-improve dead end. The authoring queue now keeps a durable per-run high-water
+  mark of issued rounds, and Studio derives the next round from it, so a rejected, failed, or
+  abandoned round reliably queues the next request instead of failing with
+  `Studio authoring round N is stale or duplicated` and leaving no pending request.
+- Fixed improvement rounds failing with `Artifact root must be a new empty directory`. Each Studio
+  authoring round now generates into its own `runs/<id>/artifacts/round-<n>` root, and record
+  selection, downloads, evidence, previous-round evidence, and recovery resolve artifacts from the
+  owning round's root.
 - Added an agent-powered Studio generation engine (default) driven by the connected `smart-ui` MCP
   chat agent through a contained file-queue bridge (`studio-agent-bridge`), plus the
   `list_studio_authoring_requests` and `submit_studio_authored_html` MCP tools, an `awaiting-agent`

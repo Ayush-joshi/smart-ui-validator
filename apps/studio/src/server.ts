@@ -15,7 +15,17 @@ import {
 } from 'node:fs/promises';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { homedir } from 'node:os';
-import { basename, dirname, extname, isAbsolute, join, parse, relative, resolve } from 'node:path';
+import {
+  basename,
+  dirname,
+  extname,
+  isAbsolute,
+  join,
+  parse,
+  relative,
+  resolve,
+  sep,
+} from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { AddressInfo } from 'node:net';
 import {
@@ -38,17 +48,20 @@ import {
   deleteAuthoringRequest,
   deleteAuthoringResponse,
   generationRecordSchema,
+  highestIssuedAuthoringRound,
   loadConfig,
   svgGenerationInputSchema,
   waitForAuthoringResponse,
   writeAuthoringRequest,
   type ArtifactRef,
   type AuthoringPriorEvidence,
+  type AuthoringVisualEvidence,
   type GeneratedPreviewSession,
   type GenerationLayout,
   type GenerationMode,
   type GenerationRecord,
   type HtmlGenerationProvider,
+  type SvgInspectionResult,
 } from 'smart-ui-validator-core';
 
 const MARKER_NAME = '.smart-ui-studio.json';
@@ -382,13 +395,14 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
         throw new SmartUiError('POLICY_VIOLATION', 'Only an inspected run can start generation.');
       }
       const preferences = parsePreferences(await readJsonBody(request));
+      const firstRound = await nextAuthoringRound(run);
       run.preferences = preferences;
       run.phase = 'generating';
       run.updatedAt = new Date().toISOString();
       run.progress = { stage: 'generate', value: 0.15, message: 'Generation queued.' };
       run.controller = new AbortController();
       await persistRun(run);
-      run.task = startRound(run, 1).finally(() => {
+      run.task = startRound(run, firstRound).finally(() => {
         run.task = undefined;
         run.controller = undefined;
       });
@@ -414,7 +428,7 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
           `This run reached its bound of ${maxImproveRounds} improvement rounds; accept the round you prefer.`,
         );
       }
-      const nextRound = run.rounds.length + 1;
+      const nextRound = await nextAuthoringRound(run);
       delete run.error;
       run.phase = 'generating';
       run.progress = {
@@ -477,7 +491,6 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
     const runRoot = join(runsRoot, id);
     const inputRoot = join(runRoot, 'input');
     const uploadPath = join(inputRoot, 'upload.svg');
-    const artifactRoot = join(runRoot, 'artifacts');
     const inspectionArtifactRoot = join(runRoot, 'inspection-artifacts');
     await mkdir(inputRoot, { recursive: true, mode: 0o700 });
     try {
@@ -503,7 +516,7 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
       return {
         id,
         root: runRoot,
-        artifactRoot,
+        artifactRoot: roundArtifactRoot(runRoot, 1),
         uploadPath,
         filename,
         createdAt: now,
@@ -539,11 +552,12 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
     let authoring: { authoringAgent: string; responseHash: string } | undefined;
     try {
       const config = await loadConfig(workspace);
-      const store = new LocalArtifactStore(run.artifactRoot);
+      const artifactRoot = roundArtifactRoot(run.root, round);
+      const store = new LocalArtifactStore(artifactRoot);
       const generationInput = svgGenerationInputSchema.parse({
         workspaceRoot: workspace,
         svgPath: run.uploadPath,
-        artifactRoot: run.artifactRoot,
+        artifactRoot,
         generationId: `generation-${randomUUID()}`,
         mode: preferences.mode,
         layout: preferences.layout,
@@ -590,7 +604,7 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
           run.updatedAt = new Date().toISOString();
         },
       }).run(generationInput, run.controller?.signal);
-      selectRecord(run, result.record, result.recordArtifact.relativePath);
+      selectRecord(run, result.record, result.recordArtifact.relativePath, artifactRoot);
       const acceptedPass = [...result.record.passes].reverse().find((pass) => pass.accepted);
       run.rounds.push({
         round,
@@ -653,7 +667,7 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
     if (!record) {
       throw new SmartUiError('NOT_FOUND', 'The evidence for that authoring round is unavailable.');
     }
-    selectRecord(run, record, target.recordArtifactPath);
+    selectRecord(run, record, target.recordArtifactPath, roundArtifactRoot(run.root, target.round));
     run.selectedRound = target.round;
     markAccepted(run, target.round);
     run.phase = 'completed';
@@ -691,6 +705,16 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
       config.generation.limits,
     ).inspect(inspectionInput, signal);
     const previous = run.rounds.at(-1);
+    const visualEvidence = [
+      ...(await designRenderEvidence(
+        run,
+        inspectionInput,
+        inspection,
+        config,
+        inspectionArtifactRoot,
+      )),
+      ...(previous ? priorVisualEvidence(run, previous) : []),
+    ];
     const request = buildAuthoringRequest({
       runId: run.id,
       input: generationInput,
@@ -699,6 +723,7 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
       ...(feedback ? { feedback } : {}),
       ...(previous ? { priorEvidence: priorEvidence(run, previous) } : {}),
       ...(previous?.responseHash ? { previousResponseHash: previous.responseHash } : {}),
+      ...(visualEvidence.length > 0 ? { visualEvidence } : {}),
       timeoutMs: agentTimeoutMs,
     });
     await writeAuthoringRequest(queueRoot, request);
@@ -736,6 +761,109 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
       await deleteAuthoringRequest(queueRoot, run.id, round);
       await deleteAuthoringResponse(queueRoot, run.id, round);
     }
+  }
+
+  /**
+   * Renders the sanitized design once, in isolation, so the authoring agent can look at the design
+   * instead of only parsing SVG paths. Optional evidence: a render failure must not fail the round.
+   */
+  async function designRenderEvidence(
+    run: StudioRun,
+    input: ReturnType<typeof svgGenerationInputSchema.parse>,
+    inspection: SvgInspectionResult,
+    config: Awaited<ReturnType<typeof loadConfig>>,
+    artifactRoot: string,
+  ): Promise<AuthoringVisualEvidence[]> {
+    const signal = run.controller?.signal;
+    try {
+      const exact = await new DeterministicHtmlGenerationProvider().generate(
+        { ...input, mode: 'exact' },
+        inspection,
+        signal,
+      );
+      const session = await new LoopbackGeneratedPreviewProvider().serve(exact, signal);
+      let screenshot: Uint8Array;
+      try {
+        screenshot = (
+          await new PlaywrightBrowserProvider().capture({
+            url: session.url,
+            viewport: inspection.bundle.viewport,
+            timeoutMs: Math.min(config.generation.timeoutMs, 60_000),
+            locale: input.rendering.locale,
+            theme: input.rendering.theme,
+            allowedEndpoints: [session.origin],
+            blockExternalNetwork: true,
+            screenshotBeforeFocusProbe: true,
+            evidenceLimits: config.evidence,
+            ...(signal ? { signal } : {}),
+          })
+        ).screenshot;
+      } finally {
+        await session.close();
+      }
+      const artifact = await new LocalArtifactStore(artifactRoot).put(
+        screenshot,
+        'image/png',
+        'design-render.png',
+      );
+      return [
+        {
+          kind: 'design-render',
+          label: `Rendered reference of the design at ${inspection.bundle.viewport.width}x${inspection.bundle.viewport.height}`,
+          mediaType: 'image/png',
+          workspaceRelativePath: workspaceRelativeArtifact(
+            workspace,
+            artifactRoot,
+            artifact.relativePath,
+          ),
+          hash: artifact.hash,
+          byteLength: artifact.byteLength,
+        },
+      ];
+    } catch {
+      return [];
+    }
+  }
+
+  /** Measured images from the previous round so a revision can see what it is correcting. */
+  function priorVisualEvidence(run: StudioRun, previous: RunRound): AuthoringVisualEvidence[] {
+    const record = run.records.get(previous.round);
+    const pass = record ? [...record.passes].reverse().find((item) => item.accepted) : undefined;
+    if (!pass) return [];
+    const entries: Array<[AuthoringVisualEvidence['kind'], string, ArtifactRef]> = [
+      ['previous-render', `Round ${previous.round} rendered output`, pass.screenshot],
+      ['previous-diff', `Round ${previous.round} pixel difference against the design`, pass.diff],
+      ['previous-overlay', `Round ${previous.round} overlay on the design`, pass.overlay],
+    ];
+    return entries
+      .filter(([, , artifact]) => artifact.mediaType === 'image/png')
+      .map(([kind, label, artifact]) => ({
+        kind,
+        label,
+        mediaType: 'image/png' as const,
+        workspaceRelativePath: workspaceRelativeArtifact(
+          workspace,
+          roundArtifactRoot(run.root, previous.round),
+          artifact.relativePath,
+        ),
+        hash: artifact.hash,
+        byteLength: artifact.byteLength,
+        round: previous.round,
+      }));
+  }
+
+  /** Next authoring round for a run, monotonic across completed, failed, and abandoned rounds. */
+  async function nextAuthoringRound(run: StudioRun): Promise<number> {
+    const completed = run.rounds.at(-1)?.round ?? 0;
+    const issued = await highestIssuedAuthoringRound(queueRoot, run.id);
+    const next = Math.max(completed, issued) + 1;
+    if (next > MAX_AUTHORING_ROUNDS) {
+      throw new SmartUiError(
+        'POLICY_VIOLATION',
+        `This run reached the hard bound of ${MAX_AUTHORING_ROUNDS} authoring rounds; accept the round you prefer or start a new run.`,
+      );
+    }
+    return next;
   }
 
   async function health(): Promise<StudioHealth> {
@@ -1005,9 +1133,20 @@ function parseDecision(value: unknown): {
   };
 }
 
-function selectRecord(run: StudioRun, record: GenerationRecord, recordArtifactPath: string): void {
+function selectRecord(
+  run: StudioRun,
+  record: GenerationRecord,
+  recordArtifactPath: string,
+  artifactRoot: string,
+): void {
   run.record = record;
   run.recordArtifactPath = recordArtifactPath;
+  run.artifactRoot = artifactRoot;
+}
+
+/** Each round owns a new empty generation artifact root, as the orchestrator requires. */
+function roundArtifactRoot(runRoot: string, round: number): string {
+  return join(runRoot, 'artifacts', `round-${round}`);
 }
 
 function markAccepted(run: StudioRun, round: number): void {
@@ -1017,6 +1156,15 @@ function markAccepted(run: StudioRun, round: number): void {
 
 function textHash(value: string): string {
   return `sha256:${createHash('sha256').update(value, 'utf8').digest('hex')}`;
+}
+
+/** Workspace-relative POSIX path of one artifact, so readers can re-verify containment. */
+function workspaceRelativeArtifact(
+  workspace: string,
+  artifactRoot: string,
+  relativePath: string,
+): string {
+  return relative(workspace, join(artifactRoot, relativePath)).split(sep).join('/');
 }
 
 /** Bounded deterministic evidence from one completed round, derived from its immutable record. */
@@ -1251,7 +1399,7 @@ async function recoverRuns(
       const run: StudioRun = {
         id: pointer.runId,
         root,
-        artifactRoot: join(root, 'artifacts'),
+        artifactRoot: roundArtifactRoot(root, pointer.selectedRound ?? 1),
         uploadPath: join(root, 'input', 'upload.svg'),
         filename: pointer.filename,
         createdAt: pointer.createdAt,
@@ -1271,16 +1419,19 @@ async function recoverRuns(
         controller: undefined,
         task: undefined,
       };
-      const store = new LocalArtifactStore(run.artifactRoot);
       for (const item of run.rounds) {
-        const bytes = await store.read(item.recordArtifactPath);
+        const bytes = await new LocalArtifactStore(roundArtifactRoot(root, item.round)).read(
+          item.recordArtifactPath,
+        );
         run.records.set(
           item.round,
           generationRecordSchema.parse(JSON.parse(new TextDecoder().decode(bytes))),
         );
       }
       if (pointer.recordArtifactPath) {
-        const bytes = await store.read(pointer.recordArtifactPath);
+        const bytes = await new LocalArtifactStore(run.artifactRoot).read(
+          pointer.recordArtifactPath,
+        );
         run.record = generationRecordSchema.parse(JSON.parse(new TextDecoder().decode(bytes)));
         if (run.record.generatedFiles.length > 0) await startRunPreview(run);
       }
