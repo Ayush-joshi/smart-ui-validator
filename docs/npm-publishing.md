@@ -7,13 +7,13 @@ release completed on 2026-08-09 from source tag `v0.4.1`.
 
 Current release status:
 
-- Patch release `0.4.2` is the next candidate. It adds targeted/paged MCP findings, approved
+- Patch release `0.4.2` was published on 2026-08-10. It adds targeted/paged MCP findings, approved
   host-proposed bounded repairs, and score-plus-raster convergence without changing the v1 schemas'
   required fields.
 - The Smart UI repository and Agent Memory package are public.
 - The previous clean-consumer advisory blocker was resolved by `dev-agent-memory@0.4.1`.
 - `smart-ui-validator-core`, `smart-ui-validator`, and `smart-ui-validator-mcp` are public at
-  `0.4.1`, and each `latest` tag resolves to `0.4.1`.
+  `0.4.2`, and each `latest` tag resolves to `0.4.2`.
 - Public metadata, a clean registry installation, Chromium launch, and Agent Memory persistence were
   verified on macOS. Existing-project and Windows verification remain scheduled.
 - Repository metadata and provenance-based trusted publishing remain deferred until the source has
@@ -73,6 +73,8 @@ The public packages use unscoped product names. All three were published on 2026
 - `smart-ui-validator-core@0.4.1`
 - `smart-ui-validator@0.4.1`
 - `smart-ui-validator-mcp@0.4.1`
+
+Patch release `0.4.2` was published for all three packages on 2026-08-10.
 
 ## License decision — completed
 
@@ -282,32 +284,32 @@ exist.
 
 Source commit: `120b22c060cc94bc3d4d5ae1aeb8863715fdad6a`; tag: `v0.4.1`.
 
-## Prepared 0.4.2 candidate evidence
+## Published 0.4.2 evidence
 
 The 2026-08-10 candidate passed the frozen install, pinned Chromium check, formatting, lint,
 typecheck, build, 92 unit/integration tests, 3 real-browser end-to-end tests, evaluation, secret and
 privacy scans, package inspection, clean-consumer installation, production audit, publish-readiness
-check, and SBOM generation. Registry lookup confirmed that all three `latest` tags remain `0.4.1`
-and `0.4.2` is not already published.
+check, and SBOM generation. A second clean consumer installed all three packages from the public
+registry, loaded the new core and MCP exports, reported CLI version `0.4.2`, deduplicated both
+adapters onto core `0.4.2`, and found no vulnerabilities.
 
-| Package                   | Candidate SHA-256                                                  |
-| ------------------------- | ------------------------------------------------------------------ |
-| `smart-ui-validator-core` | `de63ea1917bc0958d13661c7738c31d560b24c2bb50c6385ab6180d35e54c8f8` |
-| `smart-ui-validator`      | `2d68e234cb61bba6435d89deb77fc628791c239cbb89722cefab9ec40a08c317` |
-| `smart-ui-validator-mcp`  | `10b58af2e3297970cae3f058dc8e8420bc6817cfd9403a836696616697f6044a` |
+| Package                   | npm integrity                                                                                     | Candidate SHA-256                                                  |
+| ------------------------- | ------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| `smart-ui-validator-core` | `sha512-USKwrQR4hIQATGFGT7+NzVkdPWExa4CJrDDP6t4mGV34cF3/NkyXW0Pl3u2wooc2YiXJOmWmxbfxpYRgyqTuRQ==` | `de63ea1917bc0958d13661c7738c31d560b24c2bb50c6385ab6180d35e54c8f8` |
+| `smart-ui-validator`      | `sha512-dXMERorrz/owSlJ8o8kvp63sI9F/Isg0mg2Ninncu7RdsbRO0+SR8d95Jo7yyU6INqiQAA4nq6/uSyfnLMblYQ==` | `2d68e234cb61bba6435d89deb77fc628791c239cbb89722cefab9ec40a08c317` |
+| `smart-ui-validator-mcp`  | `sha512-beIXWiu8wk5hgZChRKzqGB+d/hNIRnQqoiOyIKcIu+Wt9u/GhZ13ajpVIKp/Qbcbb/0f09VhUTmnNYkHFnDFuA==` | `10b58af2e3297970cae3f058dc8e8420bc6817cfd9403a836696616697f6044a` |
 
 CycloneDX 1.5 SBOM: 797 components,
 `sha256:2975f9c544f8df75840940fe9aba415d6b2cf166fd5f25d3dc36904c4ad37a2d`.
 
-Publication is pending authenticated `npm whoami`, an exact source commit/tag, and a successful push
-of that tag. Record the source commit, tag, npm integrity values, and post-publication smoke results
-here after publication; do not describe this candidate as published before those steps succeed.
+Source commit: `6611a5ebbf207062d75dd316adde6b09bb5b0c17`; tag: `v0.4.2`. Both `main` and
+the annotated tag were verified on GitHub before npm publication.
 
 ## Post-publication verification
 
 ```bash
-npm view <package>@0.4.1 name version license homepage dist.integrity dist.tarball
-npm install <package>@0.4.1
+npm view <package>@0.4.2 name version license homepage dist.integrity dist.tarball
+npm install <package>@0.4.2
 ```
 
 Confirm the npm page is public, its README/license/homepage are correct, integrity matches the
