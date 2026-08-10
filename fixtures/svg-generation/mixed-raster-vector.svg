@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="520" height="320" viewBox="0 0 520 320">
+  <rect width="520" height="320" fill="#f2efe8"/>
+  <image x="28" y="28" width="220" height="220" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="/>
+  <text x="280" y="88" font-family="Arial" font-size="28" font-weight="700" fill="#29251f">Mixed media</text>
+  <text x="280" y="130" font-family="Arial" font-size="16" fill="#5b5348">Local raster evidence</text>
+  <path d="M280 184 h170" stroke="#d35f45" stroke-width="12" stroke-linecap="round"/>
+  <circle cx="310" cy="240" r="24" fill="#d35f45"/>
+  <circle cx="374" cy="240" r="24" fill="#e7b85c"/>
+</svg>

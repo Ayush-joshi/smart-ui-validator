@@ -46,6 +46,21 @@ try {
     [join(directory, 'node_modules', 'smart-ui-validator', 'dist', 'index.js'), '--version'],
     { cwd: directory, stdio: 'inherit' },
   );
+  const studioWorkspace = await mkdtemp(join(tmpdir(), 'smart-ui-packed-studio-'));
+  const cli = join(directory, 'node_modules', 'smart-ui-validator', 'dist', 'index.js');
+  execFileSync(
+    process.execPath,
+    [cli, 'studio', '--workspace', studioWorkspace, '--init-only', '--json'],
+    {
+      cwd: directory,
+      stdio: 'inherit',
+    },
+  );
+  execFileSync(
+    process.execPath,
+    [cli, 'studio', '--workspace', studioWorkspace, '--health-check', '--json'],
+    { cwd: directory, stdio: 'inherit' },
+  );
   execFileSync(
     process.execPath,
     [

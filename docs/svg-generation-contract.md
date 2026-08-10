@@ -17,8 +17,8 @@ raw XML, and binary data.
 
 `GeneratedHtmlBundle` is an in-memory exact manifest. Each canonical unique relative path has a media
 type, bytes, rationale, and source-node IDs. The public output contract permits `index.html`,
-`styles.css`, and approved files under `assets/`; Phase 2 MCP host proposals accept UTF-8 HTML, CSS,
-and SVG only. Core validation rejects traversal, devices, case collisions, excessive counts/bytes,
+`styles.css`, and approved files under `assets/`; MCP host proposals accept UTF-8 HTML, CSS, and SVG
+only. Core validation rejects traversal, devices, case collisions, excessive counts/bytes,
 undeclared local references, active content, remote schemes/resources, and malformed CSS.
 
 `GenerationRecord` 1.0 retains the accepted manifest hash, generated file hashes/artifacts,
@@ -31,3 +31,7 @@ robustness without a matching reference has findings and no fidelity score.
 The manifest hash is a deterministic SHA-256 over sorted relative path, media type, and content hash.
 `export_generation` must present that exact hash and the complete accepted relative-path set before
 the reproducible exporter writes a new empty contained directory.
+
+The CLI, stdio MCP adapter, and local Studio all call the public `GenerationOrchestrator` and persist
+this contract. Studio adds `smart-ui-studio` provenance and a bounded per-run recovery pointer, but
+the core `GenerationRecord` remains authoritative and no Studio-only output schema is introduced.

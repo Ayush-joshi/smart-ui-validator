@@ -1,0 +1,117 @@
+{
+  "schemaVersion": "1.0",
+  "id": "smart-ui-owned-svg-generation-v1",
+  "license": "Repository-owned synthetic fixtures; no third-party design assets.",
+  "provenance": "Created and measured locally for deterministic SVG generation pilot evaluation.",
+  "scenarios": [
+    {
+      "id": "simple-component",
+      "fixture": "fixtures/svg-generation/basic.svg",
+      "category": "component",
+      "requestedMode": "hybrid",
+      "sourceViewport": "640x360",
+      "expectedSanitization": "accepted",
+      "traits": ["clean-text", "desktop-only"]
+    },
+    {
+      "id": "form-screen",
+      "fixture": "fixtures/svg-generation/form-screen.svg",
+      "category": "form",
+      "requestedMode": "semantic",
+      "sourceViewport": "720x520",
+      "expectedSanitization": "accepted",
+      "traits": ["clean-text", "accessibility-sensitive", "desktop-only"]
+    },
+    {
+      "id": "dashboard-screen",
+      "fixture": "fixtures/svg-generation/dashboard-screen.svg",
+      "category": "dashboard",
+      "requestedMode": "hybrid",
+      "sourceViewport": "960x600",
+      "expectedSanitization": "accepted",
+      "traits": ["clean-text", "desktop-only"]
+    },
+    {
+      "id": "marketing-desktop",
+      "fixture": "fixtures/svg-generation/marketing-desktop.svg",
+      "category": "marketing",
+      "requestedMode": "hybrid",
+      "sourceViewport": "1200x720",
+      "narrowReferenceFixture": "fixtures/svg-generation/marketing-narrow.svg",
+      "expectedSanitization": "accepted",
+      "traits": ["clean-text", "desktop-narrow-pair", "hybrid-subtree"]
+    },
+    {
+      "id": "marketing-narrow",
+      "fixture": "fixtures/svg-generation/marketing-narrow.svg",
+      "category": "marketing",
+      "requestedMode": "exact",
+      "sourceViewport": "390x844",
+      "expectedSanitization": "accepted",
+      "traits": ["clean-text", "desktop-narrow-pair"]
+    },
+    {
+      "id": "outlined-text-fallback",
+      "fixture": "fixtures/svg-generation/path-artwork.svg",
+      "category": "component",
+      "requestedMode": "semantic",
+      "sourceViewport": "320x180",
+      "expectedSanitization": "accepted",
+      "traits": ["outlined-text", "path-heavy", "exact-fallback"]
+    },
+    {
+      "id": "mixed-raster-vector",
+      "fixture": "fixtures/svg-generation/mixed-raster-vector.svg",
+      "category": "component",
+      "requestedMode": "hybrid",
+      "sourceViewport": "520x320",
+      "expectedSanitization": "accepted",
+      "traits": ["clean-text", "mixed-raster-vector"]
+    },
+    {
+      "id": "path-heavy-exact",
+      "fixture": "fixtures/svg-generation/path-artwork.svg",
+      "category": "component",
+      "requestedMode": "exact",
+      "sourceViewport": "320x180",
+      "expectedSanitization": "accepted",
+      "traits": ["path-heavy", "outlined-text"]
+    },
+    {
+      "id": "hybrid-per-subtree",
+      "fixture": "fixtures/svg-generation/hybrid-subtree.svg",
+      "category": "component",
+      "requestedMode": "hybrid",
+      "sourceViewport": "680x420",
+      "expectedSanitization": "accepted",
+      "traits": ["clean-text", "hybrid-subtree"]
+    },
+    {
+      "id": "accessibility-sensitive",
+      "fixture": "fixtures/svg-generation/accessibility-sensitive.svg",
+      "category": "form",
+      "requestedMode": "semantic",
+      "sourceViewport": "640x360",
+      "expectedSanitization": "accepted",
+      "traits": ["clean-text", "accessibility-sensitive"]
+    },
+    {
+      "id": "unsafe-script",
+      "fixture": "fixtures/svg-generation/unsafe-script.svg",
+      "category": "adversarial",
+      "requestedMode": "hybrid",
+      "sourceViewport": "100x100",
+      "expectedSanitization": "rejected",
+      "traits": ["unsafe"]
+    },
+    {
+      "id": "unsafe-entity",
+      "fixture": "fixtures/svg-generation/unsafe-entity.svg",
+      "category": "adversarial",
+      "requestedMode": "hybrid",
+      "sourceViewport": "100x100",
+      "expectedSanitization": "rejected",
+      "traits": ["unsafe"]
+    }
+  ]
+}

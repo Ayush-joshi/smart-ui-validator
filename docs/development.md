@@ -3,6 +3,11 @@
 Use Node.js 22.16 or newer and pnpm 10. The Agent Memory dependency establishes the Node runtime
 floor; its SQLite-backed tests currently emit Node's experimental SQLite warning.
 
+The workspace has two engine paths: `SmartUiOrchestrator` for existing-repository validation/repair
+and `GenerationOrchestrator` for repository-free SVG generation. `apps/studio` is a private build
+input for the second path; its production server/static assets are copied into the CLI package rather
+than published independently.
+
 ## Quality gates
 
 ```bash
@@ -14,12 +19,30 @@ pnpm typecheck
 pnpm build
 pnpm test
 pnpm test:e2e
+pnpm test:studio
+pnpm test:mcp:stdio
 pnpm evaluate
+pnpm evaluate:svg
 pnpm security:secrets
 pnpm package:check
 pnpm audit --prod --audit-level high
 pnpm sbom
 ```
+
+`pnpm build` must precede packaged Studio checks because the CLI dynamically loads the copied
+`apps/cli/dist/studio` subtree. For manual source-checkout use, initialize a dedicated empty workspace
+and launch through the CLI so development exercises the same server entry point as consumers:
+
+```bash
+pnpm smart-ui studio --workspace /absolute/path/to/studio-workspace --init-only
+pnpm smart-ui studio --workspace /absolute/path/to/studio-workspace --health-check --json
+pnpm smart-ui studio --workspace /absolute/path/to/studio-workspace
+```
+
+To refresh the owned SVG pilot evidence deliberately, build first and run
+`pnpm evaluate:svg:measure`, review the observation diff, then run `pnpm evaluate:svg`. The
+measurement launches two browser generations per accepted scenario and is not silently run by the
+fast scorecard gate.
 
 The end-to-end suite starts Vite on `127.0.0.1:4173` and Angular on `127.0.0.1:4273`, normalizes the
 owned checked-in references, captures Chromium at desktop/mobile and focus state, localizes

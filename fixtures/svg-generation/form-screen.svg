@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="520" viewBox="0 0 720 520">
+  <rect width="720" height="520" fill="#f5f7fb"/>
+  <rect x="150" y="60" width="420" height="400" rx="24" fill="#ffffff" stroke="#d8dfeb"/>
+  <text x="198" y="125" font-family="Arial" font-size="30" font-weight="700" fill="#172033">Create account</text>
+  <text x="198" y="178" font-family="Arial" font-size="14" fill="#4b5870">Work email</text>
+  <rect x="198" y="192" width="324" height="52" rx="8" fill="#ffffff" stroke="#a9b5c8"/>
+  <text x="214" y="224" font-family="Arial" font-size="16" fill="#718096">name@example.com</text>
+  <text x="198" y="282" font-family="Arial" font-size="14" fill="#4b5870">Password</text>
+  <rect x="198" y="296" width="324" height="52" rx="8" fill="#ffffff" stroke="#a9b5c8"/>
+  <text x="214" y="328" font-family="Arial" font-size="16" fill="#718096">At least 12 characters</text>
+  <rect x="198" y="375" width="324" height="56" rx="10" fill="#345de8"/>
+  <text x="290" y="410" font-family="Arial" font-size="17" font-weight="700" fill="#ffffff">Create account</text>
+</svg>

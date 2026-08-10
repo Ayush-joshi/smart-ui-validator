@@ -30,6 +30,7 @@ jobs:
       - run: pnpm test
       - run: pnpm test:e2e
       - run: pnpm evaluate
+      - run: pnpm evaluate:svg
       - run: pnpm security:secrets
       - run: pnpm privacy:check
       - run: pnpm package:check
@@ -40,5 +41,6 @@ jobs:
           name: release-evidence
           path: |
             evaluation-scorecard.json
+            svg-generation-scorecard.json
             sbom.local.json
           if-no-files-found: error

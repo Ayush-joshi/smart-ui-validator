@@ -17,6 +17,11 @@ product consumes only releases that pass that contract.
 6. In a separately protected environment, verify tarball hashes/provenance and require release-owner
    approval before registry publication.
 7. Canary `doctor`, inspection, and validation-only before enabling repair.
+8. Canary one safe SVG generation and review its accepted manifest, fidelity/robustness
+   classifications, report, and ZIP before enabling MCP export.
+9. From the packed CLI, initialize a disposable Studio workspace. Run its health check with
+   `smart-ui studio --health-check --json`, then verify the bundled assets, real browser adapter,
+   loopback binding, write access, and containment checks before declaring the CLI package complete.
 
 Rollback uses the previous verified tarball/tag and the operations runbook. Package publication,
 deployment, credentials, Git pushes, and external messages are always separately authorized actions.

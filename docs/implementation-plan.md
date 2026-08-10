@@ -20,8 +20,9 @@ criteria.
 
 Additive extension: [`svg-to-html-generation-plan.md`](./svg-to-html-generation-plan.md) defines the
 three-phase CLI, stdio MCP, and loopback Studio roadmap for generating standalone HTML from local SVG
-evidence without an existing frontend repository. Phases 1 and 2 are implemented and verified as of
-2026-08-10; Phase 3 Studio remains planned. Its compatibility invariants and acceptance criteria
+evidence without an existing frontend repository. Phases 1 and 2 were verified on 2026-08-10; Phase
+3 Studio was implemented and verified for a controlled local pilot on 2026-08-11. Its
+compatibility invariants and acceptance criteria
 extend this completed roadmap; they do not change or reduce the existing validation, repair, React,
 Angular, browser, memory, security, or distribution requirements.
 

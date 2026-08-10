@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+- Added the private React/Vite local Studio build input and packaged `smart-ui studio` command with
+  dedicated-workspace initialization, headless loopback startup, health checks, upload/preferences/
+  progress/review workflow, cancellation, persisted recovery, retention, and verified single-run
+  deletion.
+- Added capability-cookie, CSRF, exact Host/Origin/method/media-type, streaming upload, separate
+  preview origin, manifest download, escaped source, concurrent artifact isolation, and shutdown
+  controls with adversarial and real-Chromium coverage.
+- Added a separate 12-scenario owned SVG generation corpus, twice-measured repeatability evidence,
+  deterministic scorecard without an overall quality score, Studio bundling ADR, and packaged clean
+  consumer checks.
+
 ## 0.4.2 - 2026-08-10
 
 - Added the Phase 2 stdio MCP SVG-generation workflow with compact inspection, paged normalized

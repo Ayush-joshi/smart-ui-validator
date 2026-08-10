@@ -298,7 +298,7 @@ export const generationRecordSchema = z
     canceled: z.boolean(),
     provenance: z
       .object({
-        tool: z.enum(['smart-ui', 'smart-ui-mcp']),
+        tool: z.enum(['smart-ui', 'smart-ui-mcp', 'smart-ui-studio']),
         hostProposal: z.boolean(),
         hostProposalAccepted: z.boolean().optional(),
         host: z.string().min(1).max(200).optional(),

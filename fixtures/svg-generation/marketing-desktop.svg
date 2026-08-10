@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="720" viewBox="0 0 1200 720">
+  <defs><linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#111a38"/><stop offset="1" stop-color="#34226b"/></linearGradient></defs>
+  <rect width="1200" height="720" fill="url(#bg)"/>
+  <text x="72" y="72" font-family="Arial" font-size="22" font-weight="700" fill="#ffffff">Lumen</text>
+  <text x="72" y="235" font-family="Arial" font-size="58" font-weight="700" fill="#ffffff">Ship clearer product stories.</text>
+  <text x="72" y="292" font-family="Arial" font-size="21" fill="#cbd2ff">Turn structured design evidence into reviewable, offline interfaces.</text>
+  <rect x="72" y="342" width="204" height="60" rx="12" fill="#8af0ce"/>
+  <text x="110" y="380" font-family="Arial" font-size="18" font-weight="700" fill="#10221d">Start a project</text>
+  <g transform="translate(690 135)">
+    <rect width="410" height="430" rx="30" fill="#ffffff" opacity="0.12"/>
+    <circle cx="205" cy="170" r="106" fill="#8af0ce" opacity="0.85"/>
+    <path d="M72 334 C145 255 266 420 344 304" fill="none" stroke="#ffffff" stroke-width="15" stroke-linecap="round"/>
+  </g>
+</svg>

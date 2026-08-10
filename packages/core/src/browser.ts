@@ -14,6 +14,18 @@ const FIXED_TIME = Date.UTC(2020, 0, 1, 12, 0, 0);
 export class PlaywrightBrowserProvider implements BrowserProvider {
   readonly name = 'playwright-chromium';
 
+  async health(): Promise<boolean> {
+    let browser: Browser | undefined;
+    try {
+      browser = await chromium.launch({ headless: true });
+      return true;
+    } catch {
+      return false;
+    } finally {
+      await browser?.close();
+    }
+  }
+
   async capture(options: BrowserCaptureOptions): Promise<BrowserEvidence> {
     let browser: Browser | undefined;
     const cancel = () => void browser?.close();

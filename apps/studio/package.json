@@ -1,0 +1,23 @@
+{
+  "name": "@smart-ui/studio",
+  "version": "0.4.2",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "pnpm build:server && pnpm build:client",
+    "build:server": "tsc -p tsconfig.server.json",
+    "build:client": "vite build",
+    "typecheck": "tsc -p tsconfig.server.typecheck.json && tsc -p tsconfig.client.json --noEmit"
+  },
+  "dependencies": {
+    "@vitejs/plugin-react": "6.0.5",
+    "react": "19.1.1",
+    "react-dom": "19.1.1",
+    "smart-ui-validator-core": "workspace:*",
+    "vite": "8.2.0"
+  },
+  "devDependencies": {
+    "@types/react": "19.1.12",
+    "@types/react-dom": "19.1.9"
+  }
+}

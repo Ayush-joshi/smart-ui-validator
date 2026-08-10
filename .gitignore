@@ -9,6 +9,7 @@ test-results/
 .DS_Store
 design-contract.json
 evaluation-scorecard.json
+svg-generation-scorecard.json
 *.tgz
 release-artifacts/
 sbom*.json

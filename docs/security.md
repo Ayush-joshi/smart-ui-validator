@@ -31,6 +31,18 @@ Implemented controls:
 - MCP generation owns a unique contained artifact root. Export requires a separate exact manifest
   hash/path approval and a new empty contained destination; `generate`, `generation:export`, and
   `generation:delete` are distinct authorization actions from repository `repair`.
+- Local Studio binds only an ephemeral `127.0.0.1` origin and requires an unlogged random process
+  capability in an HTTP-only SameSite cookie. API writes additionally require the exact Host,
+  Origin, method, media type, bounded body, and CSRF token. CORS is absent and cross-site fetches are
+  rejected.
+- Studio streams uploads to a server-selected opaque run directory, re-runs core SVG sanitization,
+  deletes rejected raw uploads, and never accepts a browser-supplied filesystem path. Inspection and
+  generation use distinct per-run artifact manifests. Downloads map opaque route values to an
+  accepted record artifact rather than resolving a supplied path.
+- Studio source review uses escaped text spans, accepted previews use a distinct CSP-locked
+  ephemeral origin, session/run state expires under retention, and shutdown stops request
+  acceptance, cancels work, and closes every preview. Single-run deletion verifies the exact
+  resolved run root.
 - OpenClaw/Slack workspace-to-tenant mapping, origin-thread/user approval, event deduplication,
   inbound redaction, and deny-by-default source/screenshot/design/memory output policy.
 - Telemetry, learning, remote memory, remote design, external models, browser networking, remote MCP,
@@ -42,6 +54,8 @@ Deployment responsibilities and current limitations:
   deployment uses encrypted storage or the encryption interface. OS permissions/KMS/key rotation are
   external responsibilities.
 - The JSON governance and artifact manifests are not coordinated for multiple concurrent writers.
+  Studio avoids that boundary by assigning one manifest to each inspection/generation; no manifest
+  is shared by concurrent runs.
 - Hash-chained local audit is tamper-evident, not immutable; ship it to access-controlled/WORM storage
   when required.
 - Redaction is defense in depth, not full DLP or personal-data classification.

@@ -1,6 +1,14 @@
 # Host setup
 
-All hosts call the same MCP schemas; none owns or forks core orchestration.
+All hosts call the same MCP schemas; none owns or forks core orchestration. Choose the MCP root based
+on the workflow:
+
+- For repository validation and repair, bind it to the exact React or Angular project.
+- For repository-free SVG generation, bind it to one dedicated workspace containing the SVG and
+  generation artifacts.
+
+Never bind `SMART_UI_MCP_ROOT` to a home directory or another broad shared root. Studio users do not
+need an MCP host; `smart-ui studio` is a separate local human interface to SVG generation.
 
 For the shortest first-run path, use the one-command setup in
 [`docs/agent-workflow.md`](./agent-workflow.md). It generates target-contained design evidence, a
@@ -11,8 +19,9 @@ stable workflow manifest, exact agent instructions, and a host-specific configur
 Copy `examples/hosts/codex/.codex/config.toml` into a trusted target repository and replace both
 absolute paths. Build Smart UI first. The ChatGPT desktop app, Codex CLI, and Codex IDE extension
 share MCP configuration. Restart the client, run `codex mcp list` or open `/mcp`, and verify that
-`prepare_workflow`, validation, repair, reporting, and governed-memory tools are present. Keep the
-default approval mode at `writes` and explicit prompts for repair and memory mutation.
+`prepare_workflow`, validation, repair, reporting, SVG generation, export, and governed-memory tools
+are present. Keep the default approval mode at `writes` and explicit prompts for repair, generation
+export, and memory mutation.
 
 Copy the relevant content from `AGENTS.example.md` into the target's existing `AGENTS.md`; merge it
 with repository instructions rather than replacing them.
@@ -26,12 +35,22 @@ for a shared, credential-free stdio definition. Keep machine credentials out of 
 The sample sets `SMART_UI_MCP_ROOT` to Claude's project directory. If your host does not expose that
 variable, replace it with the one absolute target repository path before trusting the server.
 
+For SVG generation, use a separate server entry whose `cwd` and `SMART_UI_MCP_ROOT` both name the
+dedicated SVG workspace. Read `smart-ui://svg-generation-guide` before the first run and do not reuse
+repository repair approval as generation-export approval.
+
 ## VS Code and GitHub Copilot
 
 Copy `.vscode/mcp.json`, start the MCP server from the workspace command palette, enter the trusted
 absolute Smart UI checkout path, and review the trust prompt. The sample enables sandboxing, limits
 writes to the workspace, and limits networking to loopback. Sandboxing availability varies by host
 platform; when unavailable, rely on Smart UI's exact policy plus OS/container controls.
+
+## SVG generation without a host
+
+A host is optional for standalone generation. Use `smart-ui generate` for repeatable CLI runs or
+`smart-ui studio` for the four-step local browser workflow. Both call the same core engine as the MCP
+generation tools and do not require model credentials.
 
 ## OpenClaw and Slack
 

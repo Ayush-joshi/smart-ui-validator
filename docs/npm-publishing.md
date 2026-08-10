@@ -133,6 +133,7 @@ pnpm build
 pnpm test
 pnpm test:e2e
 pnpm evaluate
+pnpm evaluate:svg
 pnpm security:secrets
 pnpm privacy:check
 pnpm package:check
@@ -141,6 +142,13 @@ pnpm publish:check
 pnpm audit --prod --audit-level high
 pnpm sbom
 ```
+
+The CLI tarball must contain `dist/studio/server.js`, `dist/studio/public/index.html`, and hashed
+JavaScript/CSS assets, with no source maps, sources, fixtures, or development server. Studio remains
+a private workspace build input and must not appear as a fourth publishable package. The clean
+consumer gate initializes a disposable dedicated workspace and runs packaged `smart-ui studio
+--health-check` to prove the copied server/static assets and exact core version are usable without
+workspace symlinks.
 
 Browser E2E tests and the Agent Memory persistence canary remain required even though npm consumers
 normally enter through the CLI or MCP adapter.

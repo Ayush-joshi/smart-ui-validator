@@ -1,0 +1,14 @@
+{
+  "schemaVersion": "1.0",
+  "minimumSanitizationAccuracy": 1,
+  "minimumSafeCompletionRate": 1,
+  "minimumMeasuredSourceSimilarity": 97,
+  "minimumStructuralPassRate": 0.7,
+  "maximumRuntimeFailures": 0,
+  "maximumFailedRequests": 0,
+  "maximumAccessibilityFindings": 0,
+  "maximumGeneratedBytes": 10000,
+  "maximumP95TotalMs": 5000,
+  "requiredRepeatabilityRate": 1,
+  "minimumCompatibilityRate": 1
+}

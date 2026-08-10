@@ -1,45 +1,111 @@
 # Architecture
 
-The core is host-neutral: CLI, MCP, editor, and automation hosts translate inputs and outputs without
-owning orchestration logic. `SmartUiOrchestrator` coordinates narrow interfaces:
+Smart UI Validator has one host-neutral core and two product workflows. Adapters translate host
+inputs and outputs; they do not own comparison, scoring, policy, or orchestration.
+
+| Workflow                          | Orchestrator             | Inputs                                                        | Records and output                                      |
+| --------------------------------- | ------------------------ | ------------------------------------------------------------- | ------------------------------------------------------- |
+| Existing UI validation and repair | `SmartUiOrchestrator`    | Repository, `DesignContract`, running route, configuration    | `RunRecord`, evidence, report, optional bounded repairs |
+| Repository-free SVG generation    | `GenerationOrchestrator` | Contained SVG, mode/layout preferences, optional instructions | `GenerationRecord`, HTML/CSS, evidence, report, ZIP     |
+
+The two workflows share browser, comparison, artifact, policy, reporting, and provenance
+foundations but do not overload each other's contracts or permissions.
+
+```mermaid
+flowchart LR
+    CLI["CLI"]
+    MCP["stdio MCP"]
+    Studio["Local Studio"]
+
+    CLI --> Validate["SmartUiOrchestrator"]
+    MCP --> Validate
+    CLI --> Generate["GenerationOrchestrator"]
+    MCP --> Generate
+    Studio --> Generate
+
+    Validate --> Shared["Browser, comparator, artifacts, policy, reporting"]
+    Generate --> Shared
+    Validate --> Run["RunRecord"]
+    Generate --> Generation["GenerationRecord"]
+```
+
+## Existing UI validation and repair
+
+`SmartUiOrchestrator` coordinates narrow interfaces:
 
 - `DesignProvider` normalizes evidence into a `DesignContract`.
 - `FrameworkAdapter` inspects a repository without mutation. `AutoFrameworkAdapter` selects the
   production React or Angular adapter from package evidence; both discover components, tokens,
   routes, states, tests, Storybook, and native conventions within strict file/byte budgets.
 - `RepairProvider` receives compact deterministic findings and proposes bounded file changes.
-- `CodingProvider` remains as a Phase 1-compatible host boundary; Phase 2 orchestration does not
+- `CodingProvider` remains as a Phase 1-compatible host boundary; current orchestration does not
   depend on a particular model.
 - `BrowserProvider` captures deterministic implementation evidence.
 - `SmartUiComparator` owns geometry, typography, appearance, asset, raster, runtime, and basic
   accessibility scoring.
 - `ArtifactStore` persists content-addressed bytes and a manifest.
-- `PolicyProvider` enforces paths, writes, commands, dry-run, and time limits.
+- `PolicyProvider` enforces paths, writes, commands, endpoints, dry-run, pass, and time limits.
+- `Reporter` turns a `RunRecord` into a human-readable offline artifact.
+
+Data flows from untrusted design and repository inputs through strict schemas and policy boundaries
+into an isolated browser and content-addressed evidence store. Repair proposals are checked against
+exact writable files, command argument arrays, and endpoint allowlists. Each accepted patch is
+re-rendered; non-improving, repeated, or test-regressing patches are reverted without overwriting
+pre-existing content. Run records contain artifact references rather than binary prompt data.
+
+Browser state setup occurs after deterministic page settling and before DOM/screenshot capture.
+Hover/focus/active use an explicit selector; loading/empty/error/disabled are route-owned rendered
+states. Elements marked dynamic must match configured selectors; their measured rectangles join the
+deterministic raster mask list. Accessibility violations and contrast remain code-calculated.
 
 ## Repository-free SVG generation
 
 `GenerationOrchestrator` is additive to `SmartUiOrchestrator`; it does not fabricate a repository or
-overload `RunRecord`. `SvgStructureProvider` accepts one contained regular SVG, rejects unsafe XML,
-and emits a hierarchical `DesignBundle` plus a content-addressed sanitized source. An
-`HtmlGenerationProvider` creates a bounded file manifest. The core serves only that manifest on an
-ephemeral loopback origin, captures it with the existing isolated browser, and scores source fidelity
-with the existing comparator.
+overload `DesignContract`, `RunRecord`, or repository repair permissions. `SvgStructureProvider`
+accepts one contained regular SVG, rejects unsafe XML, and emits a hierarchical `DesignBundle` plus
+a content-addressed sanitized source. An `HtmlGenerationProvider` creates a bounded exact file
+manifest. The core serves only that manifest on an ephemeral loopback origin, captures it with the
+existing isolated browser, and measures it with the existing comparator.
 
-Exact mode compares the source raster without projecting every SVG primitive into DOM expectations.
-Hybrid mode projects only semantic nodes with stable `data-validation-id` and generic
-`sourceNodeId` provenance. Narrow captures without a matching reference are classified as
-responsive robustness and have no visual-fidelity score. `GenerationRecord`, report, and ZIP remain
-separate from repository validation records and repair permissions.
+Exact mode prioritizes source-viewport fidelity and preserves more SVG-native representation.
+Hybrid mode projects stable readable/semantic nodes while retaining complex visual subtrees.
+Semantic mode creates the strongest bounded HTML projection. Narrow captures without a matching
+reference are classified as responsive robustness and have no source-fidelity score.
+`GenerationRecord`, report, and ZIP remain separate from repository validation records.
 
 The stdio MCP adapter exposes only inspection, complete generation, retrieval, reporting, and
 separately approved export. Normalized scene nodes are paged in groups of 50; raw XML, full generated
 files, and binary evidence remain artifacts. `HostProposedHtmlGenerationProvider` converts one
 approved UTF-8 HTML/CSS/SVG file batch into the same provider-neutral contract. The orchestrator
-measures both the deterministic fallback and the proposal, rejects repeated output or structural/
-visual regression, and records both immutable passes with proposal provenance. No model SDK enters
-the core.
+measures both the deterministic fallback and proposal, rejects repeated output or structural/visual
+regression, and records both immutable passes with proposal provenance. No model SDK enters the
+core, and a host never scores its own proposal.
 
-- `Reporter` turns a `RunRecord` into a human-readable artifact.
+## Studio host
+
+`apps/studio` is a private React/Vite build input, not a fourth published package or a separate
+engine. Its reviewed production server and hashed static assets are copied into
+`smart-ui-validator/dist/studio` after the Studio build; the CLI dynamically loads only that packaged
+subtree.
+
+`smart-ui studio` is a thin local host over the public generation APIs. Upload inspection uses a
+dedicated per-run inspection store, generation starts with a new empty immutable artifact root, and
+the persisted `GenerationRecord` remains authoritative. Browser state is only a projection of that
+record. Completed records are recovered after restart, and accepted manifests can be previewed again
+on separate ephemeral origins.
+
+The Studio server binds only `127.0.0.1`, uses opaque run identifiers, and never accepts an arbitrary
+server path from page JavaScript. One process capability is held in an HTTP-only SameSite cookie; a
+separate CSRF value plus exact Host/Origin checks protects API writes. Generated code is returned as
+JSON text and rendered through React escaping, never injected into the Studio document. Preview HTML
+is served by `LoopbackGeneratedPreviewProvider`, preserving one engine and one output policy across
+CLI, MCP, and Studio.
+
+Studio does not participate in repository inspection or repair. It is a visual interface for the SVG
+generation branch only and collects no Figma/model credentials or telemetry.
+
+## Governed interaction, memory, and deployment boundaries
+
 - `InteractionProvider` asks bounded host-neutral questions; terminal and non-interactive hosts own
   presentation and timeout behavior.
 - `MemoryProvider` owns scoped lifecycle operations. `LocalMemoryProvider` is deterministic storage;
@@ -52,23 +118,13 @@ the core.
 - `smart-ui-validator-mcp` is a thin stdio adapter. Codex, Claude Code, Copilot, and optional
   OpenClaw/Slack use the same core and schemas.
 
-Data flows from untrusted design and repository inputs through strict schemas and policy boundaries,
-into an isolated browser and content-addressed evidence store. Repair proposals are checked against
-exact writable files, command argument arrays, and endpoint allowlists. Each accepted patch is
-re-rendered; non-improving, repeated, or test-regressing patches are reverted without overwriting
-pre-existing content. Run records contain artifact references, never binary prompt data. Package
-boundaries remain limited to the host-neutral core, CLI, and stable MCP distribution surface.
-
 Memory recall occurs after repository inspection and before design comparison. It is optional,
 identity-bound, scope-filtered, budgeted, marked as untrusted/advisory, and recorded as a compact
 decision containing identifiers and context measurements. It never reaches `PolicyProvider` and
-cannot expand paths, commands, endpoints, or approvals.
+cannot expand paths, commands, endpoints, or approvals. Repository memory is not implicitly reused as
+SVG generation authority.
 
-Browser state setup occurs after deterministic page settling and before DOM/screenshot capture.
-Hover/focus/active use an explicit selector; loading/empty/error/disabled are route-owned rendered
-states. Elements marked dynamic must match configured selectors; their measured rectangles join
-the deterministic raster mask list. Accessibility violations and contrast remain code-calculated.
-
-The workspace now contains `core`, `cli`, `mcp-server`, React and Angular fixtures. Remote HTTP and
-channel networking are not core responsibilities and stay disabled until their deployment control
-planes authenticate and authorize an explicit isolation context.
+The publishable workspace contains `core`, `cli`, and `mcp-server`; Studio is bundled inside the CLI.
+React and Angular apps are controlled fixtures. Remote HTTP and channel networking are not core
+responsibilities and stay disabled until a deployment control plane authenticates and authorizes an
+explicit isolation context.

@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="680" height="420" viewBox="0 0 680 420">
+  <rect width="680" height="420" fill="#fafbff"/>
+  <text x="44" y="74" font-family="Arial" font-size="32" font-weight="700" fill="#19223a">Signal card</text>
+  <text x="44" y="112" font-family="Arial" font-size="16" fill="#59647c">Readable content beside complex artwork.</text>
+  <rect x="44" y="154" width="230" height="58" rx="12" fill="#315ee8"/>
+  <text x="93" y="190" font-family="Arial" font-size="17" font-weight="700" fill="#ffffff">View signals</text>
+  <g transform="translate(360 70)">
+    <path d="M0 130 C25 -18 170 5 214 96 C250 171 173 272 79 245 C-4 221 -45 172 0 130 Z" fill="#5c40d8"/>
+    <path d="M22 158 C78 55 116 256 205 99" fill="none" stroke="#75e3c1" stroke-width="18" stroke-linecap="round"/>
+    <path d="M53 51 l27 45 l-52 4 z M174 201 l35 -24 l7 48 z" fill="#ffffff" opacity="0.9"/>
+  </g>
+</svg>

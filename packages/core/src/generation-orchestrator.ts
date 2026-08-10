@@ -44,7 +44,7 @@ export interface GenerationOrchestratorDependencies {
   reporter: GenerationReporter;
   exporter: GenerationExporter;
   config: Config;
-  tool?: 'smart-ui' | 'smart-ui-mcp';
+  tool?: 'smart-ui' | 'smart-ui-mcp' | 'smart-ui-studio';
   onProgress?: (event: {
     stage: 'sanitize' | 'generate' | 'preview' | 'compare' | 'package' | 'report' | 'export';
     progress: number;

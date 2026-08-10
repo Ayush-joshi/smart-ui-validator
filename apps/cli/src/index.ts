@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { randomUUID } from 'node:crypto';
+import { spawn } from 'node:child_process';
 import { readFile, writeFile } from 'node:fs/promises';
 import { extname, join, resolve } from 'node:path';
 import { Command, Option } from 'commander';
@@ -34,6 +35,7 @@ import {
   runSetup,
 } from 'smart-ui-validator-core';
 import { registerMemoryCommands } from './memory-cli.js';
+import { loadStudioModule } from './studio-loader.js';
 
 const program = new Command()
   .name('smart-ui')
@@ -44,6 +46,55 @@ const program = new Command()
 const invocationRoot = process.env['INIT_CWD'] ?? process.cwd();
 
 registerMemoryCommands(program, invocationRoot);
+
+program
+  .command('studio')
+  .description('Launch the local-only SVG generation Studio on an isolated loopback origin')
+  .requiredOption('--workspace <path>', 'dedicated Studio workspace')
+  .option('--init', 'initialize an empty dedicated workspace before startup')
+  .option('--init-only', 'initialize the workspace and exit without starting the server')
+  .option('--open', 'open the exact loopback URL in the system browser')
+  .option('--port <port>', 'exact loopback port (0 chooses an ephemeral port)', parseStudioPort, 0)
+  .option(
+    '--retention-hours <hours>',
+    'expire completed local runs after this many hours',
+    parseStudioRetentionHours,
+    24,
+  )
+  .option('--health-check', 'start, report all Studio health checks, and exit')
+  .option('--json', 'emit one compact startup or initialization result')
+  .action(async (options: StudioCliOptions) => {
+    const workspace = userPath(options.workspace);
+    const studio = await loadStudioModule();
+    if (options.init || options.initOnly) {
+      const initialized = await studio.initializeStudioWorkspace(workspace);
+      if (options.initOnly) {
+        print(initialized, options.json);
+        return;
+      }
+    }
+    const server = await studio.startStudioServer({
+      workspaceRoot: workspace,
+      port: options.port,
+      retentionMs: options.retentionHours * 60 * 60 * 1_000,
+    });
+    const health = await server.health();
+    const result = {
+      url: server.url,
+      workspace: server.workspaceRoot,
+      health,
+      localOnly: true,
+      telemetry: false,
+    };
+    print(result, options.json);
+    if (options.healthCheck) {
+      await server.close();
+      if (health.status !== 'ready') process.exitCode = 4;
+      return;
+    }
+    if (options.open) openBrowser(server.url);
+    await waitForStudioShutdown(server);
+  });
 
 program
   .command('generate')
@@ -576,6 +627,55 @@ function parseGenerationViewport(value: string): {
   return { width, height, deviceScaleFactor: 1 };
 }
 
+function parseStudioPort(value: string): number {
+  const port = Number(value);
+  if (!Number.isInteger(port) || port < 0 || port > 65_535) {
+    throw new SmartUiError('INVALID_INPUT', '--port must be an integer from 0 to 65535.');
+  }
+  return port;
+}
+
+function parseStudioRetentionHours(value: string): number {
+  const hours = Number(value);
+  if (!Number.isFinite(hours) || hours < 1 / 3600 || hours > 24 * 30) {
+    throw new SmartUiError(
+      'INVALID_INPUT',
+      '--retention-hours must be from one second to 30 days.',
+    );
+  }
+  return hours;
+}
+
+function openBrowser(url: string): void {
+  const command =
+    process.platform === 'darwin'
+      ? { executable: 'open', args: [url] }
+      : process.platform === 'win32'
+        ? { executable: 'cmd', args: ['/c', 'start', '', url] }
+        : { executable: 'xdg-open', args: [url] };
+  const child = spawn(command.executable, command.args, {
+    detached: true,
+    stdio: 'ignore',
+    windowsHide: true,
+  });
+  child.unref();
+}
+
+async function waitForStudioShutdown(server: { close(): Promise<void> }): Promise<void> {
+  await new Promise<void>((resolveShutdown, rejectShutdown) => {
+    let stopping = false;
+    const stop = () => {
+      if (stopping) return;
+      stopping = true;
+      process.removeListener('SIGINT', stop);
+      process.removeListener('SIGTERM', stop);
+      void server.close().then(resolveShutdown, rejectShutdown);
+    };
+    process.once('SIGINT', stop);
+    process.once('SIGTERM', stop);
+  });
+}
+
 function generationSummary(
   result: Awaited<ReturnType<GenerationOrchestrator['run']>>,
   artifactRoot: string,
@@ -687,7 +787,7 @@ interface GenerateCliOptions {
   design: string;
   output?: string;
   artifacts?: string;
-  mode: 'exact' | 'hybrid';
+  mode: 'exact' | 'hybrid' | 'semantic';
   layout: 'fixed' | 'responsive' | 'component';
   name?: string;
   instructions?: string;
@@ -695,6 +795,17 @@ interface GenerateCliOptions {
   timeout?: number;
   maxPasses?: number;
   dryRun?: boolean;
+  json?: boolean;
+}
+
+interface StudioCliOptions {
+  workspace: string;
+  init?: boolean;
+  initOnly?: boolean;
+  open?: boolean;
+  port: number;
+  retentionHours: number;
+  healthCheck?: boolean;
   json?: boolean;
 }
 

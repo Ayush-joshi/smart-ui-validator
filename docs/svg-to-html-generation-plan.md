@@ -2,7 +2,7 @@
 
 ## Three-phase implementation plan
 
-Status: Phases 1 and 2 implemented and verified; Phase 3 planned
+Status: All three phases implemented and verified
 
 Date: 2026-08-10
 
@@ -564,7 +564,8 @@ Live Codex, Claude Code, and Copilot host sessions were not credentialed or exer
 stdio schemas are covered by official SDK in-memory and built-process transports. Phase 2 accepts
 text host assets only, one proposal per generation call, and process-scoped context handles; binary
 host assets, durable cross-process context registries, multiple proposal turns in one run, live
-external models, remote MCP, and Studio remain unimplemented.
+external models, remote MCP, and Studio remained unimplemented at that milestone. Studio was added
+and verified in Phase 3; the other listed limitations still apply.
 
 ### 6.1 Goal
 
@@ -729,6 +730,22 @@ Phase 2 is complete only when:
 6. Existing MCP tools, prompts, resources, and hosts remain compatible.
 
 ## 7. Phase 3 — Local interface and controlled internal pilot
+
+Status: Implemented and verified on 2026-08-11 for a controlled local pilot.
+
+The shipped Studio is a private React/Vite build input copied into the CLI's `dist/studio` subtree.
+It supplies the four-step input/preferences/generate/review workflow, strict loopback capability and
+CSRF boundary, separate inspection/generation manifests, persisted recovery, retention/deletion,
+real browser health, packaged clean-consumer startup, and one source-neutral generation engine.
+
+Verification passed formatting, lint, typecheck, build, 129 unit/integration tests, 6 real-Chromium
+end-to-end scenarios, both evaluation scorecards, the built 23-tool stdio handshake, security/
+privacy/package/publish/clean-consumer gates, a production audit with no known vulnerabilities, and
+a 773-component CycloneDX inventory. The measured 12-scenario SVG corpus rejected both adversarial
+inputs and repeated all 10 safe cases with identical manifests; its minimum matching-reference
+similarity was 97.548%, with 8 narrow robustness results separately labeled. All evidence used owned
+local fixtures; live external hosts/models and a hosted or separately published Studio remain
+unverified/unimplemented.
 
 ### 7.1 Goal
 

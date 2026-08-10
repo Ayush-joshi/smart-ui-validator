@@ -24,6 +24,28 @@ generation context after host restart is recovered with `get_generation` using t
 workspace, generation ID, and artifact base; do not broaden the trusted root. Generation preview
 servers are short-lived and close on completion, failure, timeout, or cancellation.
 
+For the local Studio pilot, initialize a new empty dedicated root and start headless by default:
+
+```bash
+smart-ui studio --workspace /absolute/smart-ui-studio --init-only --json
+smart-ui studio --workspace /absolute/smart-ui-studio --health-check --json
+smart-ui studio --workspace /absolute/smart-ui-studio
+```
+
+Startup refuses `/`, a drive root, the user home directory, symlink roots, and unmarked non-empty
+directories. The marker and `runs/` directory are the only shared workspace state. Each
+`runs/run-<uuid>/` contains a server-named upload, a separate inspection artifact store, a new
+generation artifact store, and a bounded `studio-run.json` pointer. The core `GenerationRecord` in
+the generation store is authoritative; the pointer only enables recovery. Studio binds only to
+`127.0.0.1`, prints no cookie/CSRF capability, collects no telemetry, and accepts no remote clients.
+
+`--retention-hours` defaults to 24 hours and is bounded from one second to 30 days. Expiration and
+the UI's “Delete this run” action close its preview, cancel in-flight work, verify the exact child of
+`runs/`, remove only that directory, and verify absence. For a support bundle, retain the relevant
+record/report/manifest hashes and redact the dedicated workspace path; never include the process
+cookie, CSRF token, raw unsafe upload, or unrelated runs. Local storage is plaintext unless an OS or
+desktop wrapper supplies encryption.
+
 ## Health and readiness
 
 `smart-ui setup --target <repo> --agent-memory --json` provisions the pinned Playwright Chromium
@@ -35,6 +57,10 @@ service is involved.
 Chromium launch without downloading anything. Readiness also requires the target dev server to be
 reachable at an allowlisted route before validation. Verify audit logs regularly with
 `smart-ui audit-verify`.
+
+Studio `--health-check --json` checks the public engine constructor, browser adapter, packaged
+client/server assets, loopback binding, a disposable contained write, and runs-directory
+containment. It starts and closes the local server without opening a browser.
 
 ## Backup and restore
 

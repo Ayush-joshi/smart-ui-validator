@@ -94,6 +94,13 @@ for (const entry of packages) {
       );
     }
   }
+  if (manifest.name === 'smart-ui-validator') {
+    for (const studioAsset of ['dist/studio/server.js', 'dist/studio/public/index.html']) {
+      if (!(await exists(join(directory, studioAsset)))) {
+        errors.push(`${label}: bundled Studio asset is missing: ${studioAsset}.`);
+      }
+    }
+  }
 }
 
 warnings.push(

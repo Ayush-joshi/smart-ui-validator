@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="390" height="844" viewBox="0 0 390 844">
+  <rect width="390" height="844" fill="#17183f"/>
+  <text x="28" y="54" font-family="Arial" font-size="20" font-weight="700" fill="#ffffff">Lumen</text>
+  <text x="28" y="154" font-family="Arial" font-size="39" font-weight="700" fill="#ffffff">Ship clearer</text>
+  <text x="28" y="202" font-family="Arial" font-size="39" font-weight="700" fill="#ffffff">product stories.</text>
+  <text x="28" y="257" font-family="Arial" font-size="17" fill="#cbd2ff">Reviewable, offline interfaces</text>
+  <rect x="28" y="297" width="190" height="56" rx="12" fill="#8af0ce"/>
+  <text x="61" y="332" font-family="Arial" font-size="16" font-weight="700" fill="#10221d">Start a project</text>
+  <circle cx="195" cy="566" r="128" fill="#8af0ce" opacity="0.8"/>
+  <path d="M62 724 C140 620 255 805 334 678" fill="none" stroke="#ffffff" stroke-width="14" stroke-linecap="round"/>
+</svg>

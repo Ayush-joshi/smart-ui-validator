@@ -1,20 +1,34 @@
 # Agent-first workflow
 
-This runbook is the default first-run and recovery contract for an agent using Smart UI Validator.
-It turns target setup into one user command and one MCP preparation call. The agent must not repeat
-successful setup work merely to regain context.
+This runbook is the default first-run and recovery contract for an agent implementing or repairing a
+UI in an existing React or Angular repository. It turns target setup into one user command and one
+MCP preparation call. The agent must not repeat successful setup work merely to regain context.
 
-## Direct SVG-to-HTML generation
+## Choose the correct workflow first
 
-When the requested outcome is standalone HTML/CSS from a local SVG—not a React or Angular
-implementation—use `smart-ui generate` instead of this repository inspection/repair state machine.
-Declare the exact workspace and SVG path; do not infer a workspace or start a target application.
-Phase 1 generation is local CLI functionality. MCP generation tools are introduced separately in
-Phase 2, so an agent must not emulate them with generic file writes or claim MCP support early.
+Smart UI has two separate workflows:
 
-Use hybrid mode for readable, structurally simple SVGs and exact mode for artwork-heavy or outlined
-content. Treat the resulting deterministic mismatch, uncertainties, offline report, and ZIP as the
-review evidence. A narrow robustness result without its own SVG reference is not visual fidelity.
+- For an implementation inside an existing React or Angular repository, continue with the
+  inspection, validation, and repair state machine below.
+- For standalone HTML/CSS from one local SVG, use the repository-free generation workflow. Do not
+  fabricate a target repository, start an application server, or convert a generation run into a
+  repository repair run.
+
+For SVG generation, an agent should read `smart-ui://svg-generation-guide`, call `inspect_svg`, page
+the returned context only as needed, then call `generate_html_from_svg`. Retrieve bounded results
+with `get_generation` or `get_generation_report`. `export_generation` is a separate mutating action
+and requires approval for the accepted manifest hash, the complete relative-path list, and one exact
+new empty destination.
+
+The local CLI provides the same deterministic engine through `smart-ui generate`. Smart UI Studio
+provides a local visual interface through `smart-ui studio`; it does not require or expose an agent
+host. An agent must not emulate either interface with generic shell/file/browser tools when the
+purpose-built generation operations are available.
+
+Use hybrid mode for general mixed screens, exact mode for artwork-heavy or outlined content, and
+semantic mode when bounded HTML meaning matters most. Treat the deterministic mismatch,
+uncertainties, offline report, manifest, and ZIP as review evidence. A narrow robustness result
+without its own SVG reference is not visual fidelity.
 
 ## User setup command
 

@@ -128,7 +128,7 @@ The repository now includes the additive, repository-free `smart-ui generate` ve
 deterministic exact/hybrid HTML/CSS generation, contained loopback preview, existing comparator
 reuse, separate immutable generation records, responsive-robustness classification, offline reports,
 reproducible ZIPs, and empty-directory export. Phase 1 intentionally excluded MCP generation and
-Studio; Phase 2 MCP generation is now recorded below, while Studio remains Phase 3.
+Studio; those surfaces are recorded in Phases 2 and 3 below.
 
 ### SVG-to-HTML extension — Phase 2
 
@@ -146,7 +146,35 @@ real-Chromium end-to-end scenarios plus a real-Chromium MCP proposal flow, the b
 handshake, evaluation/security/privacy/package/publish/clean-consumer/SBOM gates, and a production
 audit with no known vulnerabilities. Live external MCP hosts/models remain unverified; Studio,
 binary host proposals, multi-turn proposals in one run, and durable cross-process context handles
-remain Phase 3 or later work.
+were not part of Phase 2.
+
+### SVG-to-HTML extension — Phase 3
+
+Status: Implemented and verified on 2026-08-11 for a controlled local pilot.
+
+The private `apps/studio` React/Vite build input is copied as reviewed production server/static
+assets into the CLI package and launched with `smart-ui studio` on an ephemeral `127.0.0.1` origin.
+It provides bounded upload, preferences, progress/cancellation, isolated preview, escaped source,
+deterministic evidence, report/ZIP/file downloads, refresh recovery, retention, health checks, and
+verified single-run deletion through the same public generation engine used by CLI and MCP.
+
+Studio enforces a random HTTP-only SameSite process capability, separate CSRF token, exact Host/
+Origin/method/media-type checks, no CORS, streamed upload budgets, server-owned opaque run paths,
+separate inspection/generation manifests, manifest-routed downloads, a distinct CSP-locked preview
+origin, and shutdown cleanup. The packed clean consumer starts Studio from `dist/studio`; Studio is
+not a fourth published package.
+
+Phase 3 verification passed Prettier, ESLint, TypeScript typecheck, production build, 129 unit/
+integration tests, 6 real-Chromium React/Angular/SVG/Studio scenarios, the built 23-tool stdio MCP
+handshake, both evaluation gates, secret/privacy/package/publish/clean-consumer checks, a production
+audit with no known vulnerabilities, and a 773-component CycloneDX inventory. The separately
+measured 12-scenario owned SVG corpus completed all 10 safe cases twice with identical manifests,
+rejected both unsafe cases, recorded 97.548% minimum source similarity, and kept 8 narrow robustness
+results separate from 10 matching-reference fidelity results.
+
+Evidence came from owned deterministic local fixtures, not live external hosts or models. Hosted or
+remote Studio, authentication/tenant isolation, encrypted local stores, binary/multi-turn host
+proposals, durable multi-process registries, and a separately published Studio remain unimplemented.
 
 ## Working rules
 
@@ -188,4 +216,5 @@ The Phase 2 correction review passed:
 - 2 isolated-Chromium desktop/mobile end-to-end tests
 - Dependency, generated-artifact, secret, and diff audits
 
-Re-run all current gates before starting Phase 3 and fix regressions first.
+Historical Phase 2 correction rule: all current gates had to pass before the original governed-memory
+Phase 3 began.

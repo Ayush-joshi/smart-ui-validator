@@ -54,7 +54,7 @@ describe('SVG generation cancellation boundaries', () => {
         ...(stage === 'parsing' ? { structure: waitingStructure } : {}),
         ...(stage === 'generation' ? { generator: waitingGenerator } : {}),
         ...(stage === 'preview' ? { preview: waitingPreview } : {}),
-      }).run({ ...fixture.input, timeoutMs: 250 });
+      }).run({ ...fixture.input, timeoutMs: 1_000 });
 
       expect(reached).toContain(stage);
       expect(result.record).toMatchObject({

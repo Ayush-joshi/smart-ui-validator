@@ -1,148 +1,190 @@
 # Smart UI Validator
 
-**Smart UI Validator** is a host-neutral orchestration engine and CLI that turns your AI assistant (like Claude Code, GitHub Copilot, or Codex) into a highly disciplined, visually-aware frontend developer.
+Smart UI Validator is a host-neutral CLI and engine for two related but separate UI workflows:
 
-It introduces **Test-Driven Development (TDD) for Visuals**: You provide a Figma design or reference image, and the Validator mathematically ensures the UI code your AI writes matches the design pixel-for-pixel, automatically applying fixes and rolling back failures—all without breaking your repository rules.
+1. **Validate and repair an existing React or Angular implementation** against design evidence.
+2. **Generate standalone HTML and CSS from a local SVG** without requiring an application repository.
 
----
+Both workflows use the same safety, artifact, browser, comparison, and reporting foundations. They do
+not have the same inputs or outputs, and you can use either one independently.
 
-## 🧠 What is this? (And where is the AI?)
+The package also includes **Smart UI Studio**, a local browser interface for the SVG-to-HTML
+workflow. Studio is not a hosted service and is not a separate generation engine.
 
-**Smart UI Validator does NOT contain an AI model.** It is a strict sandbox, a deterministic measurement engine, and a memory store built specifically _for_ AI models.
+> Smart UI Validator is currently intended for a controlled local or internal pilot. Review its
+> evidence and proposed changes before treating an output as production-ready.
 
-You bring your own AI model (BYOM) via the **Model Context Protocol (MCP)**.
+## Choose the workflow you need
 
-1. **The Brains (Your AI Model):** You chat with Claude Code or VS Code Copilot.
-2. **The Protocol (MCP):** Your AI communicates with Smart UI Validator via standard input/output.
-3. **The Brawn (Smart UI Validator):** The Validator intercepts the AI's actions. If the AI writes a UI component, the Validator boots up an isolated Chromium browser, takes a screenshot, mathematically compares it to the Figma design, and tells the AI exactly what to fix (e.g., _"The gap is 8px instead of 16px"_).
+|                            | Existing UI validation and repair                                      | SVG-to-HTML generation                                                   |
+| -------------------------- | ---------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| Use it when                | A UI already belongs in a React or Angular project                     | A local SVG should become a standalone HTML/CSS bundle                   |
+| Primary input              | Design evidence, target repository, and a running browser route        | One bounded local SVG                                                    |
+| Repository required        | Yes                                                                    | No                                                                       |
+| Running application        | Yes, for browser capture                                               | No; Smart UI creates a contained preview                                 |
+| Model or MCP host required | No for CLI validation; useful for substantial implementation proposals | No for deterministic CLI/Studio generation; MCP is an optional interface |
+| Main command               | `smart-ui validate`, `smart-ui validate-matrix`, or `smart-ui fix`     | `smart-ui generate`                                                      |
+| Visual interface           | No dedicated UI                                                        | `smart-ui studio`                                                        |
+| Main result                | Findings, screenshots, diffs, overlays, run records, and reports       | HTML/CSS, evidence, report, immutable record, and reproducible ZIP       |
+| Writes application source  | Only during an explicitly bounded repair                               | Never                                                                    |
 
----
+## What Smart UI does—and where AI fits
 
-## 🔬 How it Evaluates (It is NOT just a screenshot tool)
+Smart UI Validator does not ship a general-purpose AI model. Deterministic code performs the work
+that must be reproducible: input validation, browser capture, DOM and computed-style collection,
+image comparison, scoring, policy enforcement, rollback decisions, artifact hashing, and reporting.
 
-Smart UI Validator does not just take a blurry screenshot and ask the AI "does this look right?". It acts like a headless browser and deeply evaluates the **DOM, HTML, CSS, and runtime state**.
+An MCP-compatible host such as Codex, Claude Code, or VS Code/Copilot can inspect the compact
+evidence and propose an implementation or repair. Those proposals still pass through Smart UI's
+exact path, command, endpoint, pass-count, and regression boundaries. The bundled heuristic repair
+provider is intentionally narrow; substantial repository edits are expected to come from a capable
+host agent and require approval for the exact files involved.
 
-1. **Geometry & Layout (The DOM Box Model):** It measures the exact rendered pixels between elements, bounding box intersections, flexbox alignments, and overflow boundaries.
-2. **Typography & Computed Styles (CSS):** It extracts the computed styles to ensure font-family, exact font-weight, line-height, text-wrapping, and color _Delta E_ (human perceptual color difference) perfectly match the design constraints.
-3. **Accessibility & Semantics (HTML):** It audits missing `aria-labels`, missing image `alt` tags, duplicate IDs, legal color contrast ratios (e.g., WCAG AA), and keyboard focus states.
-4. **Runtime & Network States:** It actively fails validation if your component throws a JavaScript Console Error or if a network request (like fetching a font) fails. It can also simulate browser interactions like `:hover`, `:focus`, and `:active`.
+## Requirements and installation
 
-This deep evaluation gives your AI model the exact pinpoint data it needs to write the perfect CSS patch without hallucinating!
+- Node.js 22.16 or newer.
+- Playwright Chromium, provisioned and launch-tested by `smart-ui setup` for repository validation.
+- pnpm 10.15.0 only when building this repository from source.
+- A React or Angular project only for the validation/repair workflow.
 
----
-
-## 📍 How does it know where your component is?
-
-You might wonder: _How does the AI know where to navigate in the browser or which file to edit?_
-
-It uses a powerful mix of **auto-discovery** and **strict user boundaries**:
-
-1. **The Browser Route (User Tells):** When triggering the validation loop, you explicitly tell the Validator where to look by passing your local dev server URL (e.g., `--route http://127.0.0.1:4173/nav`).
-2. **Code Auto-Discovery (It Infers):** Before making edits, the Validator runs an internal `inspect` mechanism on your repository. It automatically discovers if you use React or Angular, infers where your components live, extracts your design tokens/CSS variables, and maps your Storybook routing conventions.
-3. **File Boundaries (User Limits):** Even though it understands your entire codebase, you must explicitly allowlist the files it is allowed to touch via your `smart-ui.config.json` (e.g., `"allowedPaths": ["src/components/"]`). It will never blindly guess and edit random files outside this restricted sandbox.
-
----
-
-## ✨ What to Expect
-
-- **Bounded "Self-Healing" Repairs:** The AI can attempt to fix a component in a loop. If a patch lowers the visual score or breaks your unit tests, the Validator instantly rolls the file back. It bounds the AI to a maximum number of attempts (e.g., 5 passes).
-- **Strict Sandbox Safety:** The AI is only allowed to edit explicitly allowed files. It cannot execute arbitrary shell commands or make unauthorized external network requests.
-- **Governed Memory (It Learns):** If the AI figures out that your project uses a specific Tailwind class or CSS token, it will ask if it should remember that. The Validator saves confirmed preferences in a local SQLite database and automatically injects them into future prompts so the AI doesn't make the same mistakes twice.
-
----
-
-## 🛠️ Requirements
-
-Before starting, you need:
-
-- **Node.js** (v22.16 or newer)
-- **pnpm** (v10.15.0, only when building this repository from source)
-- **Playwright Chromium** (provisioned and launch-tested by `smart-ui setup`)
-- **An MCP-Compatible AI Host** (e.g., Claude Code, GitHub Copilot, or Codex)
-
----
-
-## 🚀 Getting Started (Setup)
-
-### Generate standalone HTML from an SVG
-
-SVG generation is repository-free and does not require Figma, MCP, a model, a target application, or
-external network access. It produces immutable evidence and a reproducible ZIP; `--output` is
-optional and must name a new empty directory inside the exact workspace.
-
-```bash
-npx smart-ui generate \
-  --workspace /absolute/path/to/svg-workspace \
-  --design /absolute/path/to/svg-workspace/design/hero.svg \
-  --output /absolute/path/to/svg-workspace/generated/hero \
-  --mode hybrid \
-  --layout responsive
-```
-
-Use `--mode exact` for artwork-heavy SVGs or `--mode semantic` for the strongest bounded semantic
-projection. `--dry-run --json` performs strict safety and capability
-inspection without writing an HTML/CSS deliverable. Generated pages use local files only and are
-rendered on a contained loopback preview with browser networking blocked before Smart UI reports
-source-viewport visual fidelity. A configured narrow viewport is reported separately as responsive
-robustness, never as fidelity to the desktop SVG.
-
-Connected MCP hosts use the same engine: `inspect_svg` returns compact capabilities and a paged
-context handle; `generate_html_from_svg` accepts an optional user-approved host file proposal;
-`get_generation` and `get_generation_report` retrieve bounded results; and `export_generation`
-requires a separate approval for the accepted manifest hash, every relative path, and one exact new
-empty destination. Read `smart-ui://svg-generation-guide` before this workflow. The host never
-scores its own proposal or gains a generic writer/browser/shell tool.
-
-### 1. Install from npm (recommended)
-
-Install the CLI in the React or Angular project that Smart UI will validate, then run the supported
-first-time setup command:
+Install the CLI in a project or tooling workspace:
 
 ```bash
 npm install --save-dev smart-ui-validator@0.4.2
-npx smart-ui setup --target . --agent-memory
+npx smart-ui --help
+```
+
+The package has no browser-downloading `postinstall` hook. For the SVG CLI or Studio from another
+directory, you can invoke the published package explicitly:
+
+```bash
+npx --package smart-ui-validator@0.4.2 smart-ui --help
+```
+
+From this repository checkout, use `pnpm smart-ui` after `pnpm install --frozen-lockfile` and
+`pnpm build`.
+
+---
+
+## Functionality 1: validate and repair an existing UI
+
+Use this workflow when the final implementation must live in an existing React or Angular project
+and follow that project's components, tokens, routes, styling, state, and test conventions.
+
+### What it evaluates
+
+Smart UI renders the requested route in isolated Chromium and produces deterministic findings across:
+
+- geometry and layout, including element bounds, spacing, alignment, overflow, and text wrapping;
+- typography and computed appearance, including fonts, line height, weight, color, and contrast;
+- assets and raster similarity, including a screenshot, difference image, and overlay;
+- structure and accessibility, including accessible names, duplicate IDs, and keyboard focus;
+- runtime behavior, including console errors and failed network requests;
+- configured viewports and default, hover, focus, active, disabled, loading, empty, and error states.
+
+A PNG, JPEG, WebP, or SVG reference without a structural sidecar provides raster evidence only.
+Smart UI will not invent exact semantic or box-model expectations that are absent from the source.
+
+### How it works
+
+1. `inspect` discovers the target framework and relevant repository conventions.
+2. `design normalize` turns local evidence into a versioned `DesignContract` with provenance.
+3. `validate` captures one browser state, or `validate-matrix` captures the configured viewport and
+   interaction-state matrix.
+4. Deterministic comparators produce categorized findings and immutable evidence artifacts.
+5. `fix` may apply a bounded, allowlisted proposal, run configured checks, recapture the UI, and
+   retain or roll back the proposal based on deterministic regression evidence.
+6. An offline report and versioned `RunRecord` preserve the result and its provenance.
+
+### Quick start
+
+Run first-time setup from the target repository. Add `--agent-memory` only if you intend to use the
+optional embedded-SQLite memory backend.
+
+```bash
+npm install --save-dev smart-ui-validator@0.4.2
+npx smart-ui setup --target .
 npx smart-ui doctor --target .
+npx smart-ui inspect --target . --json
 ```
 
-`setup` installs the Chromium revision pinned by this Smart UI release using the package-local
-Playwright installer; it never relies on a global Playwright version. It then launches a disposable
-browser page to prove the executable works. `--agent-memory` additionally performs a disposable
-write, close, reopen, read, and delete canary against embedded SQLite. It does not require SQL
-Server, PostgreSQL, or a separately installed SQLite service.
+Create `smart-ui.config.json` in the target root. This minimal example allows two exact source files
+and one exact test command; omitted settings use strict defaults.
 
-Agent Memory is optional and disabled by default. Omit `--agent-memory` when you do not intend to use
-the Agent Memory backend. If `memory.enabled` is true and `memory.backend` is `agent-memory` in the
-project configuration, setup checks it automatically.
+```json
+{
+  "schemaVersion": "1.0",
+  "validation": {
+    "maxRepairPasses": 5,
+    "visualDifferencePercent": 0.75,
+    "colorDeltaE": 2.5
+  },
+  "policy": {
+    "allowedPaths": ["src/components/PricingCard.tsx", "src/components/PricingCard.css"],
+    "allowedCommands": [{ "executable": "npm", "args": ["test"] }],
+    "endpointAllowlist": [],
+    "blockExternalNetwork": true
+  },
+  "commands": {
+    "format": null,
+    "typecheck": null,
+    "test": { "executable": "npm", "args": ["test"] }
+  }
+}
+```
 
-For automation and support bundles, use `--json`:
+Normalize the design evidence:
 
 ```bash
-npx smart-ui setup --target . --agent-memory --json
+npx smart-ui design normalize \
+  --image /absolute/path/to/reference.png \
+  --out /absolute/path/to/project/.smart-ui/design-contract.json \
+  --artifacts /absolute/path/to/project/.smart-ui/artifacts
 ```
 
-The command exits with code `4` when installation, the browser launch canary, target inspection,
-strict configuration, or an enabled Agent Memory canary fails.
-
-### 2. Build the Engine from source
-
-Contributors can clone and build the complete workspace:
+If you have explicit element evidence, add `--spec /absolute/path/to/spec.json`. Start the target
+application yourself, then validate its fully qualified loopback route:
 
 ```bash
-git clone <public-repository-url>
-cd smart-ui-validator
-pnpm install --frozen-lockfile
-pnpm build
-pnpm smart-ui setup --target fixtures/react-app
+npx smart-ui validate \
+  --target /absolute/path/to/project \
+  --design /absolute/path/to/project/.smart-ui/design-contract.json \
+  --route http://127.0.0.1:4173/pricing \
+  --out /absolute/path/to/project/.smart-ui/run.json
 ```
 
-The repository root is not itself a React or Angular target, so setup points at the React fixture.
+For all configured viewports and states:
 
-### 3. Wire up your AI Host
+```bash
+npx smart-ui validate-matrix \
+  --target /absolute/path/to/project \
+  --design /absolute/path/to/project/.smart-ui/design-contract.json \
+  --route http://127.0.0.1:4173/pricing
+```
 
-Because the Validator is an MCP server, you must connect your AI to it.
+For a bounded repair run, explicitly allow every file that may be written. Paths can come from the
+configuration or from `--allow-write`:
 
-**For Claude Code (Terminal):**
-Create a `.mcp.json` file in your target project (where you want Claude to work):
+```bash
+npx smart-ui fix \
+  --target /absolute/path/to/project \
+  --design /absolute/path/to/project/.smart-ui/design-contract.json \
+  --route http://127.0.0.1:4173/pricing \
+  --allow-write src/components/PricingCard.tsx src/components/PricingCard.css \
+  --max-passes 3
+```
+
+Use `--dry-run` to record a proposal without source writes. A retained repair is not based on one
+headline score: configured repository checks must pass, structural evidence must not regress, and
+the visual result must improve within the configured thresholds. Existing and newly created files
+are rolled back when a proposal is rejected or a pass fails.
+
+### Using an MCP host
+
+The MCP server exposes the same core through compact, approval-aware tools. A host agent is the
+recommended way to produce non-trivial React or Angular changes from the findings.
+
+Example `.mcp.json` for Claude Code:
 
 ```json
 {
@@ -150,172 +192,273 @@ Create a `.mcp.json` file in your target project (where you want Claude to work)
     "smart-ui": {
       "command": "npx",
       "args": ["-y", "smart-ui-validator-mcp@0.4.2"],
-      "cwd": "/absolute/path/to/your/project",
+      "cwd": "/absolute/path/to/project",
       "env": {
-        "SMART_UI_MCP_ROOT": "/absolute/path/to/your/project"
+        "SMART_UI_MCP_ROOT": "/absolute/path/to/project"
       }
     }
   }
 }
 ```
 
-_(For VS Code Copilot or Codex, see the [Host Setup Guide](docs/hosts.md) for configuration examples)._
-
-### Faster first run: generate the workflow once
-
-Instead of manually copying design evidence, choosing artifact paths, and restating arguments to the
-agent, run:
+For a guided first run, create the target-contained workflow manifest from this repository:
 
 ```bash
 pnpm workflow:setup -- \
-  --target /absolute/path/to/your/project \
+  --target /absolute/path/to/project \
   --design /absolute/path/to/reference.svg \
-  --url http://127.0.0.1:4200/ \
-  --component LoginComponent \
+  --url http://127.0.0.1:4173/pricing \
+  --component PricingCard \
   --host codex \
   --ensure-engine
 ```
 
-This produces a target-contained `.smart-ui/workflow.json`, exact agent instructions, and a host
-configuration snippet. After connecting or restarting the host once, ask the agent to call
-`prepare_workflow` with the manifest. It will inspect and normalize once, then reuse the returned
-compact validation arguments. See the [agent-first workflow](docs/agent-workflow.md) for the full
-state machine, retry limits, and recovery rules.
+Then ask the connected host to call `prepare_workflow`, plan the component, establish a validation
+baseline, and request approval before each repair batch. See the
+[agent-first workflow](docs/agent-workflow.md) and [host setup guide](docs/hosts.md).
 
-### 4. Set the Rules (The Sandbox)
+### What to expect
 
-Create a `smart-ui.config.json` in the root of your target project. This tells the Validator what the AI is allowed to do.
+- A versioned `DesignContract` and `RunRecord`, with hashes and provenance.
+- Target and implementation screenshots, raster diff and overlay images, categorized findings, and
+  an offline HTML report.
+- Separate visual similarity and binary check results; Smart UI does not ask a model to invent a
+  score.
+- Bounded repair passes with explicit stop conditions and reviewable immutable pass records.
+- Exact writable-file and command enforcement, browser isolation, artifact budgets, timeouts, and
+  rollback on rejected changes.
+- Optional governed memory for confirmed, scoped preferences. Memory is advisory, disabled by
+  default, inspectable, correctable, forgettable, and never a source of new permissions.
 
-```json
-{
-  "schemaVersion": "1.0",
-  "validation": {
-    "maxRepairPasses": 5,
-    "colorDeltaE": 2.5
-  },
-  "generation": {
-    "artifactBase": ".smart-ui/generations",
-    "timeoutMs": 60000,
-    "maxPasses": 1,
-    "maxProposalRegressionPercent": 0
-  },
-  "policy": {
-    "allowedPaths": ["src/components/", "src/styles.css"],
-    "allowedCommands": [{ "executable": "pnpm", "args": ["test"] }]
-  }
-}
-```
+Do not expect Smart UI to replace application tests, infer missing design semantics from pixels, or
+guarantee that every design can reach zero raster difference. Dynamic content, unavailable fonts,
+browser rendering, source evidence, and application state can all constrain the achievable result.
 
 ---
 
-## 💻 The Developer Workflow (In Action)
+## Functionality 2: generate standalone HTML and CSS from an SVG
 
-Once everything is wired up, here is what your day-to-day workflow looks like:
+Use this workflow when the input is a local SVG and the desired result is a self-contained web
+bundle. It is repository-free: it does not inspect or modify a React or Angular project, start your
+application, require Figma, or require a model.
 
-### 1. Ingest the Design
+You can access this functionality through:
 
-When your designer hands you a Figma spec or reference image, you normalize it into a machine-readable `DesignContract`:
+- the `smart-ui generate` CLI for scripts and repeatable local runs;
+- SVG generation tools in the stdio MCP server for an approval-aware agent workflow; or
+- Smart UI Studio for a visual four-step workflow.
+
+All three interfaces call the same public `GenerationOrchestrator` and produce the same versioned
+generation records and deterministic evidence.
+
+### How generation works
+
+1. Smart UI verifies that the declared workspace, SVG, artifact root, and optional export directory
+   are contained and safe.
+2. It streams and sanitizes the SVG under strict size, depth, node, attribute, path, filter,
+   gradient, and embedded-image limits. Active or external content fails closed.
+3. It creates a hierarchical `DesignBundle` with scene structure, repeated values, layout and
+   semantic candidates, unsupported constructs, provenance, and explicit uncertainties.
+4. A deterministic provider generates bounded local HTML/CSS according to the selected mode and
+   layout.
+5. Smart UI serves the output on a short-lived contained loopback preview with browser networking
+   blocked, captures it in Chromium, and compares it with the source SVG.
+6. It retains an immutable `GenerationRecord`, offline report, evidence images, generated files, and
+   reproducible ZIP. An optional export copies only the accepted manifest into one exact new empty
+   directory.
+
+### Generation modes
+
+| Mode       | Best fit                                               | Expected trade-off                                                                       |
+| ---------- | ------------------------------------------------------ | ---------------------------------------------------------------------------------------- |
+| `exact`    | Artwork-heavy SVGs, outlined text, and complex effects | Prioritizes source-viewport visual fidelity and preserves more SVG-native representation |
+| `hybrid`   | General screens with both structure and visual artwork | Balances readable HTML/CSS with preserved complex visual subtrees; recommended default   |
+| `semantic` | Readable UI screens where HTML meaning matters most    | Produces the strongest bounded semantic projection; narrow visual fidelity may be lower  |
+
+Layout choices are `fixed`, `responsive`, and `component`. A source SVG normally proves fidelity
+only at its source viewport. A narrow rendering without a corresponding narrow source is reported
+as **responsive robustness**, not as visual fidelity to an unprovided design.
+
+### Generate from the CLI
+
+The SVG must be inside the exact workspace. `--output` is optional; when supplied, it must name a new
+empty directory inside that workspace.
 
 ```bash
-pnpm smart-ui design normalize --image ./design-specs/reference.svg --out /tmp/design.json
+npx smart-ui generate \
+  --workspace /absolute/path/to/svg-workspace \
+  --design /absolute/path/to/svg-workspace/design/pricing.svg \
+  --output /absolute/path/to/svg-workspace/generated/pricing \
+  --mode hybrid \
+  --layout responsive \
+  --name "Pricing screen"
 ```
 
-### 2. Prompt your AI
+Useful options:
 
-Open your IDE or terminal, boot up your local dev server (e.g., `http://localhost:4173`), and ask your AI:
+- `--instructions <text>` adds one bounded implementation note.
+- `--viewport <width>x<height>` overrides the source viewport when the SVG does not provide the
+  intended dimensions.
+- `--max-passes 0|1` controls the bounded revision count.
+- `--dry-run --json` performs safety and capability inspection without producing a deliverable.
+- Omitting `--output` retains the immutable artifact run, report, and ZIP without materializing a
+  separate export directory.
 
-> _"Build the Navigation component based on this design contract. Use the Smart UI tools to validate and fix it against `http://localhost:4173/nav` until the visual score is above 95/100."_
+### Generate through MCP
 
-### 3. The Validator Takes Over
+Connected hosts use the same engine and do not receive a generic browser, shell, or file-writer tool:
 
-- **Validation:** The AI writes the initial code and calls the Validator. The Validator launches
-  headless Chromium, captures the DOM, and returns representative findings with the target DOM
-  locator, expected value, actual value, delta, confidence, and repair category.
-- **Focused retrieval:** When a run has more findings than fit in the compact response, the AI calls
-  `get_findings` to page by category or severity without repeating screenshots or other binary
-  evidence.
-- **The Repair Loop:** After you approve the exact files, the AI submits a full-file
-  `proposedChanges` batch. The Validator applies that batch once through its exact write policy,
-  runs configured checks, and takes another Chromium screenshot. Calls without `proposedChanges`
-  use only the deliberately narrow background-color fallback.
-- **Rollbacks:** If the AI accidentally breaks the layout or fails a test, the Validator cleanly rolls the file back to the previous state.
+- `inspect_svg` returns compact capabilities and a paged normalized context handle.
+- `generate_html_from_svg` generates deterministically and can consider one optional, explicitly
+  approved host HTML/CSS/SVG proposal.
+- `get_generation` and `get_generation_report` retrieve bounded records and evidence.
+- `export_generation` requires a separate approval for the accepted manifest hash, every relative
+  path, and one exact new empty destination.
 
-Each validation pass records both the binary check score and proportional visual mismatch. A patch
-can therefore be retained when it measurably improves the raster before crossing the final pass
-threshold, but it is rejected if the structural score or visual result regresses.
+Read the MCP resource `smart-ui://svg-generation-guide` before using this flow. Host proposals are
+rendered and compared by Smart UI and are retained only when they do not introduce structural or
+visual regression; the host never scores its own output.
 
-> **Reference-image note:** A PNG, JPEG, or SVG without a semantic sidecar provides raster evidence
-> only. Supply a structural spec or Figma element evidence when you need deterministic statements
-> such as “padding is 16px but should be 24px.”
+### What to expect
 
-### 4. Confirming Memory (Learning)
+- Generated `index.html` and `styles.css` using local files only.
+- A reproducible ZIP, optional exact-directory export, and downloadable offline report.
+- Source and implementation screenshots, visual mismatch, difference heatmap, overlay, structural
+  findings, runtime/accessibility findings, and viewport classifications.
+- An immutable generation record containing file manifests, hashes, decisions, uncertainties,
+  provenance, pass history, stop reason, and artifact references.
+- A fail-closed rejection instead of partial output for unsafe, unsupported, oversized, or
+  out-of-bound input.
 
-When the component is finished, the AI might realize you prefer using CSS variables (e.g., `--spacing-4`). The Validator will ask you in the terminal or chat:
-
-> _"Should I remember to map 16px to `--spacing-4` for this repository?"_
-
-If you say yes, this preference is saved to `.smart-ui/agent-memory.sqlite`. The next time you ask the AI to build a component, it will automatically use `--spacing-4` on its very first try.
-
----
-
-## 🚨 Troubleshooting & Exit Codes
-
-If you are using the CLI manually, pay attention to the exit codes:
-
-| Code | Meaning                                                                  |
-| ---- | ------------------------------------------------------------------------ |
-| `0`  | Success. No blocking validation findings remain.                         |
-| `1`  | Unexpected command/runtime failure.                                      |
-| `2`  | Invalid user input or strict schema/config error.                        |
-| `3`  | Validation completed, but blocking visual/accessibility findings remain. |
-| `4`  | An operation failed or the target environment is untrustworthy.          |
-
-**Common Issues:**
-
-- **Chromium missing or cannot launch:** Run `smart-ui setup --target <project>`. For a local npm
-  installation, use `npx smart-ui setup --target <project>`.
-- **Agent Memory fails:** No system database server is required. Confirm Node 22.16+, then run
-  `smart-ui setup --target <project> --agent-memory`. Without that backend, keep memory disabled or
-  use the default local JSON memory store.
-- **Install succeeds but setup fails:** This is expected when a runtime asset is unavailable. npm
-  installs JavaScript packages only; Smart UI intentionally avoids a large, network-dependent
-  Chromium `postinstall` download.
-- **Write rejected:** Ensure the file you want the AI to edit is explicitly listed in `smart-ui.config.json` under `allowedPaths`.
-- **Command rejected:** Ensure your `allowedCommands` (like `pnpm test`) match exactly what the AI is trying to execute.
-- **MCP path rejected:** Ensure `SMART_UI_MCP_ROOT` is set strictly to your target project folder, not a home directory.
+Generation is deterministic and bounded, but it is not a full design-to-production application
+builder. It does not add application state, backend behavior, routing, design-system integration, or
+business logic that is not represented by the SVG and the bounded instructions.
 
 ---
 
-## ❓ Frequently Asked Questions
+## Smart UI Studio
 
-**Does the Validator have built-in Storybook?**
-It does not contain its own proprietary Storybook engine, but it **natively auto-discovers your existing Storybook**. If you have `@storybook/react` installed, the AI will build components in a `.stories.tsx` file and validate them against your Storybook iframe URL (e.g., `http://localhost:6006`), completely isolating the component from your messy app logic!
+Smart UI Studio is the packaged local browser interface for SVG-to-HTML generation. It is designed
+for teammates who want to upload, configure, review, and download a generation without composing CLI
+arguments or using an MCP host.
 
-**How does it validate a deeply nested component without the header/footer ruining the score?**
-You add a simple data attribute to your component: `data-validation-id="pricing-card"`. When the Validator runs, it searches the DOM for that attribute and mathematically scopes the validation _strictly_ to that box and its children, completely ignoring the rest of the webpage.
+Studio is not used to validate or repair an existing React or Angular repository. It has no hosted
+backend, account system, remote collaboration, Figma or model credential collection, or telemetry.
 
-**How does it handle complex states (e.g., a component that only appears after 3 clicks)?**
-Smart UI Validator is a visual component tool, not an end-to-end user journey tool (like Cypress). It will not simulate complex multi-step clicks. Instead, you isolate the component (via Storybook) or force the state to render via a URL flag (e.g., `http://localhost:4173/form?step=3`). _Note: Simple CSS states like `:hover` and `:focus` are natively supported and triggered automatically._
+### How Studio works
 
-**How does the AI implement programmatic elements (like Modals or Toasts)?**
-Because a Toast isn't in the DOM on initial load, the AI uses a **"Sandbox Route"** pattern. It writes the `Toast.tsx` component, creates a temporary test route (e.g., `src/pages/sandbox.tsx`), forces the Toast to open on that route, and points the Validator there. Once validation passes, the AI deletes the temporary sandbox route and leaves the perfect component behind!
+The CLI starts a private server on an ephemeral `127.0.0.1` port and prints the exact URL. The browser
+receives a random process capability in an HTTP-only, same-site cookie and uses a separate CSRF
+token. Studio checks the exact host, origin, method, and content type, exposes no CORS access, and
+never accepts a filesystem path from page JavaScript.
 
----
+Each upload receives an opaque run ID and separate server-owned inspection and generation artifact
+roots. The SVG is streamed under a size limit and re-sanitized before inspection. Generated source
+is displayed as escaped text, while the accepted page runs on a separate CSP-restricted preview
+origin with scripts and network access denied. Browser state is only a view of the persisted
+generation record, so completed runs can be recovered after Studio restarts.
 
-## 📚 Deep Dives & Enterprise Docs
+### Start Studio
 
-For administrators, security audits, and advanced integrations, see the detailed documentation:
+Use a dedicated empty directory. Studio refuses filesystem roots, your home directory, symlink
+roots, and non-empty directories that it did not initialize.
 
-- [Architecture & Interfaces](docs/architecture.md)
-- [MCP Server Details](docs/mcp.md)
-- [Agent-first Workflow](docs/agent-workflow.md)
-- [Host Integrations (Claude, Copilot, Codex)](docs/hosts.md)
-- [Security & Sandboxing](docs/security.md)
-- [Threat Model](docs/threat-model.md)
-- [Governed Memory Details](docs/memory.md)
-- [Enterprise & Operations (Backups, Audits, Retention)](docs/operations.md)
-- [Evaluation & Release Process](docs/release.md)
-- [Publishing to npm](docs/npm-publishing.md)
-- [Windows EXE/Desktop Plan](docs/smart-ui-validator-exe-plan.md)
-- [Local Development & Testing](docs/development.md)
-- [The Authoritative Implementation Plan](docs/implementation-plan.md)
+Initialize once, verify the packaged engine and real browser adapter, then start Studio:
+
+```bash
+npx smart-ui studio \
+  --workspace /absolute/path/to/smart-ui-studio \
+  --init-only
+
+npx smart-ui studio \
+  --workspace /absolute/path/to/smart-ui-studio \
+  --health-check \
+  --json
+
+npx smart-ui studio \
+  --workspace /absolute/path/to/smart-ui-studio \
+  --open
+```
+
+You can combine initialization and startup on the first run with `--init --open`. Without `--open`,
+Studio starts headless and prints the local URL for you to open manually. Stop it with `Ctrl+C`.
+
+`--retention-hours <hours>` controls expiry for completed local runs and defaults to 24 hours.
+`--port <port>` requests an exact loopback port; the default `0` is safer for concurrent runs because
+the operating system chooses an available ephemeral port.
+
+### The four Studio steps
+
+1. **Input:** drag, drop, or choose one `.svg`. Studio sanitizes it and shows dimensions, hashes,
+   scene size, readable text, decisions, uncertainties, and recommended modes.
+2. **Preferences:** choose exact, hybrid, or semantic mode; choose fixed, responsive, or component
+   layout; and optionally provide one bounded implementation note.
+3. **Generate:** follow sanitization, inspection, generation, preview, comparison, packaging, and
+   reporting progress. You can cancel an in-flight run.
+4. **Review:** inspect the isolated preview, visual similarity/mismatch, viewport classifications,
+   source code, findings, uncertainties, generated-output screenshot, heatmap, and overlay. Download
+   individual accepted files, the reproducible ZIP, or the offline report.
+
+The review screen can delete exactly one verified run. Expiry and deletion close its preview, cancel
+in-flight work, remove only that run directory, and verify that it is gone.
+
+### What to expect from Studio
+
+- The same generated files, deterministic comparison, report, ZIP, and `GenerationRecord` as the CLI.
+- No model-generated score and no hidden cloud processing.
+- Local-only access while the Studio process is running.
+- Plaintext local run data inside the dedicated workspace. Use OS-level disk protection when local
+  artifact confidentiality matters.
+- A clear error and recovery message for unsafe SVGs, unsupported input, cancellation, interrupted
+  work, or a failed health dependency.
+- No repository source edits and no conversion of the output into a React or Angular application.
+
+## Exit codes
+
+| Code | Meaning                                                                   |
+| ---- | ------------------------------------------------------------------------- |
+| `0`  | Success; no blocking validation or generation finding remains             |
+| `1`  | Unexpected command or runtime failure                                     |
+| `2`  | Invalid input or strict schema/configuration error                        |
+| `3`  | Work completed, but blocking deterministic findings remain                |
+| `4`  | The operation failed or the target/runtime environment is not trustworthy |
+
+## Troubleshooting
+
+- **Chromium is missing or cannot launch:** run `npx smart-ui setup --target <project>`. Studio users
+  can run `smart-ui studio --workspace <workspace> --health-check --json` for a real launch check.
+- **A repair write is rejected:** allow the exact target-relative file in `policy.allowedPaths` or
+  pass it with `--allow-write`; do not allowlist the repository root.
+- **A configured command is rejected:** the executable and every argument must exactly match both
+  the command configuration and `policy.allowedCommands`.
+- **The route captures the wrong area:** use a stable fixture/Storybook route and scope the component
+  with `data-validation-id="pricing-card"` where appropriate.
+- **MCP rejects a path:** keep evidence and artifacts inside `SMART_UI_MCP_ROOT`; do not broaden the
+  root to a home directory.
+- **Studio refuses its workspace:** choose a new empty dedicated directory or initialize it with
+  `--init-only`. Do not use `/`, a drive root, your home directory, or a symlink root.
+- **Studio data persists after shutdown:** this is expected. Completed records are recoverable until
+  the UI deletes the run or retention expires it.
+- **Agent Memory fails:** Node's embedded SQLite is used; no external database server is required.
+  Run `smart-ui setup --target <project> --agent-memory` to exercise the persistence canary.
+
+## Documentation
+
+- [Architecture and interfaces](docs/architecture.md)
+- [Agent-first validation workflow](docs/agent-workflow.md)
+- [SVG-to-HTML generation plan and guarantees](docs/svg-to-html-generation-plan.md)
+- [MCP server](docs/mcp.md)
+- [Host integrations](docs/hosts.md)
+- [Security controls](docs/security.md)
+- [Threat model](docs/threat-model.md)
+- [Governed memory](docs/memory.md)
+- [Operations and Studio lifecycle](docs/operations.md)
+- [Evaluation](docs/evaluation.md)
+- [Release process](docs/release.md)
+- [npm publishing](docs/npm-publishing.md)
+- [Local development and testing](docs/development.md)
+- [Authoritative implementation plan](docs/implementation-plan.md)
+
+## License
+
+MIT
