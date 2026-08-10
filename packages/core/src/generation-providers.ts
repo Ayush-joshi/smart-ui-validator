@@ -21,6 +21,10 @@ export interface SvgStructureProvider {
 export interface HtmlGenerationProvider {
   readonly name: string;
   readonly version: string;
+  readonly hostProposal?: {
+    host: string;
+    proposalHash: string;
+  };
   generate(
     input: SvgGenerationInput,
     inspection: SvgInspectionResult,
@@ -39,13 +43,17 @@ export interface GeneratedPreviewProvider {
 }
 
 export interface GenerationReporter {
-  write(record: GenerationRecord): Promise<ArtifactRef>;
+  write(record: GenerationRecord, signal?: AbortSignal): Promise<ArtifactRef>;
 }
 
 export interface GenerationExporter {
-  archive(files: readonly { relativePath: string; bytes: Uint8Array }[]): Promise<Uint8Array>;
+  archive(
+    files: readonly { relativePath: string; bytes: Uint8Array }[],
+    signal?: AbortSignal,
+  ): Promise<Uint8Array>;
   materialize(
     exportRoot: string,
     files: readonly { relativePath: string; bytes: Uint8Array }[],
+    signal?: AbortSignal,
   ): Promise<string[]>;
 }

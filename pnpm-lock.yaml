@@ -124,9 +124,15 @@ importers:
       dev-agent-memory:
         specifier: 0.4.1
         version: 0.4.1
+      parse5:
+        specifier: 8.0.0
+        version: 8.0.0
       playwright:
         specifier: 1.55.1
         version: 1.55.1
+      postcss:
+        specifier: 8.5.25
+        version: 8.5.25
       saxes:
         specifier: 6.0.0
         version: 6.0.0
@@ -5137,6 +5143,12 @@ packages:
         integrity: sha512-/dQ8UzHZwnrzs3EvDj6IkKrD/jIZyTlB+8XrHJvcjNgRdmWruNdN9i9RK/JtxakmlUdPwKubKPTCqvbTgzGhrw==,
       }
 
+  parse5@8.0.0:
+    resolution:
+      {
+        integrity: sha512-9m4m5GSgXjL4AjumKzq1Fgfp3Z8rsvjRNbnkVwfu2ImRqE5D0LnY2QfDen18FSY9C573YU5XxSapdHZTZ2WolA==,
+      }
+
   parse5@8.0.1:
     resolution:
       {
@@ -9394,6 +9406,10 @@ snapshots:
   parse5-sax-parser@8.0.0:
     dependencies:
       parse5: 8.0.1
+
+  parse5@8.0.0:
+    dependencies:
+      entities: 6.0.1
 
   parse5@8.0.1:
     dependencies:

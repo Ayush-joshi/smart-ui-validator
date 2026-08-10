@@ -197,6 +197,131 @@ describe('SVG generation Phase 1 core', () => {
         config.generation.limits,
       ),
     ).toThrow(/collides/);
+    expect(() =>
+      validateGeneratedBundle(
+        {
+          ...base,
+          files: [file('index.html'), file('styles.css'), file('assets/%2e%2e/escape.svg')],
+        },
+        config.generation.limits,
+      ),
+    ).toThrow(/Invalid generated path/);
+    expect(() =>
+      validateGeneratedBundle(
+        {
+          ...base,
+          files: [file('index.html', 'image/svg+xml'), file('styles.css')],
+        },
+        config.generation.limits,
+      ),
+    ).toThrow(/media type|extension/);
+  });
+
+  it('parses host-proposed HTML and CSS and rejects active, remote, or undeclared content', () => {
+    const config = configSchema.parse({});
+    const base = {
+      decisions: [],
+      uncertainties: [],
+      finalMode: 'semantic' as const,
+    };
+    const bundle = (html: string, css = 'body { margin: 0; }') => ({
+      ...base,
+      files: [
+        { ...file('index.html'), bytes: encoder.encode(html) },
+        { ...file('styles.css'), bytes: encoder.encode(css) },
+      ],
+    });
+    expect(() =>
+      validateGeneratedBundle(
+        bundle(
+          '<!doctype html><html><head><link rel="stylesheet" href="styles.css"></head><body><button type="button">Safe</button></body></html>',
+        ),
+        config.generation.limits,
+      ),
+    ).not.toThrow();
+    expect(() =>
+      validateGeneratedBundle(
+        bundle('<!doctype html><html><body><img src="missing.png" onerror="go()"></body></html>'),
+        config.generation.limits,
+      ),
+    ).toThrow(/event-handler/);
+    expect(() =>
+      validateGeneratedBundle(
+        bundle(
+          '<!doctype html><html><body><form action="https://bad.test"><button>Go</button></form></body></html>',
+        ),
+        config.generation.limits,
+      ),
+    ).toThrow(/external or unsafe/);
+    expect(() =>
+      validateGeneratedBundle(
+        bundle('<!doctype html><html><body><img src="assets/missing.svg"></body></html>'),
+        config.generation.limits,
+      ),
+    ).toThrow(/undeclared local file/);
+    expect(() =>
+      validateGeneratedBundle(
+        bundle('<!doctype html><html><body></body></html>', '@import "https://bad.test/x.css";'),
+        config.generation.limits,
+      ),
+    ).toThrow(/forbidden @import/);
+    expect(() =>
+      validateGeneratedBundle(
+        bundle(
+          '<!doctype html><html><body><img srcset="https://bad.test/remote.svg 1x, assets/local.svg 2x"></body></html>',
+        ),
+        config.generation.limits,
+      ),
+    ).toThrow(/external or unsafe/);
+    expect(() =>
+      validateGeneratedBundle(
+        bundle(
+          '<!doctype html><html><body></body></html>',
+          'body { background-image: image-set("https://bad.test/a.png" 1x); }',
+        ),
+        config.generation.limits,
+      ),
+    ).toThrow(/external or unsafe/);
+    expect(() =>
+      validateGeneratedBundle(
+        bundle('<!doctype html><html><body></body></html>', 'body { background: u\\72l(x); }'),
+        config.generation.limits,
+      ),
+    ).toThrow(/escaped token/);
+
+    const svgBundle = (svg: string) => ({
+      ...bundle(
+        '<!doctype html><html><head><link rel="stylesheet" href="styles.css"></head><body><img src="assets/art.svg"></body></html>',
+      ),
+      files: [
+        ...bundle(
+          '<!doctype html><html><head><link rel="stylesheet" href="styles.css"></head><body><img src="assets/art.svg"></body></html>',
+        ).files,
+        { ...file('assets/art.svg', 'image/svg+xml'), bytes: encoder.encode(svg) },
+      ],
+    });
+    expect(() =>
+      validateGeneratedBundle(
+        svgBundle(
+          '<svg xmlns="http://www.w3.org/2000/svg"><defs><path id="shape" d="M0 0h1v1z"/></defs><use href="#shape"/></svg>',
+        ),
+        config.generation.limits,
+      ),
+    ).not.toThrow();
+    expect(() =>
+      validateGeneratedBundle(
+        svgBundle(
+          '<svg xmlns="http://www.w3.org/2000/svg"><image href="https://bad.test/a.png"/></svg>',
+        ),
+        config.generation.limits,
+      ),
+    ).toThrow(/external or unsafe/);
+    expect(() =>
+      validateGeneratedBundle(
+        svgBundle('<?xml-stylesheet href="theme.css"?><svg xmlns="http://www.w3.org/2000/svg"/>'),
+        config.generation.limits,
+      ),
+    ).toThrow(/declaration or processing instruction/);
   });
 
   it('creates byte-for-byte reproducible ZIP archives', async () => {

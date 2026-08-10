@@ -17,6 +17,7 @@
     "typecheck": "pnpm -r typecheck",
     "test": "vitest run --exclude 'tests/e2e/**'",
     "test:e2e": "vitest run tests/e2e",
+    "test:mcp:stdio": "node scripts/check-mcp-stdio.mjs",
     "format:check": "prettier --check .",
     "evaluate": "node scripts/run-evaluation.mjs",
     "security:secrets": "node scripts/check-secrets.mjs",

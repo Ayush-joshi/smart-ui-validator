@@ -19,9 +19,14 @@ const context = {
 
 describe('enterprise isolation and audit controls', () => {
   it('denies unassigned actions and derives non-overlapping opaque namespaces', () => {
-    const auth = new StaticAuthorizationProvider({ 'tenant-a:user-a': ['inspect'] });
+    const auth = new StaticAuthorizationProvider({
+      'tenant-a:user-a': ['inspect', 'generate', 'generation:export'],
+    });
     expect(() => auth.assertAuthorized(context, 'inspect')).not.toThrow();
+    expect(() => auth.assertAuthorized(context, 'generate')).not.toThrow();
+    expect(() => auth.assertAuthorized(context, 'generation:export')).not.toThrow();
     expect(() => auth.assertAuthorized(context, 'repair')).toThrow(/not authorized/);
+    expect(() => auth.assertAuthorized(context, 'generation:delete')).toThrow(/not authorized/);
     expect(isolatedStorageRoot('/tmp/smart-ui-tenants', context)).not.toBe(
       isolatedStorageRoot('/tmp/smart-ui-tenants', { ...context, userId: 'user-b' }),
     );

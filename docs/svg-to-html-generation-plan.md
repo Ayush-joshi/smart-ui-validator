@@ -2,7 +2,7 @@
 
 ## Three-phase implementation plan
 
-Status: Phase 1 implemented and verified; Phases 2 and 3 planned
+Status: Phases 1 and 2 implemented and verified; Phase 3 planned
 
 Date: 2026-08-10
 
@@ -541,6 +541,30 @@ Phase 1 is complete only when:
    defaults or validation schema meanings.
 
 ## 6. Phase 2 — MCP workflow and agent-assisted semantic generation
+
+Status: Implemented and verified on 2026-08-10.
+
+The shipped Phase 2 surface adds five strict stdio MCP tools, a generation guide and prompt, compact
+default responses, a process-scoped paged design-context resource, progress/cancellation, separate
+exact-manifest export approval, semantic mode, expanded deterministic semantic/layout candidates,
+and source/narrow evidence separation. A user-approved host may submit one bounded UTF-8 HTML/CSS/SVG
+file batch. Parse5/PostCSS and exact manifest policy reject active, remote, undeclared, malformed, or
+out-of-budget output before rendering. The core measures the deterministic fallback and proposal,
+retains only non-regressing non-repeated output, and records accepted/reverted passes and provenance.
+
+Verification passed Prettier, ESLint, TypeScript typecheck, production build, 121 unit/integration
+tests, 5 existing real-Chromium end-to-end scenarios, an additional real-Chromium MCP proposal flow,
+the owned evaluation gates, a built stdio handshake listing 23 tools, source secret/personal-data
+checks over 180 files, package/publish/clean-consumer checks, an 800-component CycloneDX inventory,
+and a production dependency audit with no known vulnerabilities. The packaged CLI semantic smoke
+correctly used exact fallback for a no-readable-text fixture and produced 100% source similarity plus
+separate narrow robustness evidence.
+
+Live Codex, Claude Code, and Copilot host sessions were not credentialed or exercised; their common
+stdio schemas are covered by official SDK in-memory and built-process transports. Phase 2 accepts
+text host assets only, one proposal per generation call, and process-scoped context handles; binary
+host assets, durable cross-process context registries, multiple proposal turns in one run, live
+external models, remote MCP, and Studio remain unimplemented.
 
 ### 6.1 Goal
 

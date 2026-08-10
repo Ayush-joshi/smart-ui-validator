@@ -22,8 +22,9 @@ cwd: <absolute-target-project>
 
 Production desktop builds do not use `npx`; they bundle the exact package and a private Node runtime.
 
-The server publishes capabilities, a workflow guide, run resources, the `implement-and-validate`
-prompt, and approval-annotated tools. Set `SMART_UI_MCP_ROOT` when the host cannot supply the exact
+The server publishes capabilities, validation and SVG-generation guides, paged run/generation
+resources, `implement-and-validate` and `generate-from-svg` prompts, and approval-annotated tools.
+Set `SMART_UI_MCP_ROOT` when the host cannot supply the exact
 target as `cwd`. Never set the root to a drive, home directory, or another broad shared path.
 
 Compact validation results retain representative DOM locators and expected/actual values.
@@ -32,6 +33,17 @@ host agent supplies an explicitly approved full-file `proposedChanges` batch to 
 the server applies it once, runs configured checks, revalidates in Chromium, and rolls it back when
 it regresses. Calls without `proposedChanges` use the intentionally narrow background-color
 fallback.
+
+Repository-free SVG generation uses five additive tools: `inspect_svg`,
+`generate_html_from_svg`, `get_generation`, `get_generation_report`, and `export_generation`.
+Inspection and generation create only new core-owned per-run artifacts. An optional approved host
+proposal is parsed and policy-checked, rendered with network blocked, measured by the core, and kept
+only when it does not regress the deterministic fallback. Export is never implied by generation;
+it requires the accepted manifest hash, the exact complete path list, an exact new empty destination,
+and a separate approval.
+
+After `pnpm build`, `pnpm test:mcp:stdio` performs a real SDK stdio handshake against the built
+server and verifies all five generation tools, the guide, the paged context resource, and the prompt.
 
 The package documentation covers host configuration, tool schemas, workflow setup, and security
 guidance without requiring personal repository metadata.

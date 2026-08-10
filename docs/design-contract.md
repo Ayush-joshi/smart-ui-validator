@@ -1,5 +1,8 @@
 # Design contract
 
+Repository-free SVG generation uses the separate [SVG generation contracts](svg-generation-contract.md)
+and does not overload `DesignContract` or `RunRecord`.
+
 `DesignContract` is the versioned, framework-neutral representation of current design evidence.
 Phase 2 retains schema version `1.0` and validates it at runtime with strict Zod schemas.
 

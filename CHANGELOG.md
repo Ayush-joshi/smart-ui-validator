@@ -2,6 +2,15 @@
 
 ## 0.4.2 - 2026-08-10
 
+- Added the Phase 2 stdio MCP SVG-generation workflow with compact inspection, paged normalized
+  context, generation/retrieval/report tools, a guide/prompt, progress/cancellation propagation, and
+  a separately approved exact-manifest export.
+- Added optional user-approved host semantic HTML/CSS/SVG proposals behind parse5/PostCSS output
+  policy, isolated deterministic comparison against the built-in fallback, non-regression/repeated
+  output rejection, immutable proposal passes, and host/proposal provenance.
+- Expanded deterministic semantic/layout candidates, enabled CLI semantic mode, and added narrow
+  target-size/focus-order robustness findings without scoring desktop SVGs as narrow fidelity.
+
 - Added targeted compact MCP findings with DOM locators, confidence, expected/actual values, deltas,
   category-balanced prioritization, sensitive-value redaction, and filtered pagination through
   `get_findings`.

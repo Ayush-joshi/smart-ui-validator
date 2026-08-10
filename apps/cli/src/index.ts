@@ -52,7 +52,7 @@ program
   .requiredOption('--design <path>', 'local SVG inside the workspace')
   .option('--output <path>', 'materialize accepted files into this new empty directory')
   .option('--artifacts <path>', 'artifact base inside the workspace')
-  .addOption(new Option('--mode <mode>').choices(['exact', 'hybrid']).default('hybrid'))
+  .addOption(new Option('--mode <mode>').choices(['exact', 'hybrid', 'semantic']).default('hybrid'))
   .addOption(
     new Option('--layout <layout>')
       .choices(['fixed', 'responsive', 'component'])
@@ -64,7 +64,7 @@ program
   .option('--timeout <milliseconds>', 'generation timeout', parseGenerationTimeout)
   .option(
     '--max-passes <count>',
-    'maximum deterministic regeneration passes (0 or 1)',
+    'maximum bounded generation revisions (0 or 1)',
     parseGenerationPassCount,
   )
   .option('--dry-run', 'inspect SVG safety and capability without a generated deliverable')

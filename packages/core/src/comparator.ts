@@ -37,6 +37,7 @@ export class SmartUiComparator {
     reference: ReferenceImage | null,
     signal?: AbortSignal,
   ): Promise<ComparisonResult> {
+    if (signal?.aborted) throw new Error('Deterministic comparison was canceled.');
     const findings: ValidationFinding[] = [];
     const state: CheckState = { total: 0, passed: 0 };
     const matchedBrowserIndices = new Set<number>();
@@ -772,6 +773,7 @@ export async function compareImages(
     signal?: AbortSignal;
   } = {},
 ): Promise<{ diffPercent: number; diff: Uint8Array; heatmap: Uint8Array; overlay: Uint8Array }> {
+  if (options.signal?.aborted) throw new Error('Raster comparison was canceled.');
   const browser = await chromium.launch({ headless: true });
   const cancel = () => void browser.close();
   if (options.signal?.aborted) {

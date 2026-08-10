@@ -17,6 +17,13 @@
 10. Enable real writes for a small reviewed cohort and monitor failures, rollback rate, latency,
     artifact volume, and audit-chain health.
 
+For the SVG MCP pilot, bind `SMART_UI_MCP_ROOT` to one dedicated workspace, call `inspect_svg` before
+generation, keep compact responses as the default, and review the accepted manifest/report before a
+separate `export_generation` approval. Run `pnpm test:mcp:stdio` after every build. A missing
+generation context after host restart is recovered with `get_generation` using the original
+workspace, generation ID, and artifact base; do not broaden the trusted root. Generation preview
+servers are short-lived and close on completion, failure, timeout, or cancellation.
+
 ## Health and readiness
 
 `smart-ui setup --target <repo> --agent-memory --json` provisions the pinned Playwright Chromium
@@ -45,6 +52,9 @@ Configure separate artifact/report/audit/memory windows. `RetentionManager` only
 managed root, rejects symlinks, and can retain matching legal-hold paths. Run deletion jobs with a
 single writer, audit actor/scope/count, verify requested records are absent, and retain the audit
 event according to policy. Organization administrators define legal holds and erasure exceptions.
+Generation records and their per-run artifact directories use the same retention policy. Deletion
+authorization is the distinct `generation:delete` action; this phase does not expose a generic MCP
+delete tool.
 
 ## Incident response
 

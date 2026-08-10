@@ -22,6 +22,7 @@ import type {
   SvgStructureProvider,
 } from './generation-providers.js';
 import { validateGeneratedBundle } from './generated-output.js';
+import { generatedManifestHash } from './host-proposed-generation.js';
 import { inferControlBounds } from './html-generation-provider.js';
 import { SmartUiError } from './errors.js';
 import type { ArtifactStore, BrowserEvidence, BrowserProvider } from './providers.js';
@@ -36,18 +37,39 @@ import {
 export interface GenerationOrchestratorDependencies {
   structure: SvgStructureProvider;
   generator: HtmlGenerationProvider;
+  fallbackGenerator?: HtmlGenerationProvider;
   preview: GeneratedPreviewProvider;
   browser: BrowserProvider;
   artifacts: ArtifactStore;
   reporter: GenerationReporter;
   exporter: GenerationExporter;
   config: Config;
+  tool?: 'smart-ui' | 'smart-ui-mcp';
+  onProgress?: (event: {
+    stage: 'sanitize' | 'generate' | 'preview' | 'compare' | 'package' | 'report' | 'export';
+    progress: number;
+    message: string;
+  }) => Promise<void> | void;
 }
 
 export interface GenerationResult {
   record: GenerationRecord;
   recordArtifact: ArtifactRef;
   exportedFiles: string[];
+}
+
+interface EvaluatedBundle {
+  bundle: GeneratedHtmlBundle;
+  provider: HtmlGenerationProvider;
+  comparison: Awaited<ReturnType<SmartUiComparator['compare']>>;
+  screenshot: ArtifactRef;
+  diff: ArtifactRef;
+  overlay: ArtifactRef;
+  outputHash: string;
+  viewports: GenerationRecord['viewports'];
+  artifacts: ArtifactRef[];
+  previewMs: number;
+  compareMs: number;
 }
 
 export class GenerationOrchestrator {
@@ -102,15 +124,22 @@ export class GenerationOrchestrator {
     signal: AbortSignal,
   ): Promise<GenerationResult> {
     abort(signal);
+    await this.progress('sanitize', 0.05, 'Sanitizing and inspecting SVG evidence.');
     const inspectionStarted = performance.now();
     const inspection = await this.dependencies.structure.inspect(input, signal);
     const inspectMs = performance.now() - inspectionStarted;
-    const baseArtifacts: ArtifactRef[] = [inspection.bundle.sanitizedSvg];
+    const designBundle = await this.dependencies.artifacts.put(
+      new TextEncoder().encode(`${JSON.stringify(inspection.bundle)}\n`),
+      'application/json',
+      'design-bundle.json',
+    );
+    const baseArtifacts: ArtifactRef[] = [inspection.bundle.sanitizedSvg, designBundle];
+    const generationId = input.generationId ?? `generation-${randomUUID()}`;
     if (input.dryRun) {
       const preliminary = generationRecordSchema.parse({
         schemaVersion: '1.0',
         generatorVersion: this.dependencies.generator.version,
-        id: `generation-${randomUUID()}`,
+        id: generationId,
         status: 'dry-run',
         startedAt,
         completedAt: new Date().toISOString(),
@@ -118,6 +147,7 @@ export class GenerationOrchestrator {
         originalInputHash: inspection.bundle.originalInputHash,
         sanitizedHash: inspection.bundle.sanitizedHash,
         sanitizedSource: inspection.bundle.sanitizedSvg,
+        designBundle,
         sanitization: inspection.bundle.sanitization,
         input: recordInput(input, inspection.bundle.name, inspection.bundle.viewport),
         provider: {
@@ -134,35 +164,31 @@ export class GenerationOrchestrator {
         warnings: inspection.bundle.uncertainties.map((item) => item.message),
         failures: [],
         canceled: false,
-        provenance: { tool: 'smart-ui', hostProposal: false },
+        provenance: { tool: this.dependencies.tool ?? 'smart-ui', hostProposal: false },
       });
-      return this.finalize(preliminary, input, [], false);
+      return this.finalize(preliminary, input, [], false, signal);
     }
 
     abort(signal);
+    await this.progress('generate', 0.2, 'Generating a bounded offline HTML bundle.');
     const generationStarted = performance.now();
-    const generated = await this.dependencies.generator.generate(input, inspection, signal);
-    validateOutput(generated, this.dependencies.config.generation.limits);
-    const generatedFiles = [];
-    const artifacts = [...baseArtifacts];
-    for (const file of generated.files) {
-      const artifact = await this.dependencies.artifacts.put(
-        file.bytes,
-        file.mediaType,
-        file.relativePath,
-      );
-      artifacts.push(artifact);
-      generatedFiles.push({
-        relativePath: file.relativePath,
-        mediaType: file.mediaType,
-        hash: hash(file.bytes),
-        byteLength: file.bytes.byteLength,
-        artifact,
-        rationale: file.rationale,
-        sourceNodeIds: file.sourceNodeIds,
-      });
-    }
+    const proposed = await this.dependencies.generator.generate(input, inspection, signal);
+    validateOutput(proposed, this.dependencies.config.generation.limits);
+    const hostProposal = this.dependencies.generator.hostProposal;
+    const fallbackProvider = hostProposal ? this.dependencies.fallbackGenerator : undefined;
+    const fallback = fallbackProvider
+      ? await fallbackProvider.generate(input, inspection, signal)
+      : undefined;
+    if (fallback) validateOutput(fallback, this.dependencies.config.generation.limits);
+    const referenceProvider = fallbackProvider ?? this.dependencies.generator;
+    const exactReference = await referenceProvider.generate(
+      { ...input, mode: 'exact' },
+      inspection,
+      signal,
+    );
+    validateOutput(exactReference, this.dependencies.config.generation.limits);
     const generateMs = performance.now() - generationStarted;
+    const artifacts = [...baseArtifacts];
 
     const viewport = inspection.bundle.viewport;
     const browserOptions = {
@@ -176,12 +202,7 @@ export class GenerationOrchestrator {
       signal,
       evidenceLimits: this.dependencies.config.evidence,
     };
-    const exactReference = await this.dependencies.generator.generate(
-      { ...input, mode: 'exact' },
-      inspection,
-      signal,
-    );
-    validateOutput(exactReference, this.dependencies.config.generation.limits);
+    await this.progress('preview', 0.35, 'Rendering the sanitized SVG reference in isolation.');
     const referenceSession = await this.dependencies.preview.serve(exactReference, signal);
     let referenceEvidence: BrowserEvidence;
     try {
@@ -199,12 +220,206 @@ export class GenerationOrchestrator {
       'reference-raster.png',
     );
     artifacts.push(referenceRaster);
+    const baselineEvaluation = fallback
+      ? await this.evaluate(
+          input,
+          inspection,
+          fallback,
+          fallbackProvider!,
+          referenceEvidence,
+          referenceRaster,
+          browserOptions,
+          'baseline',
+          signal,
+        )
+      : undefined;
+    const proposedEvaluation = await this.evaluate(
+      input,
+      inspection,
+      proposed,
+      this.dependencies.generator,
+      referenceEvidence,
+      referenceRaster,
+      browserOptions,
+      hostProposal ? 'proposal' : 'generated',
+      signal,
+    );
+    artifacts.push(...(baselineEvaluation?.artifacts ?? []), ...proposedEvaluation.artifacts);
 
+    const requestedPasses = input.maxPasses ?? this.dependencies.config.generation.maxPasses;
+    const repeatedOutput = Boolean(
+      baselineEvaluation && baselineEvaluation.outputHash === proposedEvaluation.outputHash,
+    );
+    const proposalAccepted = baselineEvaluation
+      ? requestedPasses > 0 &&
+        !repeatedOutput &&
+        proposedEvaluation.comparison.score >= baselineEvaluation.comparison.score &&
+        proposedEvaluation.comparison.diffPercent <=
+          baselineEvaluation.comparison.diffPercent +
+            this.dependencies.config.generation.maxProposalRegressionPercent
+      : true;
+    const accepted =
+      proposalAccepted || !baselineEvaluation ? proposedEvaluation : baselineEvaluation;
+    const acceptedBundle = accepted.bundle;
+    const acceptedProvider = accepted.provider;
+    const generatedFiles = [];
+    for (const file of acceptedBundle.files) {
+      abort(signal);
+      const artifact = await this.dependencies.artifacts.put(
+        file.bytes,
+        file.mediaType,
+        file.relativePath,
+      );
+      artifacts.push(artifact);
+      generatedFiles.push({
+        relativePath: file.relativePath,
+        mediaType: file.mediaType,
+        hash: hash(file.bytes),
+        byteLength: file.bytes.byteLength,
+        artifact,
+        rationale: file.rationale,
+        sourceNodeIds: file.sourceNodeIds,
+      });
+    }
+    if (hostProposal && !proposalAccepted) {
+      for (const file of proposed.files) {
+        artifacts.push(
+          await this.dependencies.artifacts.put(
+            file.bytes,
+            file.mediaType,
+            `rejected-proposal-${file.relativePath}`,
+          ),
+        );
+      }
+    }
+    const manifestHash = generatedManifestHash(generatedFiles);
+    await this.progress('package', 0.85, 'Packaging the accepted manifest reproducibly.');
+    const archiveBytes = await this.dependencies.exporter.archive(acceptedBundle.files, signal);
+    const archive = await this.dependencies.artifacts.put(
+      archiveBytes,
+      'application/zip',
+      'generated-ui.zip',
+    );
+    artifacts.push(archive);
+    const warnings = [
+      ...acceptedBundle.uncertainties.map((item) => item.message),
+      ...accepted.comparison.findings
+        .filter((finding) => finding.severity !== 'info')
+        .map((finding) => finding.message),
+      ...(hostProposal && !proposalAccepted
+        ? [
+            repeatedOutput
+              ? 'The host proposal repeated the deterministic baseline output and was not retained.'
+              : 'The host proposal regressed deterministic source fidelity or structural checks and was not retained.',
+          ]
+        : []),
+    ];
+    const stoppedReason: GenerationStopReason = baselineEvaluation
+      ? proposalAccepted
+        ? 'success'
+        : repeatedOutput
+          ? 'repeated-output'
+          : requestedPasses === 0
+            ? 'maximum-passes'
+            : 'no-improvement'
+      : acceptedBundle.finalMode === 'exact' && input.mode !== 'exact'
+        ? 'exact-fallback'
+        : 'success';
+    const passes = baselineEvaluation
+      ? [
+          passRecord(baselineEvaluation, 0, !proposalAccepted, false),
+          passRecord(proposedEvaluation, 1, proposalAccepted, !proposalAccepted),
+        ]
+      : [passRecord(proposedEvaluation, 0, true, false)];
+    const preliminary = generationRecordSchema.parse({
+      schemaVersion: '1.0',
+      generatorVersion: acceptedProvider.version,
+      id: generationId,
+      status: warnings.length > 0 ? 'completed-with-warnings' : 'succeeded',
+      startedAt,
+      completedAt: new Date().toISOString(),
+      stoppedReason,
+      originalInputHash: inspection.bundle.originalInputHash,
+      sanitizedHash: inspection.bundle.sanitizedHash,
+      sanitizedSource: inspection.bundle.sanitizedSvg,
+      designBundle,
+      sanitization: inspection.bundle.sanitization,
+      input: recordInput(input, inspection.bundle.name, viewport, acceptedBundle.finalMode),
+      provider: {
+        name: acceptedProvider.name,
+        version: acceptedProvider.version,
+      },
+      generatedFiles,
+      manifestHash,
+      decisions: [
+        ...acceptedBundle.decisions,
+        ...(hostProposal && !proposalAccepted
+          ? [
+              {
+                kind: 'host-proposal-rejected',
+                message:
+                  'Core validation retained the deterministic fallback because the approved host proposal did not satisfy the configured non-regression boundary.',
+                sourceNodeIds: [],
+                confidence: 1,
+                provenance: `${hostProposal.host}:${hostProposal.proposalHash}`,
+              },
+            ]
+          : []),
+      ],
+      uncertainties: acceptedBundle.uncertainties,
+      passes,
+      viewports: accepted.viewports,
+      artifacts,
+      archive,
+      timingsMs: {
+        inspect: inspectMs,
+        generate: generateMs,
+        preview: proposedEvaluation.previewMs + (baselineEvaluation?.previewMs ?? 0),
+        compare: proposedEvaluation.compareMs + (baselineEvaluation?.compareMs ?? 0),
+        total: performance.now() - started,
+      },
+      warnings: [...new Set(warnings)],
+      failures: [],
+      canceled: false,
+      provenance: {
+        tool: this.dependencies.tool ?? 'smart-ui',
+        hostProposal: Boolean(hostProposal),
+        ...(hostProposal
+          ? {
+              hostProposalAccepted: proposalAccepted,
+              host: hostProposal.host,
+              proposalHash: hostProposal.proposalHash,
+            }
+          : {}),
+      },
+    });
+    return this.finalize(
+      preliminary,
+      input,
+      acceptedBundle.files,
+      Boolean(input.exportRoot),
+      signal,
+    );
+  }
+
+  private async evaluate(
+    input: SvgGenerationInput,
+    inspection: Awaited<ReturnType<SvgStructureProvider['inspect']>>,
+    bundle: GeneratedHtmlBundle,
+    provider: HtmlGenerationProvider,
+    referenceEvidence: BrowserEvidence,
+    referenceRaster: ArtifactRef,
+    browserOptions: Omit<Parameters<BrowserProvider['capture']>[0], 'url'>,
+    label: string,
+    signal: AbortSignal,
+  ): Promise<EvaluatedBundle> {
+    abort(signal);
+    await this.progress('preview', 0.5, `Rendering ${label} output in isolated Chromium.`);
     const previewStarted = performance.now();
-    const session = await this.dependencies.preview.serve(generated, signal);
+    const session = await this.dependencies.preview.serve(bundle, signal);
     let evidence: BrowserEvidence;
-    const viewportEvidence: GenerationRecord['viewports'] = [];
-    let responsiveScreenshot: ArtifactRef | undefined;
+    const viewports: GenerationRecord['viewports'] = [];
+    const artifacts: ArtifactRef[] = [];
     try {
       evidence = await this.dependencies.browser.capture({
         ...browserOptions,
@@ -213,13 +428,18 @@ export class GenerationOrchestrator {
       });
       if (
         input.layout === 'responsive' &&
-        this.dependencies.config.generation.narrowViewportWidth < viewport.width
+        this.dependencies.config.generation.narrowViewportWidth < inspection.bundle.viewport.width
       ) {
         const width = this.dependencies.config.generation.narrowViewportWidth;
         const narrowViewport = {
           width,
-          height: Math.max(1, Math.ceil((viewport.height * width) / viewport.width)),
-          deviceScaleFactor: viewport.deviceScaleFactor,
+          height: Math.max(
+            1,
+            Math.ceil(
+              (inspection.bundle.viewport.height * width) / inspection.bundle.viewport.width,
+            ),
+          ),
+          deviceScaleFactor: inspection.bundle.viewport.deviceScaleFactor,
         };
         const narrow = await this.dependencies.browser.capture({
           ...browserOptions,
@@ -227,17 +447,17 @@ export class GenerationOrchestrator {
           viewport: narrowViewport,
           allowedEndpoints: [session.origin],
         });
-        responsiveScreenshot = await this.dependencies.artifacts.put(
+        const narrowScreenshot = await this.dependencies.artifacts.put(
           narrow.screenshot,
           'image/png',
-          'responsive-narrow.png',
+          `${label}-responsive-narrow.png`,
         );
-        artifacts.push(responsiveScreenshot);
-        viewportEvidence.push({
+        artifacts.push(narrowScreenshot);
+        viewports.push({
           name: 'narrow',
           viewport: narrowViewport,
           classification: 'responsive-robustness',
-          screenshot: responsiveScreenshot,
+          screenshot: narrowScreenshot,
           findings: responsiveFindings(
             narrow,
             narrowViewport.width,
@@ -249,36 +469,9 @@ export class GenerationOrchestrator {
       await session.close();
     }
     const previewMs = performance.now() - previewStarted;
-
     abort(signal);
-    const contract = designContractSchema.parse({
-      schemaVersion: '1.0',
-      id: inspection.bundle.id,
-      name: inspection.bundle.name,
-      viewport,
-      theme: input.rendering.theme,
-      locale: input.rendering.locale,
-      component: { name: inspection.bundle.name, route: '/' },
-      reference: referenceRaster,
-      provenance: {
-        provider: this.dependencies.structure.name,
-        source: input.svgPath,
-        capturedAt: inspection.bundle.capturedAt,
-        sourceHash: inspection.bundle.sanitizedHash,
-        sourceVersion: this.dependencies.structure.version,
-      },
-      ambiguities: inspection.bundle.uncertainties.map((item) => item.message),
-      elements:
-        generated.finalMode === 'exact'
-          ? []
-          : inspection.bundle.scene.nodes.flatMap((node) =>
-              projectSemanticNode(node, inspection.bundle.scene.nodes, viewport),
-            ),
-      sourceEvidence: {
-        assets: [],
-        uncertainties: inspection.bundle.uncertainties.map((item) => item.message),
-      },
-    });
+    await this.progress('compare', 0.7, `Comparing ${label} output deterministically.`);
+    const contract = generationContract(input, inspection, bundle, referenceRaster);
     const comparisonStarted = performance.now();
     const comparison = await new SmartUiComparator(this.dependencies.config).compare(
       contract,
@@ -286,105 +479,58 @@ export class GenerationOrchestrator {
       { bytes: referenceEvidence.screenshot, mediaType: 'image/png' },
       signal,
     );
-    if (!comparison.diff || !comparison.overlay)
+    if (!comparison.diff || !comparison.overlay) {
       throw new SmartUiError(
         'PROVIDER_FAILURE',
         'Generation comparison did not produce visual evidence.',
       );
+    }
     const screenshot = await this.dependencies.artifacts.put(
       evidence.screenshot,
       'image/png',
-      'generated.png',
+      `${label}-generated.png`,
     );
-    const diff = await this.dependencies.artifacts.put(comparison.diff, 'image/png', 'diff.png');
+    const diff = await this.dependencies.artifacts.put(
+      comparison.diff,
+      'image/png',
+      `${label}-diff.png`,
+    );
     const overlay = await this.dependencies.artifacts.put(
       comparison.overlay,
       'image/png',
-      'overlay.png',
+      `${label}-overlay.png`,
     );
     artifacts.push(screenshot, diff, overlay);
-    viewportEvidence.unshift({
+    viewports.unshift({
       name: 'source',
-      viewport,
+      viewport: inspection.bundle.viewport,
       classification: 'source-fidelity',
       screenshot,
       similarity: Math.max(0, 100 - comparison.diffPercent),
       diffPercent: comparison.diffPercent,
       findings: comparison.findings,
     });
-    const compareMs = performance.now() - comparisonStarted;
-    const outputHash = hash(
-      new TextEncoder().encode(
-        generatedFiles
-          .map((file) => `${file.relativePath}\0${file.hash}`)
-          .sort()
-          .join('\n'),
-      ),
-    );
-    const archiveBytes = await this.dependencies.exporter.archive(generated.files);
-    const archive = await this.dependencies.artifacts.put(
-      archiveBytes,
-      'application/zip',
-      'generated-ui.zip',
-    );
-    artifacts.push(archive);
-    const warnings = [
-      ...generated.uncertainties.map((item) => item.message),
-      ...comparison.findings
-        .filter((finding) => finding.severity !== 'info')
-        .map((finding) => finding.message),
-    ];
-    const stoppedReason: GenerationStopReason =
-      generated.finalMode === 'exact' && input.mode !== 'exact' ? 'exact-fallback' : 'success';
-    const preliminary = generationRecordSchema.parse({
-      schemaVersion: '1.0',
-      generatorVersion: this.dependencies.generator.version,
-      id: `generation-${randomUUID()}`,
-      status: warnings.length > 0 ? 'completed-with-warnings' : 'succeeded',
-      startedAt,
-      completedAt: new Date().toISOString(),
-      stoppedReason,
-      originalInputHash: inspection.bundle.originalInputHash,
-      sanitizedHash: inspection.bundle.sanitizedHash,
-      sanitizedSource: inspection.bundle.sanitizedSvg,
-      sanitization: inspection.bundle.sanitization,
-      input: recordInput(input, inspection.bundle.name, viewport, generated.finalMode),
-      provider: {
-        name: this.dependencies.generator.name,
-        version: this.dependencies.generator.version,
-      },
-      generatedFiles,
-      decisions: generated.decisions,
-      uncertainties: generated.uncertainties,
-      passes: [
-        {
-          passIndex: 0,
-          outputHash,
-          findings: comparison.findings,
-          score: comparison.score,
-          diffPercent: comparison.diffPercent,
-          screenshot,
-          diff,
-          overlay,
-          timingsMs: { preview: previewMs, compare: compareMs },
-        },
-      ],
-      viewports: viewportEvidence,
+    return {
+      bundle,
+      provider,
+      comparison,
+      screenshot,
+      diff,
+      overlay,
+      outputHash: bundleHash(bundle),
+      viewports,
       artifacts,
-      archive,
-      timingsMs: {
-        inspect: inspectMs,
-        generate: generateMs,
-        preview: previewMs,
-        compare: compareMs,
-        total: performance.now() - started,
-      },
-      warnings: [...new Set(warnings)],
-      failures: [],
-      canceled: false,
-      provenance: { tool: 'smart-ui', hostProposal: false },
-    });
-    return this.finalize(preliminary, input, generated.files, Boolean(input.exportRoot));
+      previewMs,
+      compareMs: performance.now() - comparisonStarted,
+    };
+  }
+
+  private async progress(
+    stage: Parameters<NonNullable<GenerationOrchestratorDependencies['onProgress']>>[0]['stage'],
+    progress: number,
+    message: string,
+  ): Promise<void> {
+    await this.dependencies.onProgress?.({ stage, progress, message });
   }
 
   private async failure(
@@ -408,7 +554,7 @@ export class GenerationOrchestrator {
     const preliminary = generationRecordSchema.parse({
       schemaVersion: '1.0',
       generatorVersion: this.dependencies.generator.version,
-      id: `generation-${randomUUID()}`,
+      id: input.generationId ?? `generation-${randomUUID()}`,
       status: 'failed',
       startedAt,
       completedAt: new Date().toISOString(),
@@ -436,9 +582,19 @@ export class GenerationOrchestrator {
         },
       ],
       canceled,
-      provenance: { tool: 'smart-ui', hostProposal: false },
+      provenance: {
+        tool: this.dependencies.tool ?? 'smart-ui',
+        hostProposal: Boolean(this.dependencies.generator.hostProposal),
+        ...(this.dependencies.generator.hostProposal
+          ? {
+              hostProposalAccepted: false,
+              host: this.dependencies.generator.hostProposal.host,
+              proposalHash: this.dependencies.generator.hostProposal.proposalHash,
+            }
+          : {}),
+      },
     });
-    return this.finalize(preliminary, input, [], false);
+    return this.finalize(preliminary, input, [], false, undefined);
   }
 
   private async finalize(
@@ -446,8 +602,10 @@ export class GenerationOrchestrator {
     input: SvgGenerationInput,
     files: GeneratedHtmlBundle['files'],
     exportRequested: boolean,
+    signal?: AbortSignal,
   ): Promise<GenerationResult> {
-    const report = await this.dependencies.reporter.write(preliminary);
+    await this.progress('report', 0.92, 'Writing the offline generation report.');
+    const report = await this.dependencies.reporter.write(preliminary, signal);
     const record = generationRecordSchema.parse({
       ...preliminary,
       report,
@@ -460,10 +618,84 @@ export class GenerationOrchestrator {
     );
     const exportedFiles =
       exportRequested && input.exportRoot
-        ? await this.dependencies.exporter.materialize(input.exportRoot, files)
+        ? (await this.progress('export', 0.97, 'Materializing the separately approved export.'),
+          await this.dependencies.exporter.materialize(input.exportRoot, files, signal))
         : [];
     return { record, recordArtifact, exportedFiles };
   }
+}
+
+function generationContract(
+  input: SvgGenerationInput,
+  inspection: Awaited<ReturnType<SvgStructureProvider['inspect']>>,
+  generated: GeneratedHtmlBundle,
+  referenceRaster: ArtifactRef,
+) {
+  const viewport = inspection.bundle.viewport;
+  return designContractSchema.parse({
+    schemaVersion: '1.0',
+    id: inspection.bundle.id,
+    name: inspection.bundle.name,
+    viewport,
+    theme: input.rendering.theme,
+    locale: input.rendering.locale,
+    component: { name: inspection.bundle.name, route: '/' },
+    reference: referenceRaster,
+    provenance: {
+      provider: inspection.bundle.provenance.provider,
+      source: input.svgPath,
+      capturedAt: inspection.bundle.capturedAt,
+      sourceHash: inspection.bundle.sanitizedHash,
+      sourceVersion: inspection.bundle.provenance.version,
+    },
+    ambiguities: inspection.bundle.uncertainties.map((item) => item.message),
+    elements:
+      generated.finalMode === 'exact'
+        ? []
+        : inspection.bundle.scene.nodes.flatMap((node) =>
+            projectSemanticNode(node, inspection.bundle.scene.nodes, viewport),
+          ),
+    sourceEvidence: {
+      assets: [],
+      uncertainties: inspection.bundle.uncertainties.map((item) => item.message),
+    },
+  });
+}
+
+function passRecord(
+  evaluated: EvaluatedBundle,
+  passIndex: number,
+  accepted: boolean,
+  reverted: boolean,
+): GenerationRecord['passes'][number] {
+  return {
+    passIndex,
+    outputHash: evaluated.outputHash,
+    findings: evaluated.comparison.findings,
+    score: evaluated.comparison.score,
+    diffPercent: evaluated.comparison.diffPercent,
+    screenshot: evaluated.screenshot,
+    diff: evaluated.diff,
+    overlay: evaluated.overlay,
+    provider: { name: evaluated.provider.name, version: evaluated.provider.version },
+    accepted,
+    reverted,
+    ...(evaluated.provider.hostProposal
+      ? { proposalHash: evaluated.provider.hostProposal.proposalHash }
+      : {}),
+    timingsMs: { preview: evaluated.previewMs, compare: evaluated.compareMs },
+  };
+}
+
+function bundleHash(bundle: GeneratedHtmlBundle): string {
+  return hash(
+    new TextEncoder().encode(
+      bundle.files
+        .map((file) => `${file.relativePath}\0${file.mediaType}\0${hash(file.bytes)}`)
+        .sort()
+        .join('\n'),
+    ),
+  );
 }
 
 function projectSemanticNode(
@@ -522,6 +754,47 @@ function responsiveFindings(
           evidenceArtifacts: [artifact],
         }),
       );
+    }
+    if (
+      ['button', 'a', 'input', 'select', 'textarea'].includes(element.tagName.toLowerCase()) &&
+      (element.width < 44 || element.height < 44)
+    ) {
+      findings.push(
+        validationFindingSchema.parse({
+          id: findingId('responsive-target-size', element.selector),
+          category: 'accessibility',
+          severity: 'warning',
+          confidence: 1,
+          targetDomLocator: element.validationId ?? element.selector,
+          expected: { minimumWidth: 44, minimumHeight: 44 },
+          actual: { width: element.width, height: element.height },
+          message: `Interactive target is smaller than 44×44 CSS pixels: ${element.selector}`,
+          suggestedRepairCategory: 'minimum_target_size',
+          evidenceArtifacts: [artifact],
+        }),
+      );
+    }
+  }
+  const focusable = evidence.elements.filter((element) => element.keyboardReachable);
+  for (let index = 1; index < focusable.length; index++) {
+    const previous = focusable[index - 1]!;
+    const current = focusable[index]!;
+    if (current.y + 1 < previous.y && current.x + 1 < previous.x) {
+      findings.push(
+        validationFindingSchema.parse({
+          id: findingId('responsive-focus-order', current.selector),
+          category: 'accessibility',
+          severity: 'warning',
+          confidence: 0.8,
+          targetDomLocator: current.validationId ?? current.selector,
+          expected: 'DOM focus order follows visual reading order',
+          actual: `${previous.selector} -> ${current.selector}`,
+          message: 'Keyboard focus order may diverge from the narrow visual reading order.',
+          suggestedRepairCategory: 'focus_order',
+          evidenceArtifacts: [artifact],
+        }),
+      );
+      break;
     }
   }
   for (const message of evidence.consoleErrors) {

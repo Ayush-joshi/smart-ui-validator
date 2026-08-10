@@ -10,6 +10,10 @@ export const svgGenerationInputSchema = z
     workspaceRoot: z.string().min(1),
     svgPath: z.string().min(1),
     artifactRoot: z.string().min(1),
+    generationId: z
+      .string()
+      .regex(/^generation-[a-f0-9-]{36}$/)
+      .optional(),
     exportRoot: z.string().min(1).optional(),
     name: z.string().min(1).max(200).optional(),
     mode: generationModeSchema.default('hybrid'),
@@ -187,6 +191,13 @@ const generationPassSchema = z
     screenshot: artifactRefSchema,
     diff: artifactRefSchema,
     overlay: artifactRefSchema,
+    provider: z.object({ name: z.string(), version: z.string() }).strict().optional(),
+    accepted: z.boolean().default(true),
+    reverted: z.boolean().default(false),
+    proposalHash: z
+      .string()
+      .regex(/^sha256:[a-f0-9]{64}$/)
+      .optional(),
     timingsMs: z.record(z.string(), z.number().nonnegative()),
   })
   .strict();
@@ -243,6 +254,7 @@ export const generationRecordSchema = z
       .regex(/^sha256:[a-f0-9]{64}$/)
       .optional(),
     sanitizedSource: artifactRefSchema.optional(),
+    designBundle: artifactRefSchema.optional(),
     sanitization: sanitizationSummarySchema,
     input: z
       .object({
@@ -267,6 +279,10 @@ export const generationRecordSchema = z
       .strict(),
     provider: z.object({ name: z.string(), version: z.string() }).strict(),
     generatedFiles: z.array(generatedFileRecordSchema),
+    manifestHash: z
+      .string()
+      .regex(/^sha256:[a-f0-9]{64}$/)
+      .optional(),
     decisions: z.array(generationDecisionSchema),
     uncertainties: z.array(generationUncertaintySchema),
     passes: z.array(generationPassSchema),
@@ -280,7 +296,18 @@ export const generationRecordSchema = z
       z.object({ code: z.string(), message: z.string(), recoverable: z.boolean() }).strict(),
     ),
     canceled: z.boolean(),
-    provenance: z.object({ tool: z.literal('smart-ui'), hostProposal: z.boolean() }).strict(),
+    provenance: z
+      .object({
+        tool: z.enum(['smart-ui', 'smart-ui-mcp']),
+        hostProposal: z.boolean(),
+        hostProposalAccepted: z.boolean().optional(),
+        host: z.string().min(1).max(200).optional(),
+        proposalHash: z
+          .string()
+          .regex(/^sha256:[a-f0-9]{64}$/)
+          .optional(),
+      })
+      .strict(),
   })
   .strict();
 

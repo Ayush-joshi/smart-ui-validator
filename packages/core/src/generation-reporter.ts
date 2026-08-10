@@ -6,9 +6,11 @@ import type { ArtifactRef } from './schemas.js';
 export class HtmlGenerationReporter implements GenerationReporter {
   constructor(private readonly artifacts: ArtifactStore) {}
 
-  async write(record: GenerationRecord): Promise<ArtifactRef> {
+  async write(record: GenerationRecord, signal?: AbortSignal): Promise<ArtifactRef> {
+    if (signal?.aborted)
+      throw new Error('Generation report was canceled before it could be written.');
     const source = record.sanitizedSource;
-    const finalPass = record.passes.at(-1);
+    const finalPass = [...record.passes].reverse().find((pass) => pass.accepted);
     const visuals = [
       visual('Sanitized SVG reference', source),
       visual('Generated output', finalPass?.screenshot),

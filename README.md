@@ -79,11 +79,19 @@ npx smart-ui generate \
   --layout responsive
 ```
 
-Use `--mode exact` for artwork-heavy SVGs. `--dry-run --json` performs strict safety and capability
+Use `--mode exact` for artwork-heavy SVGs or `--mode semantic` for the strongest bounded semantic
+projection. `--dry-run --json` performs strict safety and capability
 inspection without writing an HTML/CSS deliverable. Generated pages use local files only and are
 rendered on a contained loopback preview with browser networking blocked before Smart UI reports
 source-viewport visual fidelity. A configured narrow viewport is reported separately as responsive
 robustness, never as fidelity to the desktop SVG.
+
+Connected MCP hosts use the same engine: `inspect_svg` returns compact capabilities and a paged
+context handle; `generate_html_from_svg` accepts an optional user-approved host file proposal;
+`get_generation` and `get_generation_report` retrieve bounded results; and `export_generation`
+requires a separate approval for the accepted manifest hash, every relative path, and one exact new
+empty destination. Read `smart-ui://svg-generation-guide` before this workflow. The host never
+scores its own proposal or gains a generic writer/browser/shell tool.
 
 ### 1. Install from npm (recommended)
 
@@ -188,7 +196,8 @@ Create a `smart-ui.config.json` in the root of your target project. This tells t
   "generation": {
     "artifactBase": ".smart-ui/generations",
     "timeoutMs": 60000,
-    "maxPasses": 1
+    "maxPasses": 1,
+    "maxProposalRegressionPercent": 0
   },
   "policy": {
     "allowedPaths": ["src/components/", "src/styles.css"],

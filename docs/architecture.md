@@ -31,6 +31,14 @@ Hybrid mode projects only semantic nodes with stable `data-validation-id` and ge
 responsive robustness and have no visual-fidelity score. `GenerationRecord`, report, and ZIP remain
 separate from repository validation records and repair permissions.
 
+The stdio MCP adapter exposes only inspection, complete generation, retrieval, reporting, and
+separately approved export. Normalized scene nodes are paged in groups of 50; raw XML, full generated
+files, and binary evidence remain artifacts. `HostProposedHtmlGenerationProvider` converts one
+approved UTF-8 HTML/CSS/SVG file batch into the same provider-neutral contract. The orchestrator
+measures both the deterministic fallback and the proposal, rejects repeated output or structural/
+visual regression, and records both immutable passes with proposal provenance. No model SDK enters
+the core.
+
 - `Reporter` turns a `RunRecord` into a human-readable artifact.
 - `InteractionProvider` asks bounded host-neutral questions; terminal and non-interactive hosts own
   presentation and timeout behavior.

@@ -24,6 +24,13 @@ Implemented controls:
   non-overwriting restore, retention/legal-hold extension, and export/deletion APIs.
 - MCP read/write/destructive annotations, explicit repair/memory approvals, cancellation, compact
   outputs, no generic shell, and no remote transport by default.
+- SVG generation rejects active/external XML before rendering. Host-proposed HTML is parsed with
+  `parse5`, CSS with PostCSS, and rejects scripts, handlers, remote/unsafe URLs, imports, external
+  form actions, meta refresh, undeclared files, unsafe schemes, malformed output, path collisions,
+  and output-budget overflow before isolated preview.
+- MCP generation owns a unique contained artifact root. Export requires a separate exact manifest
+  hash/path approval and a new empty contained destination; `generate`, `generation:export`, and
+  `generation:delete` are distinct authorization actions from repository `repair`.
 - OpenClaw/Slack workspace-to-tenant mapping, origin-thread/user approval, event deduplication,
   inbound redaction, and deny-by-default source/screenshot/design/memory output policy.
 - Telemetry, learning, remote memory, remote design, external models, browser networking, remote MCP,

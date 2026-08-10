@@ -53,6 +53,8 @@ npx smart-ui generate \
 The workspace is never inferred from common path ancestors. Without `--output`, only the unique
 immutable artifact run, offline report, and ZIP are retained. An explicit output must be a new empty
 directory inside the workspace. `--dry-run` sanitizes and inspects but writes no deliverable.
+`--mode semantic` enables the Phase 2 semantic mode; `--max-passes` remains bounded to 0 or 1 and
+the built-in deterministic provider completes without inventing an agent loop.
 
 Run `smart-ui --help` for the complete command list. This README documents the supported setup
 workflow; the CLI help lists every available command.

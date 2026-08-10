@@ -85,6 +85,7 @@ export const configSchema = z
         artifactBase: z.string().min(1).default('.smart-ui/generations'),
         timeoutMs: z.number().int().positive().max(300_000).default(60_000),
         maxPasses: z.number().int().min(0).max(1).default(1),
+        maxProposalRegressionPercent: z.number().min(0).max(100).default(0),
         narrowViewportWidth: z.number().int().positive().max(2_000).default(375),
         limits: z
           .object({
@@ -134,6 +135,7 @@ export const configSchema = z
         artifactBase: '.smart-ui/generations',
         timeoutMs: 60_000,
         maxPasses: 1,
+        maxProposalRegressionPercent: 0,
         narrowViewportWidth: 375,
         limits: {
           maxSvgBytes: 5_000_000,

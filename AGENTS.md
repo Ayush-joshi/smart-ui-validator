@@ -127,8 +127,26 @@ The repository now includes the additive, repository-free `smart-ui generate` ve
 `docs/svg-to-html-generation-plan.md`: bounded fail-closed SVG intake, hierarchical design bundles,
 deterministic exact/hybrid HTML/CSS generation, contained loopback preview, existing comparator
 reuse, separate immutable generation records, responsive-robustness classification, offline reports,
-reproducible ZIPs, and empty-directory export. MCP generation is Phase 2 and Studio is Phase 3; do
-not claim or emulate those hosts before they are implemented.
+reproducible ZIPs, and empty-directory export. Phase 1 intentionally excluded MCP generation and
+Studio; Phase 2 MCP generation is now recorded below, while Studio remains Phase 3.
+
+### SVG-to-HTML extension — Phase 2
+
+Status: Implemented and verified on 2026-08-10.
+
+The existing stdio MCP server now exposes compact SVG inspection, paged normalized context,
+generation, retrieval/reporting, and separately approved exact-manifest export through the same
+host-neutral generation engine as the CLI. Optional user-approved host HTML/CSS/SVG proposals are
+parsed, contained, rendered, deterministically compared against the built-in fallback, and retained
+only without structural or visual regression. Semantic mode and expanded semantic/responsive
+evidence are implemented without claiming narrow visual fidelity from a desktop-only source.
+
+Verification passed formatting, lint, typecheck, build, 121 unit/integration tests, 5 existing
+real-Chromium end-to-end scenarios plus a real-Chromium MCP proposal flow, the built 23-tool stdio
+handshake, evaluation/security/privacy/package/publish/clean-consumer/SBOM gates, and a production
+audit with no known vulnerabilities. Live external MCP hosts/models remain unverified; Studio,
+binary host proposals, multi-turn proposals in one run, and durable cross-process context handles
+remain Phase 3 or later work.
 
 ## Working rules
 

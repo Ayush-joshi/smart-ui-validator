@@ -12,7 +12,8 @@ interface ExportFile {
 export class ReproducibleGenerationExporter implements GenerationExporter {
   constructor(private readonly workspaceRoot: string) {}
 
-  async archive(files: readonly ExportFile[]): Promise<Uint8Array> {
+  async archive(files: readonly ExportFile[], signal?: AbortSignal): Promise<Uint8Array> {
+    abort(signal, 'Generation archive');
     const sorted = [...files].sort((left, right) =>
       left.relativePath.localeCompare(right.relativePath),
     );
@@ -21,6 +22,7 @@ export class ReproducibleGenerationExporter implements GenerationExporter {
     const centralParts: Uint8Array[] = [];
     let offset = 0;
     for (const file of sorted) {
+      abort(signal, 'Generation archive');
       const name = new TextEncoder().encode(file.relativePath);
       const crc = crc32(file.bytes);
       const local = concat(
@@ -78,7 +80,12 @@ export class ReproducibleGenerationExporter implements GenerationExporter {
     );
   }
 
-  async materialize(exportRoot: string, files: readonly ExportFile[]): Promise<string[]> {
+  async materialize(
+    exportRoot: string,
+    files: readonly ExportFile[],
+    signal?: AbortSignal,
+  ): Promise<string[]> {
+    abort(signal, 'Generation export');
     const declaredWorkspace = resolve(this.workspaceRoot);
     const workspace = await realpath(declaredWorkspace);
     const declaredTarget = resolve(exportRoot);
@@ -105,6 +112,7 @@ export class ReproducibleGenerationExporter implements GenerationExporter {
     }
     const written: string[] = [];
     for (const file of [...files].sort((a, b) => a.relativePath.localeCompare(b.relativePath))) {
+      abort(signal, 'Generation export');
       validateGeneratedPath(file.relativePath);
       const destination = resolve(target, file.relativePath);
       const destinationRel = relative(target, destination);
@@ -120,6 +128,10 @@ export class ReproducibleGenerationExporter implements GenerationExporter {
     }
     return written;
   }
+}
+
+function abort(signal: AbortSignal | undefined, operation: string): void {
+  if (signal?.aborted) throw new SmartUiError('PROVIDER_FAILURE', `${operation} was canceled.`);
 }
 
 async function assertExistingParentsContained(workspace: string, target: string): Promise<void> {

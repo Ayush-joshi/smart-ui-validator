@@ -369,16 +369,7 @@ export class LocalSvgStructureProvider implements SvgStructureProvider {
     const colors = repeatedValues(flatNodes, ['fill', 'stroke']);
     const typography = repeatedValues(flatNodes, ['font-size', 'font-weight']);
     const layoutCandidates = detectLayouts(root);
-    const semanticCandidates = textNodes.map((node) => ({
-      kind: fontSize(node.computedStyle['font-size']) >= 24 ? 'heading' : 'text',
-      message:
-        fontSize(node.computedStyle['font-size']) >= 24
-          ? 'Readable large text is a high-confidence heading candidate.'
-          : 'Readable SVG text is a high-confidence text candidate.',
-      sourceNodeIds: [node.id],
-      confidence: 0.9,
-      provenance: 'deterministic-svg-structure',
-    }));
+    const semanticCandidates = detectSemantics(flatNodes, layoutCandidates, dimensions);
     const bundle = designBundleSchema.parse({
       schemaVersion: '1.0',
       id: `svg-${sanitizedHash.slice(7, 31)}`,
@@ -734,7 +725,17 @@ function detectLayouts(root: ParsedNode) {
     const values = bounds as Array<{ x: number; y: number; width: number; height: number }>;
     const horizontal = monotonic(values.map((value) => value.x));
     const vertical = monotonic(values.map((value) => value.y));
-    if (horizontal && spread(values.map((value) => value.y)) <= 4) {
+    const columns = coordinateClusters(values.map((value) => value.x));
+    const rows = coordinateClusters(values.map((value) => value.y));
+    if (values.length >= 4 && columns >= 2 && rows >= 2) {
+      decisions.push({
+        kind: 'grid',
+        message: 'Repeated sibling geometry forms a deterministic grid candidate.',
+        sourceNodeIds: [node.sourceNodeId],
+        confidence: 0.86,
+        provenance: 'deterministic-geometry',
+      });
+    } else if (horizontal && spread(values.map((value) => value.y)) <= 4) {
       decisions.push({
         kind: 'horizontal',
         message: 'Sibling geometry forms a high-confidence horizontal layout candidate.',
@@ -753,6 +754,120 @@ function detectLayouts(root: ParsedNode) {
     }
   }
   return decisions;
+}
+
+function detectSemantics(
+  nodes: DesignBundleNode[],
+  layouts: ReturnType<typeof detectLayouts>,
+  viewport: { width: number; height: number },
+) {
+  const candidates: Array<{
+    kind: string;
+    message: string;
+    sourceNodeIds: string[];
+    confidence: number;
+    provenance: string;
+  }> = [];
+  const textNodes = nodes
+    .filter((node) => node.type === 'text' && node.text?.trim())
+    .sort(
+      (left, right) =>
+        (left.bounds?.y ?? 0) - (right.bounds?.y ?? 0) ||
+        (left.bounds?.x ?? 0) - (right.bounds?.x ?? 0) ||
+        left.zOrder - right.zOrder,
+    );
+  const headingSizes = [
+    ...new Set(
+      textNodes
+        .map((node) => fontSize(node.computedStyle['font-size']))
+        .filter((size) => size >= 24),
+    ),
+  ].sort((left, right) => right - left);
+  for (const node of textNodes) {
+    const size = fontSize(node.computedStyle['font-size']);
+    const headingIndex = headingSizes.indexOf(size);
+    candidates.push({
+      kind: headingIndex >= 0 ? 'heading' : 'paragraph',
+      message:
+        headingIndex >= 0
+          ? `Readable large text is a deterministic heading level ${Math.min(headingIndex + 1, 6)} candidate.`
+          : 'Readable SVG text is a high-confidence paragraph candidate.',
+      sourceNodeIds: [node.id],
+      confidence: 0.9,
+      provenance: 'deterministic-svg-structure',
+    });
+  }
+  if (textNodes.length > 1) {
+    candidates.push({
+      kind: 'reading-order',
+      message: 'Readable text has a deterministic top-to-bottom, left-to-right order candidate.',
+      sourceNodeIds: textNodes.map((node) => node.id),
+      confidence: 0.9,
+      provenance: 'deterministic-geometry',
+    });
+  }
+  for (const node of nodes.filter((candidate) => candidate.type === 'image')) {
+    candidates.push({
+      kind: 'image',
+      message:
+        'An embedded image has explicit geometry but requires user-provided alternative text.',
+      sourceNodeIds: [node.id],
+      confidence: 1,
+      provenance: 'deterministic-svg-structure',
+    });
+  }
+  for (const layout of layouts) {
+    if (layout.kind === 'grid') {
+      candidates.push({
+        kind: 'repeated-card-list',
+        message:
+          'The grid may represent repeated cards or decorative artwork; semantics require confirmation.',
+        sourceNodeIds: layout.sourceNodeIds,
+        confidence: 0.65,
+        provenance: 'deterministic-geometry',
+      });
+    }
+    if (layout.kind === 'horizontal') {
+      candidates.push({
+        kind: 'navigation-or-list',
+        message: 'The horizontal group may be navigation or a list; no link behavior is inferred.',
+        sourceNodeIds: layout.sourceNodeIds,
+        confidence: 0.6,
+        provenance: 'deterministic-geometry',
+      });
+    }
+  }
+  const contentNodes = nodes.filter(
+    (node) =>
+      node.visible &&
+      node.bounds &&
+      node.type !== 'defs' &&
+      node.type !== 'svg' &&
+      node.bounds.width > 0,
+  );
+  if (contentNodes.length > 0) {
+    const left = Math.min(...contentNodes.map((node) => node.bounds!.x));
+    const right = Math.max(...contentNodes.map((node) => node.bounds!.x + node.bounds!.width));
+    candidates.push({
+      kind: 'content-width',
+      message: `Observed content spans ${Math.max(0, right - left).toFixed(2)} of ${viewport.width} source pixels; responsive breakpoints must be validated from overflow, not device names.`,
+      sourceNodeIds: [],
+      confidence: 1,
+      provenance: 'deterministic-geometry',
+    });
+  }
+  return candidates;
+}
+
+function coordinateClusters(values: number[]): number {
+  const sorted = [...values].sort((left, right) => left - right);
+  let count = 0;
+  let previous: number | undefined;
+  for (const value of sorted) {
+    if (previous === undefined || Math.abs(value - previous) > 4) count++;
+    previous = value;
+  }
+  return count;
 }
 
 function repeatedValues(nodes: DesignBundleNode[], properties: string[]): string[] {

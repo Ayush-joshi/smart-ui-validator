@@ -35,11 +35,26 @@ describe('stable host-neutral MCP contract', () => {
     expect(tools.tools.find((tool) => tool.name === 'repair_component')?.annotations).toMatchObject(
       { readOnlyHint: false, destructiveHint: true },
     );
+    expect(tools.tools.find((tool) => tool.name === 'inspect_svg')?.annotations).toMatchObject({
+      readOnlyHint: false,
+      destructiveHint: false,
+    });
+    expect(
+      tools.tools.find((tool) => tool.name === 'export_generation')?.annotations,
+    ).toMatchObject({ readOnlyHint: false, destructiveHint: true });
     expect(tools.tools.some((tool) => tool.name.includes('shell'))).toBe(false);
     expect((await client.listResources()).resources).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ uri: 'smart-ui://capabilities' }),
         expect.objectContaining({ uri: 'smart-ui://workflow-guide' }),
+        expect.objectContaining({ uri: 'smart-ui://svg-generation-guide' }),
+      ]),
+    );
+    expect((await client.listResourceTemplates()).resourceTemplates).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          uriTemplate: 'smart-ui://generation-context/{generationId}/{cursor}',
+        }),
       ]),
     );
     const workflow = await client.readResource({ uri: 'smart-ui://workflow-guide' });
@@ -48,8 +63,19 @@ describe('stable host-neutral MCP contract', () => {
       text: expect.stringContaining('Reuse that exact artifactRoot'),
     });
     expect((await client.listPrompts()).prompts).toEqual(
-      expect.arrayContaining([expect.objectContaining({ name: 'implement-and-validate' })]),
+      expect.arrayContaining([
+        expect.objectContaining({ name: 'implement-and-validate' }),
+        expect.objectContaining({ name: 'generate-from-svg' }),
+      ]),
     );
+    const capabilities = await client.readResource({ uri: 'smart-ui://capabilities' });
+    expect(JSON.parse(String(capabilities.contents[0]!.text))).toMatchObject({
+      generation: {
+        enabled: true,
+        modes: ['exact', 'hybrid', 'semantic'],
+        exportApproval: 'separate-exact-manifest',
+      },
+    });
 
     const response = await client.callTool({
       name: 'inspect_project',

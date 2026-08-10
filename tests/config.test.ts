@@ -11,6 +11,7 @@ describe('Phase 2 configuration', () => {
     expect(config.generation).toMatchObject({
       artifactBase: '.smart-ui/generations',
       maxPasses: 1,
+      maxProposalRegressionPercent: 0,
       narrowViewportWidth: 375,
     });
   });
