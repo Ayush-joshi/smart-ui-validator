@@ -1,9 +1,9 @@
-import { execFileSync } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import { readFile, writeFile } from 'node:fs/promises';
+import { pnpm } from './pnpm-command.mjs';
 
 const dependencyTree = JSON.parse(
-  execFileSync('pnpm', ['list', '--recursive', '--depth', 'Infinity', '--json'], {
+  pnpm(['list', '--recursive', '--depth', 'Infinity', '--json'], {
     encoding: 'utf8',
     maxBuffer: 20_000_000,
   }),

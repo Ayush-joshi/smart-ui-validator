@@ -20,6 +20,7 @@ import {
   LocalPolicy,
   LocalSvgStructureProvider,
   LoopbackGeneratedPreviewProvider,
+  MAX_AUTHORING_ROUNDS,
   MockCodingProvider,
   PlaywrightBrowserProvider,
   ReproducibleGenerationExporter,
@@ -27,6 +28,7 @@ import {
   SmartUiOrchestrator,
   agentQueueRoot,
   authoringCanvasGuidance,
+  authoringRevisionGuidance,
   designContractSchema,
   designBundleSchema,
   generationRecordSchema,
@@ -855,6 +857,7 @@ export function createSmartUiMcpServer(): McpServer {
         count: pending.length,
         requests: pending.map((request) => ({
           runId: request.runId,
+          round: request.round,
           designName: request.designName,
           viewport: request.viewport,
           mode: request.mode,
@@ -865,41 +868,46 @@ export function createSmartUiMcpServer(): McpServer {
           unavailableFonts: request.unavailableFonts,
           readableText: request.readableText,
           ...(request.instructions ? { instructions: request.instructions } : {}),
+          ...(request.feedback ? { feedback: request.feedback } : {}),
+          ...(request.priorEvidence ? { priorEvidence: request.priorEvidence } : {}),
+          ...(request.previousResponseHash
+            ? { previousResponseHash: request.previousResponseHash }
+            : {}),
           canvasGuidance: authoringCanvasGuidance(request),
+          ...(authoringRevisionGuidance(request)
+            ? { revisionGuidance: authoringRevisionGuidance(request) }
+            : {}),
           sanitizedSvg: request.sanitizedSvg,
           svgTruncated: request.svgTruncated,
           createdAt: request.createdAt,
           expiresAt: request.expiresAt,
         })),
         guide:
-          'Author complete offline index.html and styles.css (no scripts, no external URLs) sized to each request canvasGuidance so the result matches the design scale, then call submit_studio_authored_html with approved:true and the exact runId.',
+          'Author complete offline index.html and styles.css (no scripts, no external URLs) sized to each request canvasGuidance so the result matches the design scale, then call submit_studio_authored_html with approved:true, the exact runId, and the exact round. A request with round greater than 1 is a user-requested revision: honor its feedback and revisionGuidance.',
       });
     },
   );
   server.registerTool(
     'submit_studio_authored_html',
-    tool(
-      'Submit approved authored HTML/CSS back to a waiting Smart UI Studio run.',
-      false,
-      {
-        studioWorkspace: z.string().min(1),
-        runId: z.string().regex(/^run-[0-9a-f-]{36}$/),
-        approved: z.literal(true),
-        authoringAgent: z.string().min(1).max(200),
-        files: z
-          .array(
-            z
-              .object({
-                path: z.string().min(1).max(1_024),
-                content: z.string().min(1).max(2_000_000),
-              })
-              .strict(),
-          )
-          .min(2)
-          .max(100),
-      },
-    ),
-    async ({ studioWorkspace, runId, authoringAgent, files }) => {
+    tool('Submit approved authored HTML/CSS back to a waiting Smart UI Studio run.', false, {
+      studioWorkspace: z.string().min(1),
+      runId: z.string().regex(/^run-[0-9a-f-]{36}$/),
+      round: z.number().int().min(1).max(MAX_AUTHORING_ROUNDS).optional(),
+      approved: z.literal(true),
+      authoringAgent: z.string().min(1).max(200),
+      files: z
+        .array(
+          z
+            .object({
+              path: z.string().min(1).max(1_024),
+              content: z.string().min(1).max(2_000_000),
+            })
+            .strict(),
+        )
+        .min(2)
+        .max(100),
+    }),
+    async ({ studioWorkspace, runId, round, authoringAgent, files }) => {
       const workspace = trustedAbsolutePath(studioWorkspace, 'studioWorkspace');
       const queueRoot = agentQueueRoot(workspace);
       const request = await readAuthoringRequest(queueRoot, runId);
@@ -907,6 +915,12 @@ export function createSmartUiMcpServer(): McpServer {
         throw new SmartUiError(
           'NOT_FOUND',
           'No pending Studio authoring request matches this run identifier.',
+        );
+      }
+      if (round !== undefined && round !== request.round) {
+        throw new SmartUiError(
+          'POLICY_VIOLATION',
+          `Studio is waiting for authoring round ${request.round} of this run.`,
         );
       }
       if (Date.parse(request.expiresAt) <= Date.now()) {
@@ -921,11 +935,12 @@ export function createSmartUiMcpServer(): McpServer {
       await writeAuthoringResponse(queueRoot, {
         schemaVersion: '1.0',
         runId,
+        round: request.round,
         authoringAgent,
         createdAt: new Date().toISOString(),
         files,
       });
-      return result({ runId, accepted: true, fileCount: files.length });
+      return result({ runId, round: request.round, accepted: true, fileCount: files.length });
     },
   );
   const answers = new Map<string, Record<string, string>>();

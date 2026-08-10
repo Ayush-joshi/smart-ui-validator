@@ -3,6 +3,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { npm, pnpm } from './pnpm-command.mjs';
 
 const root = resolve(import.meta.dirname, '..');
 const directory = await mkdtemp(join(tmpdir(), 'smart-ui-clean-consumer-'));
@@ -15,7 +16,7 @@ const candidates = [
 
 try {
   for (const [source] of candidates) {
-    execFileSync('pnpm', ['pack', '--pack-destination', directory], {
+    pnpm(['pack', '--pack-destination', directory], {
       cwd: join(root, source),
       stdio: 'inherit',
     });
@@ -24,14 +25,10 @@ try {
     join(directory, 'package.json'),
     `${JSON.stringify({ name: 'smart-ui-clean-consumer', private: true, type: 'module' }, null, 2)}\n`,
   );
-  execFileSync(
-    'npm',
-    ['install', ...candidates.map(([, name]) => join(directory, `${name}-${version}.tgz`))],
-    {
-      cwd: directory,
-      stdio: 'inherit',
-    },
-  );
+  npm(['install', ...candidates.map(([, name]) => join(directory, `${name}-${version}.tgz`))], {
+    cwd: directory,
+    stdio: 'inherit',
+  });
   execFileSync(
     process.execPath,
     [
@@ -70,13 +67,15 @@ try {
     ],
     { cwd: directory, stdio: 'inherit' },
   );
-  execFileSync('npm', ['audit', '--audit-level', 'high'], {
+  npm(['audit', '--audit-level', 'high'], {
     cwd: directory,
     stdio: 'inherit',
   });
   console.log('Clean npm consumer check passed.');
-} catch {
-  console.error('Clean npm consumer check failed. Review the command output above.');
+} catch (error) {
+  console.error(
+    `Clean npm consumer check failed: ${error instanceof Error ? error.message : error}`,
+  );
   process.exitCode = 1;
 } finally {
   await rm(directory, { recursive: true, force: true });

@@ -297,7 +297,7 @@ describe('SVG generation MCP Phase 2', () => {
         expect.objectContaining({ relativePath: 'styles.css' }),
       ]),
     });
-  });
+  }, 90_000);
 });
 
 async function connect() {

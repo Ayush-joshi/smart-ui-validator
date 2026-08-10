@@ -1,4 +1,4 @@
-import { mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
@@ -9,7 +9,10 @@ import {
   authoredHostFiles,
   authoringCanvasGuidance,
   authoringRequestSchema,
-  buildAuthoringRequest,  deleteAuthoringRequest,
+  authoringResponseHash,
+  authoringRevisionGuidance,
+  buildAuthoringRequest,
+  deleteAuthoringRequest,
   listPendingAuthoringRequests,
   loadConfig,
   readAuthoringResponse,
@@ -17,6 +20,7 @@ import {
   waitForAuthoringResponse,
   writeAuthoringRequest,
   writeAuthoringResponse,
+  type AuthoringPriorEvidence,
   type StudioAuthoringResponse,
 } from '../packages/core/src/index.js';
 
@@ -38,11 +42,19 @@ async function workspace(name: string): Promise<string> {
   return root;
 }
 
-async function inspectedRequest(ws: string, timeoutMs?: number) {
+async function inspectedRequest(
+  ws: string,
+  timeoutMs?: number,
+  extra: {
+    round?: number;
+    feedback?: string;
+    priorEvidence?: AuthoringPriorEvidence;
+  } = {},
+) {
   const svgPath = join(ws, 'design.svg');
-  await writeFile(svgPath, SVG);
+  await writeFile(svgPath, SVG, { flag: 'w' });
   const config = await loadConfig(ws);
-  const artifactRoot = join(ws, 'artifacts');
+  const artifactRoot = join(ws, `artifacts-${extra.round ?? 1}`);
   const input = svgGenerationInputSchema.parse({
     workspaceRoot: ws,
     svgPath,
@@ -56,13 +68,29 @@ async function inspectedRequest(ws: string, timeoutMs?: number) {
     new LocalArtifactStore(artifactRoot),
     config.generation.limits,
   ).inspect(input);
-  return buildAuthoringRequest({ runId: RUN_ID, input, inspection, ...(timeoutMs ? { timeoutMs } : {}) });
+  return buildAuthoringRequest({
+    runId: RUN_ID,
+    input,
+    inspection,
+    ...(timeoutMs ? { timeoutMs } : {}),
+    ...extra,
+  });
 }
 
-function validResponse(): StudioAuthoringResponse {
+const PRIOR_EVIDENCE: AuthoringPriorEvidence = {
+  round: 1,
+  visualSimilarityPercent: 91.25,
+  visualMismatchPercent: 8.75,
+  finalMode: 'semantic',
+  findings: [{ category: 'geometry', severity: 'moderate', message: 'Header is 12px too tall.' }],
+  warnings: ['One font was unavailable.'],
+};
+
+function validResponse(round = 1): StudioAuthoringResponse {
   return {
     schemaVersion: '1.0',
     runId: RUN_ID,
+    round,
     authoringAgent: 'test-agent',
     createdAt: new Date().toISOString(),
     files: [
@@ -83,6 +111,7 @@ describe('Studio agent authoring bridge', () => {
     expect(request).toMatchObject({
       schemaVersion: '1.0',
       runId: RUN_ID,
+      round: 1,
       mode: 'semantic',
       layout: 'responsive',
       instructions: 'Use the exact heading copy.',
@@ -112,12 +141,59 @@ describe('Studio agent authoring bridge', () => {
     const queueRoot = agentQueueRoot(ws);
     const request = await inspectedRequest(ws);
     const path = await writeAuthoringRequest(queueRoot, request);
-    expect(path.endsWith(`${RUN_ID}.json`)).toBe(true);
+    expect(path.endsWith(join(RUN_ID, 'round-1.json'))).toBe(true);
     const pending = await listPendingAuthoringRequests(queueRoot);
     expect(pending.map((item) => item.runId)).toEqual([RUN_ID]);
     // No stray temp files remain from the atomic write.
-    const files = await readdir(join(queueRoot, 'requests'));
-    expect(files).toEqual([`${RUN_ID}.json`]);
+    const files = await readdir(join(queueRoot, 'requests', RUN_ID));
+    expect(files).toEqual(['round-1.json']);
+  });
+
+  it('carries feedback and prior evidence into a revision round and refuses stale rounds', async () => {
+    const ws = await workspace('rounds');
+    const queueRoot = agentQueueRoot(ws);
+    await writeAuthoringRequest(queueRoot, await inspectedRequest(ws));
+    await writeAuthoringResponse(queueRoot, validResponse(1));
+
+    const revision = await inspectedRequest(ws, undefined, {
+      round: 2,
+      feedback: 'Tighten the header spacing.',
+      priorEvidence: PRIOR_EVIDENCE,
+    });
+    await writeAuthoringRequest(queueRoot, revision);
+    const guidance = authoringRevisionGuidance(revision)!;
+    expect(guidance).toContain('round 2');
+    expect(guidance).toContain('91.250%');
+    expect(guidance).toContain('Tighten the header spacing.');
+    expect(authoringRevisionGuidance(await inspectedRequest(ws))).toBeUndefined();
+
+    // Only the latest unanswered round is offered to the agent.
+    const pending = await listPendingAuthoringRequests(queueRoot);
+    expect(pending.map((item) => item.round)).toEqual([2]);
+
+    await expect(writeAuthoringRequest(queueRoot, revision)).rejects.toThrow(
+      /stale or duplicated/u,
+    );
+    await expect(writeAuthoringResponse(queueRoot, validResponse(1))).rejects.toThrow(/stale/u);
+    await writeAuthoringResponse(queueRoot, validResponse(2));
+    await expect(writeAuthoringResponse(queueRoot, validResponse(2))).rejects.toThrow(
+      /already answered/u,
+    );
+    expect(await listPendingAuthoringRequests(queueRoot)).toEqual([]);
+  });
+
+  it('refuses revision feedback on the first round and a revision without prior evidence', async () => {
+    const ws = await workspace('round-shape');
+    await expect(
+      inspectedRequest(ws, undefined, {
+        round: 1,
+        feedback: 'later',
+        priorEvidence: PRIOR_EVIDENCE,
+      }),
+    ).rejects.toThrow();
+    await expect(
+      inspectedRequest(ws, undefined, { round: 2, feedback: 'later' }),
+    ).rejects.toThrow();
   });
 
   it('skips expired and malformed requests when listing', async () => {
@@ -126,13 +202,20 @@ describe('Studio agent authoring bridge', () => {
     const expired = await inspectedRequest(ws, 1_000);
     expired.expiresAt = new Date(Date.now() - 1_000).toISOString();
     await writeAuthoringRequest(queueRoot, expired);
-    await writeFile(join(queueRoot, 'requests', 'garbage.json'), '{ not json');
+    await mkdir(join(queueRoot, 'requests', 'run-99999999-9999-4999-8999-999999999999'), {
+      recursive: true,
+    });
+    await writeFile(
+      join(queueRoot, 'requests', 'run-99999999-9999-4999-8999-999999999999', 'round-1.json'),
+      '{ not json',
+    );
     expect(await listPendingAuthoringRequests(queueRoot)).toEqual([]);
   });
 
   it('rejects a response that omits required files or uses a forbidden path', async () => {
     const ws = await workspace('reject');
     const queueRoot = agentQueueRoot(ws);
+    await writeAuthoringRequest(queueRoot, await inspectedRequest(ws));
     await expect(
       writeAuthoringResponse(queueRoot, {
         ...validResponse(),
@@ -150,11 +233,19 @@ describe('Studio agent authoring bridge', () => {
     ).rejects.toThrow();
   });
 
+  it('refuses an authored response with no matching pending request', async () => {
+    const ws = await workspace('orphan');
+    await expect(writeAuthoringResponse(agentQueueRoot(ws), validResponse())).rejects.toThrow(
+      /No pending Studio authoring request/u,
+    );
+  });
+
   it('fails closed when a stored response is malformed', async () => {
     const ws = await workspace('malformed');
     const queueRoot = agentQueueRoot(ws);
+    await writeAuthoringRequest(queueRoot, await inspectedRequest(ws));
     await writeAuthoringResponse(queueRoot, validResponse());
-    await writeFile(join(queueRoot, 'responses', `${RUN_ID}.json`), '{ broken');
+    await writeFile(join(queueRoot, 'responses', RUN_ID, 'round-1.json'), '{ broken');
     await expect(readAuthoringResponse(queueRoot, RUN_ID)).rejects.toThrow(/not valid JSON/u);
   });
 
@@ -164,6 +255,7 @@ describe('Studio agent authoring bridge', () => {
     const request = await inspectedRequest(ws);
     await writeAuthoringRequest(queueRoot, request);
     const pending = waitForAuthoringResponse(queueRoot, RUN_ID, {
+      round: 1,
       timeoutMs: 5_000,
       pollIntervalMs: 50,
     });
@@ -172,6 +264,9 @@ describe('Studio agent authoring bridge', () => {
     const files = authoredHostFiles(response);
     expect(files.map((file) => file.relativePath).sort()).toEqual(['index.html', 'styles.css']);
     expect(files.find((file) => file.relativePath === 'index.html')?.mediaType).toBe('text/html');
+    // The stable response hash gives each round reviewable provenance.
+    expect(authoringResponseHash(response)).toMatch(/^sha256:[a-f0-9]{64}$/u);
+    expect(authoringResponseHash(response)).toBe(authoringResponseHash(validResponse()));
     // Authored HTML flows through the deterministic host-proposal contract unchanged.
     expect(new DeterministicHtmlGenerationProvider().name).toBeTruthy();
   });

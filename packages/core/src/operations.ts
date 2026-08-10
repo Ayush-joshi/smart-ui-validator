@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { lstat, mkdir, readFile, readdir, rename, stat, unlink, writeFile } from 'node:fs/promises';
-import { dirname, join, relative, resolve } from 'node:path';
+import { basename, dirname, join, relative, resolve } from 'node:path';
 import { z } from 'zod';
 import { type Config, configSchema } from './config.js';
 import type { EncryptionProvider, IsolationContext } from './enterprise.js';
@@ -66,7 +66,7 @@ export class LocalBackupManager {
     }
     const manifest = backupManifestSchema.parse({
       schemaVersion: '1.0',
-      id: destination.split('/').at(-1),
+      id: basename(destination),
       createdAt: new Date().toISOString(),
       scope,
       encrypted: Boolean(encryption),

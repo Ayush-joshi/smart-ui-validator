@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { z } from 'zod';
@@ -10,21 +10,29 @@ import { SmartUiError } from './errors.js';
 /**
  * File-based request/response queue that lets the MCP-connected chat agent author HTML for a Studio
  * run. Studio writes a bounded authoring request; the connected agent reads it through MCP and
- * writes a bounded response. All content is untrusted; every entry is validated on read and write
- * and fails closed. Large evidence is capped, not trusted.
+ * writes a bounded response. Each run may hold several bounded rounds so the user can confirm the
+ * result or ask for one more revision. All content is untrusted; every entry is validated on read
+ * and write and fails closed. Large evidence is capped, not trusted.
  */
 
 export const AUTHORING_QUEUE_DIRNAME = 'agent-queue';
 const REQUESTS_DIRNAME = 'requests';
 const RESPONSES_DIRNAME = 'responses';
+const ROUND_FILE = /^round-([1-9][0-9]?)\.json$/u;
 
 export const AUTHORING_RUN_ID = /^run-[0-9a-f-]{36}$/u;
 const MAX_SANITIZED_SVG_CHARACTERS = 200_000;
 const MAX_READABLE_TEXT_NODES = 200;
 const MAX_READABLE_TEXT_CHARACTERS = 400;
 const MAX_INSTRUCTION_CHARACTERS = 4_000;
+const MAX_FEEDBACK_CHARACTERS = 4_000;
+const MAX_PRIOR_FINDINGS = 20;
+const MAX_EVIDENCE_MESSAGE_CHARACTERS = 400;
 const MAX_RESPONSE_FILES = 100;
 const MAX_RESPONSE_FILE_CHARACTERS = 2_000_000;
+
+/** Hard upper bound on authoring rounds per run; Studio applies its own lower bound. */
+export const MAX_AUTHORING_ROUNDS = 20;
 
 /** Default time a Studio authoring request stays valid before it fails closed. */
 export const DEFAULT_AUTHORING_TIMEOUT_MS = 10 * 60 * 1_000;
@@ -35,14 +43,43 @@ const responseFilePath = z
   .min(1)
   .max(1_024)
   .refine(
-    (value) => value === 'index.html' || value === 'styles.css' || /^assets\/[^/]+\.svg$/u.test(value),
+    (value) =>
+      value === 'index.html' || value === 'styles.css' || /^assets\/[^/]+\.svg$/u.test(value),
     'Authored files must be index.html, styles.css, or assets/<name>.svg.',
   );
+
+/**
+ * Deterministic evidence from the previous round, derived by Studio from the immutable generation
+ * record so a revision can target measured deltas instead of guessing.
+ */
+export const authoringPriorEvidenceSchema = z
+  .object({
+    round: z.number().int().min(1).max(MAX_AUTHORING_ROUNDS),
+    visualSimilarityPercent: z.number().min(0).max(100).nullable(),
+    visualMismatchPercent: z.number().min(0).max(100).nullable(),
+    finalMode: z.enum(['exact', 'hybrid', 'semantic']).optional(),
+    findings: z
+      .array(
+        z
+          .object({
+            category: z.string().min(1).max(100),
+            severity: z.string().min(1).max(50),
+            message: z.string().min(1).max(MAX_EVIDENCE_MESSAGE_CHARACTERS),
+          })
+          .strict(),
+      )
+      .max(MAX_PRIOR_FINDINGS),
+    warnings: z.array(z.string().min(1).max(MAX_EVIDENCE_MESSAGE_CHARACTERS)).max(10),
+  })
+  .strict();
+
+export type AuthoringPriorEvidence = z.infer<typeof authoringPriorEvidenceSchema>;
 
 export const authoringRequestSchema = z
   .object({
     schemaVersion: z.literal('1.0'),
     runId: z.string().regex(AUTHORING_RUN_ID),
+    round: z.number().int().min(1).max(MAX_AUTHORING_ROUNDS),
     designName: z.string().min(1).max(200),
     viewport: z
       .object({
@@ -56,16 +93,36 @@ export const authoringRequestSchema = z
     locale: z.string().min(1).max(100),
     fallbackStack: z.string().min(1).max(2_000),
     unavailableFonts: z.array(z.string().min(1).max(200)).max(200),
-    readableText: z.array(z.string().min(1).max(MAX_READABLE_TEXT_CHARACTERS)).max(
-      MAX_READABLE_TEXT_NODES,
-    ),
+    readableText: z
+      .array(z.string().min(1).max(MAX_READABLE_TEXT_CHARACTERS))
+      .max(MAX_READABLE_TEXT_NODES),
     instructions: z.string().max(MAX_INSTRUCTION_CHARACTERS).optional(),
+    feedback: z.string().min(1).max(MAX_FEEDBACK_CHARACTERS).optional(),
+    priorEvidence: authoringPriorEvidenceSchema.optional(),
+    previousResponseHash: z
+      .string()
+      .regex(/^sha256:[a-f0-9]{64}$/u)
+      .optional(),
     sanitizedSvg: z.string().min(1).max(MAX_SANITIZED_SVG_CHARACTERS),
     svgTruncated: z.boolean(),
     createdAt: z.string().datetime(),
     expiresAt: z.string().datetime(),
   })
-  .strict();
+  .strict()
+  .superRefine((request, ctx) => {
+    if (request.round === 1 && (request.feedback || request.priorEvidence)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'The first authoring round cannot carry revision feedback or prior evidence.',
+      });
+    }
+    if (request.round > 1 && !request.priorEvidence) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'A revision round must carry deterministic prior evidence.',
+      });
+    }
+  });
 
 export type StudioAuthoringRequest = z.infer<typeof authoringRequestSchema>;
 
@@ -73,6 +130,7 @@ export const authoringResponseSchema = z
   .object({
     schemaVersion: z.literal('1.0'),
     runId: z.string().regex(AUTHORING_RUN_ID),
+    round: z.number().int().min(1).max(MAX_AUTHORING_ROUNDS),
     authoringAgent: z.string().min(1).max(200),
     createdAt: z.string().datetime(),
     files: z
@@ -89,7 +147,10 @@ export const authoringResponseSchema = z
       .superRefine((files, ctx) => {
         const paths = files.map((file) => file.path);
         if (new Set(paths).size !== paths.length) {
-          ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Authored file paths must be unique.' });
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: 'Authored file paths must be unique.',
+          });
         }
         if (!paths.includes('index.html') || !paths.includes('styles.css')) {
           ctx.addIssue({
@@ -113,6 +174,10 @@ export function buildAuthoringRequest(options: {
   runId: string;
   input: SvgGenerationInput;
   inspection: SvgInspectionResult;
+  round?: number;
+  feedback?: string;
+  priorEvidence?: AuthoringPriorEvidence;
+  previousResponseHash?: string;
   timeoutMs?: number;
   now?: Date;
 }): StudioAuthoringRequest {
@@ -120,6 +185,8 @@ export function buildAuthoringRequest(options: {
   const bundle = inspection.bundle;
   const now = options.now ?? new Date();
   const timeoutMs = boundedTimeout(options.timeoutMs);
+  const round = options.round ?? 1;
+  const feedback = options.feedback?.trim().slice(0, MAX_FEEDBACK_CHARACTERS);
   const readableText = bundle.scene.nodes
     .filter((node) => node.type === 'text' && Boolean(node.text?.trim()))
     .map((node) => node.text!.trim().slice(0, MAX_READABLE_TEXT_CHARACTERS))
@@ -128,6 +195,7 @@ export function buildAuthoringRequest(options: {
   return authoringRequestSchema.parse({
     schemaVersion: '1.0',
     runId: options.runId,
+    round,
     designName: bundle.name.slice(0, 200) || 'design',
     viewport: { width: bundle.viewport.width, height: bundle.viewport.height },
     mode: input.mode,
@@ -135,9 +203,16 @@ export function buildAuthoringRequest(options: {
     theme: input.rendering.theme,
     locale: input.rendering.locale,
     fallbackStack: bundle.fontPolicy.fallbackStack.slice(0, 2_000),
-    unavailableFonts: bundle.fontPolicy.unavailableFonts.slice(0, 200).map((font) => font.slice(0, 200)),
+    unavailableFonts: bundle.fontPolicy.unavailableFonts
+      .slice(0, 200)
+      .map((font) => font.slice(0, 200)),
     readableText,
-    ...(input.instructions ? { instructions: input.instructions.slice(0, MAX_INSTRUCTION_CHARACTERS) } : {}),
+    ...(input.instructions
+      ? { instructions: input.instructions.slice(0, MAX_INSTRUCTION_CHARACTERS) }
+      : {}),
+    ...(feedback ? { feedback } : {}),
+    ...(options.priorEvidence ? { priorEvidence: options.priorEvidence } : {}),
+    ...(options.previousResponseHash ? { previousResponseHash: options.previousResponseHash } : {}),
     sanitizedSvg: svgTruncated
       ? inspection.sanitizedXml.slice(0, MAX_SANITIZED_SVG_CHARACTERS)
       : inspection.sanitizedXml,
@@ -165,103 +240,201 @@ export function authoringCanvasGuidance(request: StudioAuthoringRequest): string
   return base + layout;
 }
 
-/** Atomically writes a validated authoring request; refuses to overwrite an existing one. */
+/**
+ * Bounded revision guidance for round > 1 that repeats the user's feedback and the deterministic
+ * deltas measured on the previous round. It states evidence; it never scores or promises an outcome.
+ */
+export function authoringRevisionGuidance(request: StudioAuthoringRequest): string | undefined {
+  if (request.round === 1) return undefined;
+  const prior = request.priorEvidence;
+  const parts = [
+    `This is authoring round ${request.round} for the same design; revise the previous output rather than restarting from nothing.`,
+  ];
+  if (prior) {
+    const similarity =
+      prior.visualSimilarityPercent === null
+        ? 'not scored'
+        : `${prior.visualSimilarityPercent.toFixed(3)}%`;
+    const mismatch =
+      prior.visualMismatchPercent === null
+        ? 'not scored'
+        : `${prior.visualMismatchPercent.toFixed(3)}%`;
+    parts.push(
+      `Round ${prior.round} measured ${similarity} visual similarity to the design (${mismatch} mismatch).`,
+    );
+    if (prior.findings.length > 0) {
+      parts.push(
+        `Deterministic findings to address: ${prior.findings
+          .map((finding) => `${finding.category}/${finding.severity}: ${finding.message}`)
+          .join(' | ')}`,
+      );
+    }
+    if (prior.warnings.length > 0) parts.push(`Warnings: ${prior.warnings.join(' | ')}`);
+  }
+  if (request.feedback) parts.push(`The user asked for: ${request.feedback}`);
+  return parts.join(' ');
+}
+
+/** Stable content hash of an authored response, used as revision provenance. */
+export function authoringResponseHash(response: StudioAuthoringResponse): string {
+  const canonical = JSON.stringify(
+    [...response.files]
+      .sort((left, right) => left.path.localeCompare(right.path))
+      .map((file) => [file.path, file.content]),
+  );
+  return `sha256:${createHash('sha256').update(canonical, 'utf8').digest('hex')}`;
+}
+
+/**
+ * Atomically writes a validated authoring request for one round. Rounds must be strictly
+ * increasing; a stale or duplicate round is refused.
+ */
 export async function writeAuthoringRequest(
   queueRoot: string,
   request: StudioAuthoringRequest,
 ): Promise<string> {
   const validated = authoringRequestSchema.parse(request);
-  const directory = join(queueRoot, REQUESTS_DIRNAME);
+  const directory = join(queueRoot, REQUESTS_DIRNAME, validated.runId);
   await mkdir(directory, { recursive: true, mode: 0o700 });
-  const destination = join(directory, `${validated.runId}.json`);
+  const rounds = await listRounds(directory);
+  const latest = rounds.at(-1) ?? 0;
+  if (validated.round !== latest + 1) {
+    throw new SmartUiError(
+      'POLICY_VIOLATION',
+      `Studio authoring round ${validated.round} is stale or duplicated; the next expected round is ${latest + 1}.`,
+    );
+  }
+  const destination = join(directory, roundFileName(validated.round));
   await atomicWriteJson(destination, validated);
   return destination;
 }
 
-/** Reads and validates one authoring request; returns undefined when absent. */
+/** Reads and validates one authoring request; defaults to the latest round of the run. */
 export async function readAuthoringRequest(
   queueRoot: string,
   runId: string,
+  round?: number,
 ): Promise<StudioAuthoringRequest | undefined> {
   assertRunId(runId);
-  const raw = await readOptional(join(queueRoot, REQUESTS_DIRNAME, `${runId}.json`));
+  const directory = join(queueRoot, REQUESTS_DIRNAME, runId);
+  const target = round ?? (await listRounds(directory)).at(-1);
+  if (target === undefined) return undefined;
+  const raw = await readOptional(join(directory, roundFileName(assertRound(target))));
   if (raw === undefined) return undefined;
   return authoringRequestSchema.parse(parseJson(raw, 'authoring request'));
 }
 
-/** Lists valid, unexpired pending requests. Malformed or expired entries are skipped. */
+/**
+ * Lists the latest valid, unexpired, unanswered request per run. Malformed, superseded, expired, or
+ * already answered entries are skipped.
+ */
 export async function listPendingAuthoringRequests(
   queueRoot: string,
   now: Date = new Date(),
 ): Promise<StudioAuthoringRequest[]> {
-  const directory = join(queueRoot, REQUESTS_DIRNAME);
-  let names: string[];
-  try {
-    names = await readdir(directory);
-  } catch (error) {
-    if (missing(error)) return [];
-    throw error;
-  }
+  const root = join(queueRoot, REQUESTS_DIRNAME);
   const pending: StudioAuthoringRequest[] = [];
-  for (const name of names.sort()) {
-    if (!name.endsWith('.json')) continue;
-    const raw = await readOptional(join(directory, name));
+  for (const runId of (await listEntries(root)).sort()) {
+    if (!AUTHORING_RUN_ID.test(runId)) continue;
+    const directory = join(root, runId);
+    const round = (await listRounds(directory)).at(-1);
+    if (round === undefined) continue;
+    const raw = await readOptional(join(directory, roundFileName(round)));
     if (raw === undefined) continue;
     const parsed = authoringRequestSchema.safeParse(safeParseJson(raw));
     if (!parsed.success) continue;
     if (Date.parse(parsed.data.expiresAt) <= now.getTime()) continue;
+    if (await readOptional(responsePath(queueRoot, runId, round))) continue;
     pending.push(parsed.data);
   }
   return pending;
 }
 
-/** Atomically writes a validated authoring response. */
+/** Atomically writes a validated authoring response for the run's pending round. */
 export async function writeAuthoringResponse(
   queueRoot: string,
   response: StudioAuthoringResponse,
 ): Promise<string> {
   const validated = authoringResponseSchema.parse(response);
-  const directory = join(queueRoot, RESPONSES_DIRNAME);
-  await mkdir(directory, { recursive: true, mode: 0o700 });
-  const destination = join(directory, `${validated.runId}.json`);
+  const request = await readAuthoringRequest(queueRoot, validated.runId);
+  if (!request) {
+    throw new SmartUiError(
+      'NOT_FOUND',
+      'No pending Studio authoring request matches this run identifier.',
+    );
+  }
+  if (request.round !== validated.round) {
+    throw new SmartUiError(
+      'POLICY_VIOLATION',
+      `Studio is waiting for authoring round ${request.round}; round ${validated.round} is stale.`,
+    );
+  }
+  const destination = responsePath(queueRoot, validated.runId, validated.round);
+  if (await readOptional(destination)) {
+    throw new SmartUiError(
+      'POLICY_VIOLATION',
+      `Authoring round ${validated.round} of this Studio run was already answered.`,
+    );
+  }
+  await mkdir(join(queueRoot, RESPONSES_DIRNAME, validated.runId), {
+    recursive: true,
+    mode: 0o700,
+  });
   await atomicWriteJson(destination, validated);
   return destination;
 }
 
-/** Reads and validates one authoring response; returns undefined when absent. */
+/** Reads and validates one authoring response; defaults to the latest requested round. */
 export async function readAuthoringResponse(
   queueRoot: string,
   runId: string,
+  round?: number,
 ): Promise<StudioAuthoringResponse | undefined> {
   assertRunId(runId);
-  const raw = await readOptional(join(queueRoot, RESPONSES_DIRNAME, `${runId}.json`));
+  const target =
+    round ?? (await listRounds(join(queueRoot, REQUESTS_DIRNAME, runId))).at(-1) ?? undefined;
+  if (target === undefined) return undefined;
+  const raw = await readOptional(responsePath(queueRoot, runId, assertRound(target)));
   if (raw === undefined) return undefined;
   return authoringResponseSchema.parse(parseJson(raw, 'authoring response'));
 }
 
 /**
- * Polls for a validated authoring response, failing closed when the run is canceled, the request
- * expires, or the bounded timeout elapses.
+ * Polls for a validated authoring response for one round, failing closed when the run is canceled,
+ * the request expires, or the bounded timeout elapses.
  */
 export async function waitForAuthoringResponse(
   queueRoot: string,
   runId: string,
-  options: { timeoutMs?: number; pollIntervalMs?: number; signal?: AbortSignal; now?: () => number } = {},
+  options: {
+    round?: number;
+    timeoutMs?: number;
+    pollIntervalMs?: number;
+    signal?: AbortSignal;
+    now?: () => number;
+  } = {},
 ): Promise<StudioAuthoringResponse> {
   assertRunId(runId);
   const clock = options.now ?? (() => Date.now());
   const started = clock();
+  const round = options.round === undefined ? undefined : assertRound(options.round);
   const timeoutMs = boundedTimeout(options.timeoutMs);
-  const pollIntervalMs = Math.max(50, Math.min(30_000, options.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS));
+  const pollIntervalMs = Math.max(
+    50,
+    Math.min(30_000, options.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS),
+  );
   for (;;) {
     if (options.signal?.aborted) {
       throw new SmartUiError('TIMEOUT', 'The Studio authoring request was canceled.');
     }
-    const response = await readAuthoringResponse(queueRoot, runId);
+    const response = await readAuthoringResponse(queueRoot, runId, round);
     if (response) return response;
-    const request = await readAuthoringRequest(queueRoot, runId);
+    const request = await readAuthoringRequest(queueRoot, runId, round);
     if (request && Date.parse(request.expiresAt) <= clock()) {
-      throw new SmartUiError('TIMEOUT', 'The Studio authoring request expired before the agent responded.');
+      throw new SmartUiError(
+        'TIMEOUT',
+        'The Studio authoring request expired before the agent responded.',
+      );
     }
     if (clock() - started >= timeoutMs) {
       throw new SmartUiError(
@@ -273,16 +446,33 @@ export async function waitForAuthoringResponse(
   }
 }
 
-/** Removes a pending authoring request, e.g. when a run is canceled. */
-export async function deleteAuthoringRequest(queueRoot: string, runId: string): Promise<void> {
+/** Removes one pending authoring round, or every round of the run when no round is given. */
+export async function deleteAuthoringRequest(
+  queueRoot: string,
+  runId: string,
+  round?: number,
+): Promise<void> {
   assertRunId(runId);
-  await rm(join(queueRoot, REQUESTS_DIRNAME, `${runId}.json`), { force: true });
+  const directory = join(queueRoot, REQUESTS_DIRNAME, runId);
+  if (round === undefined) {
+    await rm(directory, { recursive: true, force: true });
+    return;
+  }
+  await rm(join(directory, roundFileName(assertRound(round))), { force: true });
 }
 
-/** Removes a consumed authoring response. */
-export async function deleteAuthoringResponse(queueRoot: string, runId: string): Promise<void> {
+/** Removes one consumed authoring response, or every response of the run. */
+export async function deleteAuthoringResponse(
+  queueRoot: string,
+  runId: string,
+  round?: number,
+): Promise<void> {
   assertRunId(runId);
-  await rm(join(queueRoot, RESPONSES_DIRNAME, `${runId}.json`), { force: true });
+  if (round === undefined) {
+    await rm(join(queueRoot, RESPONSES_DIRNAME, runId), { recursive: true, force: true });
+    return;
+  }
+  await rm(responsePath(queueRoot, runId, assertRound(round)), { force: true });
 }
 
 /** Converts a validated authoring response into provider-neutral host proposal files. */
@@ -316,6 +506,43 @@ function assertRunId(runId: string): void {
   if (!AUTHORING_RUN_ID.test(runId)) {
     throw new SmartUiError('INVALID_INPUT', 'A Studio run identifier is required.');
   }
+}
+
+function assertRound(round: number): number {
+  if (!Number.isInteger(round) || round < 1 || round > MAX_AUTHORING_ROUNDS) {
+    throw new SmartUiError(
+      'INVALID_INPUT',
+      `A Studio authoring round must be an integer from 1 to ${MAX_AUTHORING_ROUNDS}.`,
+    );
+  }
+  return round;
+}
+
+function roundFileName(round: number): string {
+  return `round-${round}.json`;
+}
+
+function responsePath(queueRoot: string, runId: string, round: number): string {
+  return join(queueRoot, RESPONSES_DIRNAME, runId, roundFileName(round));
+}
+
+async function listEntries(directory: string): Promise<string[]> {
+  try {
+    return await readdir(directory);
+  } catch (error) {
+    if (missing(error)) return [];
+    throw error;
+  }
+}
+
+/** Ascending round numbers present in one run directory. */
+async function listRounds(directory: string): Promise<number[]> {
+  return (await listEntries(directory))
+    .map((name) => ROUND_FILE.exec(name)?.[1])
+    .filter((value): value is string => value !== undefined)
+    .map(Number)
+    .filter((round) => round >= 1 && round <= MAX_AUTHORING_ROUNDS)
+    .sort((left, right) => left - right);
 }
 
 async function atomicWriteJson(destination: string, value: unknown): Promise<void> {
@@ -355,7 +582,9 @@ function safeParseJson(raw: string): unknown {
 }
 
 function missing(error: unknown): boolean {
-  return error instanceof Error && 'code' in error && (error as { code?: string }).code === 'ENOENT';
+  return (
+    error instanceof Error && 'code' in error && (error as { code?: string }).code === 'ENOENT'
+  );
 }
 
 function delay(ms: number, signal?: AbortSignal): Promise<void> {

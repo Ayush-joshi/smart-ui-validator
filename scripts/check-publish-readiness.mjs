@@ -4,6 +4,7 @@ import { access, mkdtemp, readFile, readdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { pnpm } from './pnpm-command.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const rootManifest = await readJson(join(root, 'package.json'));
@@ -132,7 +133,7 @@ async function exists(path) {
 
 async function packAndReadManifest(directory, packageName) {
   const destination = await mkdtemp(join(tmpdir(), 'smart-ui-publish-check-'));
-  execFileSync('pnpm', ['pack', '--pack-destination', destination], {
+  pnpm(['pack', '--pack-destination', destination], {
     cwd: directory,
     encoding: 'utf8',
   });

@@ -1,4 +1,4 @@
-import { randomBytes, randomUUID } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { once } from 'node:events';
 import { createWriteStream } from 'node:fs';
 import {
@@ -27,11 +27,13 @@ import {
   LocalArtifactStore,
   LocalSvgStructureProvider,
   LoopbackGeneratedPreviewProvider,
+  MAX_AUTHORING_ROUNDS,
   PlaywrightBrowserProvider,
   ReproducibleGenerationExporter,
   SmartUiError,
   agentQueueRoot,
   authoredHostFiles,
+  authoringResponseHash,
   buildAuthoringRequest,
   deleteAuthoringRequest,
   deleteAuthoringResponse,
@@ -41,6 +43,7 @@ import {
   waitForAuthoringResponse,
   writeAuthoringRequest,
   type ArtifactRef,
+  type AuthoringPriorEvidence,
   type GeneratedPreviewSession,
   type GenerationLayout,
   type GenerationMode,
@@ -55,6 +58,7 @@ const COOKIE_NAME = 'smart_ui_studio';
 const RUN_ID = /^run-[a-f0-9-]{36}$/u;
 const RECORD_PATH = /^objects\/[a-f0-9]{2}\/[a-f0-9]{64}\.json$/u;
 const DEFAULT_RETENTION_MS = 24 * 60 * 60 * 1_000;
+const DEFAULT_MAX_IMPROVE_ROUNDS = 5;
 const MAX_JSON_BYTES = 16_384;
 
 const STUDIO_CSP = [
@@ -78,6 +82,8 @@ export interface StudioServerOptions {
   retentionMs?: number;
   /** How long a run waits for the connected MCP agent to author HTML before failing closed. */
   agentTimeoutMs?: number;
+  /** Bound on confirm-then-improve revision rounds beyond the first authored round. */
+  maxImproveRounds?: number;
 }
 
 export interface StudioServer {
@@ -115,10 +121,35 @@ type RunPhase =
   | 'inspected'
   | 'generating'
   | 'awaiting-agent'
+  | 'awaiting-agent-revision'
+  | 'awaiting-decision'
   | 'completed'
   | 'failed'
   | 'canceled'
   | 'interrupted';
+
+interface RunPreferences {
+  engine: 'agent' | 'deterministic';
+  mode: GenerationMode;
+  layout: GenerationLayout;
+  instructions?: string;
+  improve: boolean;
+}
+
+/** Immutable evidence for one authored round of a run. */
+interface RunRound {
+  round: number;
+  createdAt: string;
+  engine: 'agent' | 'deterministic';
+  authoringAgent?: string;
+  feedback?: string;
+  feedbackHash?: string;
+  responseHash?: string;
+  recordArtifactPath: string;
+  visualSimilarity: number | null;
+  visualMismatchPercent: number | null;
+  accepted: boolean;
+}
 
 interface StudioRun {
   id: string;
@@ -131,6 +162,12 @@ interface StudioRun {
   phase: RunPhase;
   progress: { stage: string; value: number; message: string };
   inspection?: InspectionSummary;
+  preferences?: RunPreferences;
+  rounds: RunRound[];
+  records: Map<number, GenerationRecord>;
+  selectedRound?: number;
+  acceptedRound?: number;
+  pending?: { round: number; feedback?: string };
   record?: GenerationRecord;
   recordArtifactPath?: string;
   error?: { code: string; message: string; recovery: string };
@@ -148,6 +185,10 @@ interface PersistedRun {
   phase: RunPhase;
   progress: StudioRun['progress'];
   inspection?: InspectionSummary;
+  preferences?: RunPreferences;
+  rounds?: RunRound[];
+  selectedRound?: number;
+  acceptedRound?: number;
   recordArtifactPath?: string;
   error?: StudioRun['error'];
 }
@@ -156,6 +197,25 @@ interface StaticAsset {
   path: string;
   mediaType: string;
   bytes: Uint8Array;
+}
+
+const RUN_PHASES: RunPhase[] = [
+  'inspected',
+  'generating',
+  'awaiting-agent',
+  'awaiting-agent-revision',
+  'awaiting-decision',
+  'completed',
+  'failed',
+  'canceled',
+  'interrupted',
+];
+
+/** Phases owned by a live in-process task; they cannot survive a restart. */
+function isActivePhase(phase: RunPhase): boolean {
+  return (
+    phase === 'generating' || phase === 'awaiting-agent' || phase === 'awaiting-agent-revision'
+  );
 }
 
 export async function initializeStudioWorkspace(workspaceRoot: string): Promise<{
@@ -204,6 +264,7 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
   const assets = await loadStaticAssets(staticRoot);
   const retentionMs = boundedRetention(options.retentionMs ?? DEFAULT_RETENTION_MS);
   const agentTimeoutMs = boundedAgentTimeout(options.agentTimeoutMs);
+  const maxImproveRounds = boundedImproveRounds(options.maxImproveRounds);
   const queueRoot = agentQueueRoot(workspace);
   const capability = randomBytes(32).toString('base64url');
   const csrf = randomBytes(32).toString('base64url');
@@ -265,9 +326,9 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
       requireSameSiteFetch(request);
       return json(response, 200, {
         csrfToken: csrf,
-        runs: [...runs.values()].map(runSummary),
+        runs: [...runs.values()].map((item) => runSummary(item, maxImproveRounds)),
         limits: { maxUploadBytes: (await loadConfig(workspace)).generation.limits.maxSvgBytes },
-        agent: { configured: true, transport: 'mcp', workspace },
+        agent: { configured: true, transport: 'mcp', workspace, maxImproveRounds },
       });
     }
     const readOnlyArtifactRequest =
@@ -280,14 +341,19 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
       return json(response, 200, await health());
     }
     if (pathname === '/api/runs') {
-      if (request.method === 'GET') return json(response, 200, [...runs.values()].map(runSummary));
+      if (request.method === 'GET')
+        return json(
+          response,
+          200,
+          [...runs.values()].map((item) => runSummary(item, maxImproveRounds)),
+        );
       if (request.method !== 'POST') return method(response, 'GET, POST');
       exactContentType(request, 'image/svg+xml');
       const filename = uploadFilename(request.headers['x-smart-ui-filename']);
       const run = await inspectUpload(request, workspace, filename);
       runs.set(run.id, run);
       await persistRun(run);
-      return json(response, 201, runSummary(run));
+      return json(response, 201, runSummary(run, maxImproveRounds));
     }
 
     const segments = pathname.split('/').filter(Boolean);
@@ -301,7 +367,7 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
       throw new SmartUiError('NOT_FOUND', 'Studio run was not found.');
     }
     if (segments.length === 3) {
-      if (request.method === 'GET') return json(response, 200, runSummary(run));
+      if (request.method === 'GET') return json(response, 200, runSummary(run, maxImproveRounds));
       if (request.method === 'DELETE') {
         await deleteRun(run, runsRoot);
         runs.delete(run.id);
@@ -316,22 +382,60 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
         throw new SmartUiError('POLICY_VIOLATION', 'Only an inspected run can start generation.');
       }
       const preferences = parsePreferences(await readJsonBody(request));
+      run.preferences = preferences;
       run.phase = 'generating';
       run.updatedAt = new Date().toISOString();
       run.progress = { stage: 'generate', value: 0.15, message: 'Generation queued.' };
       run.controller = new AbortController();
       await persistRun(run);
-      run.task = generate(run, preferences).finally(() => {
+      run.task = startRound(run, 1).finally(() => {
         run.task = undefined;
         run.controller = undefined;
       });
-      return json(response, 202, runSummary(run));
+      return json(response, 202, runSummary(run, maxImproveRounds));
+    }
+    if (segments[3] === 'decision' && segments.length === 4) {
+      if (request.method !== 'POST') return method(response, 'POST');
+      exactContentType(request, 'application/json');
+      const decision = parseDecision(await readJsonBody(request));
+      if (run.phase !== 'awaiting-decision') {
+        throw new SmartUiError(
+          'POLICY_VIOLATION',
+          'Only a run awaiting your decision can be accepted or improved.',
+        );
+      }
+      if (decision.action === 'accept') {
+        await acceptRound(run, decision.round);
+        return json(response, 200, runSummary(run, maxImproveRounds));
+      }
+      if (run.rounds.length > maxImproveRounds) {
+        throw new SmartUiError(
+          'POLICY_VIOLATION',
+          `This run reached its bound of ${maxImproveRounds} improvement rounds; accept the round you prefer.`,
+        );
+      }
+      const nextRound = run.rounds.length + 1;
+      delete run.error;
+      run.phase = 'generating';
+      run.progress = {
+        stage: 'generate',
+        value: 0.15,
+        message: `Improvement round ${nextRound} queued.`,
+      };
+      run.updatedAt = new Date().toISOString();
+      run.controller = new AbortController();
+      await persistRun(run);
+      run.task = startRound(run, nextRound, decision.feedback).finally(() => {
+        run.task = undefined;
+        run.controller = undefined;
+      });
+      return json(response, 202, runSummary(run, maxImproveRounds));
     }
     if (segments[3] === 'cancel' && segments.length === 4) {
       if (request.method !== 'POST') return method(response, 'POST');
       exactContentType(request, 'application/json');
       await readJsonBody(request);
-      if (run.phase === 'generating' || run.phase === 'awaiting-agent') run.controller?.abort();
+      if (isActivePhase(run.phase)) run.controller?.abort();
       return json(response, 202, { runId: run.id, cancellationRequested: true });
     }
     if (segments[3] === 'files' && segments.length === 5) {
@@ -406,6 +510,8 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
         updatedAt: now,
         phase: 'inspected',
         progress: { stage: 'inspect', value: 0.12, message: 'SVG accepted and inspected.' },
+        rounds: [],
+        records: new Map(),
         controller: undefined,
         task: undefined,
         inspection: {
@@ -426,15 +532,11 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
     }
   }
 
-  async function generate(
-    run: StudioRun,
-    preferences: {
-      engine: 'agent' | 'deterministic';
-      mode: GenerationMode;
-      layout: GenerationLayout;
-      instructions?: string;
-    },
-  ): Promise<void> {
+  async function startRound(run: StudioRun, round: number, feedback?: string): Promise<void> {
+    const preferences = run.preferences;
+    if (!preferences)
+      throw new SmartUiError('INVALID_INPUT', 'Generation preferences are missing.');
+    let authoring: { authoringAgent: string; responseHash: string } | undefined;
     try {
       const config = await loadConfig(workspace);
       const store = new LocalArtifactStore(run.artifactRoot);
@@ -453,13 +555,23 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
       let fallbackGenerator: HtmlGenerationProvider | undefined;
       let proposalPolicy: 'non-regression' | 'prefer-proposal' | undefined;
       if (preferences.engine === 'agent') {
-        const files = await authorWithConnectedAgent(run, generationInput, config);
+        const authored = await authorWithConnectedAgent(
+          run,
+          generationInput,
+          config,
+          round,
+          feedback,
+        );
         generator = new HostProposedHtmlGenerationProvider(
-          `studio-agent:${files.authoringAgent}`,
-          files.files,
+          `studio-agent:${authored.authoringAgent}`,
+          authored.files,
         );
         fallbackGenerator = new DeterministicHtmlGenerationProvider();
         proposalPolicy = 'prefer-proposal';
+        authoring = {
+          authoringAgent: authored.authoringAgent,
+          responseHash: authored.responseHash,
+        };
       }
       const result = await new GenerationOrchestrator({
         structure,
@@ -478,27 +590,48 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
           run.updatedAt = new Date().toISOString();
         },
       }).run(generationInput, run.controller?.signal);
-      run.record = result.record;
-      run.recordArtifactPath = result.recordArtifact.relativePath;
+      selectRecord(run, result.record, result.recordArtifact.relativePath);
+      const acceptedPass = [...result.record.passes].reverse().find((pass) => pass.accepted);
+      run.rounds.push({
+        round,
+        createdAt: new Date().toISOString(),
+        engine: preferences.engine,
+        ...(authoring ? { authoringAgent: authoring.authoringAgent } : {}),
+        ...(feedback ? { feedback, feedbackHash: textHash(feedback) } : {}),
+        ...(authoring ? { responseHash: authoring.responseHash } : {}),
+        recordArtifactPath: result.recordArtifact.relativePath,
+        visualSimilarity: acceptedPass ? Math.max(0, 100 - acceptedPass.diffPercent) : null,
+        visualMismatchPercent: acceptedPass?.diffPercent ?? null,
+        accepted: false,
+      });
+      run.selectedRound = round;
+      run.records.set(round, result.record);
       run.phase = result.record.canceled
         ? 'canceled'
         : result.record.status === 'failed'
           ? 'failed'
-          : 'completed';
+          : preferences.improve && preferences.engine === 'agent'
+            ? 'awaiting-decision'
+            : 'completed';
+      if (run.phase === 'completed') markAccepted(run, round);
       run.progress = {
         stage: run.phase,
         value: 1,
         message:
           run.phase === 'completed'
             ? 'Generation completed.'
-            : run.phase === 'canceled'
-              ? 'Generation canceled.'
-              : 'Generation failed.',
+            : run.phase === 'awaiting-decision'
+              ? `Round ${round} is ready. Accept it, or describe what to improve.`
+              : run.phase === 'canceled'
+                ? 'Generation canceled.'
+                : 'Generation failed.',
       };
-      if (run.record.generatedFiles.length > 0) await startRunPreview(run);
+      if (run.record && run.record.generatedFiles.length > 0) await startRunPreview(run);
     } catch (error) {
       const failure = publicFailure(error, workspace);
-      run.phase = run.controller?.signal.aborted ? 'canceled' : 'failed';
+      const canceled = run.controller?.signal.aborted ?? false;
+      // A failed revision keeps every earlier round available for acceptance.
+      run.phase = run.rounds.length > 0 ? 'awaiting-decision' : canceled ? 'canceled' : 'failed';
       run.error = {
         code: failure.code,
         message: failure.message,
@@ -506,16 +639,46 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
       };
       run.progress = { stage: run.phase, value: 1, message: failure.message };
     } finally {
+      delete run.pending;
       run.updatedAt = new Date().toISOString();
       await persistRun(run);
     }
+  }
+
+  async function acceptRound(run: StudioRun, round: number | undefined): Promise<void> {
+    const target =
+      round === undefined ? run.rounds.at(-1) : run.rounds.find((item) => item.round === round);
+    if (!target) throw new SmartUiError('NOT_FOUND', 'That authoring round was not found.');
+    const record = run.records.get(target.round);
+    if (!record) {
+      throw new SmartUiError('NOT_FOUND', 'The evidence for that authoring round is unavailable.');
+    }
+    selectRecord(run, record, target.recordArtifactPath);
+    run.selectedRound = target.round;
+    markAccepted(run, target.round);
+    run.phase = 'completed';
+    delete run.error;
+    run.progress = {
+      stage: 'completed',
+      value: 1,
+      message: `Accepted authoring round ${target.round}.`,
+    };
+    run.updatedAt = new Date().toISOString();
+    if (record.generatedFiles.length > 0) await startRunPreview(run);
+    await persistRun(run);
   }
 
   async function authorWithConnectedAgent(
     run: StudioRun,
     generationInput: ReturnType<typeof svgGenerationInputSchema.parse>,
     config: Awaited<ReturnType<typeof loadConfig>>,
-  ): Promise<{ files: ReturnType<typeof authoredHostFiles>; authoringAgent: string }> {
+    round: number,
+    feedback: string | undefined,
+  ): Promise<{
+    files: ReturnType<typeof authoredHostFiles>;
+    authoringAgent: string;
+    responseHash: string;
+  }> {
     const signal = run.controller?.signal;
     const inspectionArtifactRoot = join(run.root, 'agent-inspection-artifacts');
     const inspectionStore = new LocalArtifactStore(inspectionArtifactRoot);
@@ -527,24 +690,33 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
       inspectionStore,
       config.generation.limits,
     ).inspect(inspectionInput, signal);
+    const previous = run.rounds.at(-1);
     const request = buildAuthoringRequest({
       runId: run.id,
       input: generationInput,
       inspection,
+      round,
+      ...(feedback ? { feedback } : {}),
+      ...(previous ? { priorEvidence: priorEvidence(run, previous) } : {}),
+      ...(previous?.responseHash ? { previousResponseHash: previous.responseHash } : {}),
       timeoutMs: agentTimeoutMs,
     });
     await writeAuthoringRequest(queueRoot, request);
-    run.phase = 'awaiting-agent';
+    run.phase = round === 1 ? 'awaiting-agent' : 'awaiting-agent-revision';
+    run.pending = { round, ...(feedback ? { feedback } : {}) };
     run.progress = {
       stage: 'agent',
       value: 0.2,
       message:
-        'Waiting for the connected MCP agent to author HTML. In chat, ask it to check Smart UI Studio authoring requests.',
+        round === 1
+          ? 'Waiting for the connected MCP agent to author HTML. In chat, ask it to check Smart UI Studio authoring requests.'
+          : `Waiting for the connected MCP agent to author improvement round ${round}.`,
     };
     run.updatedAt = new Date().toISOString();
     await persistRun(run);
     try {
       const response = await waitForAuthoringResponse(queueRoot, run.id, {
+        round,
         timeoutMs: agentTimeoutMs,
         ...(signal ? { signal } : {}),
       });
@@ -555,10 +727,14 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
         message: `Validating and measuring HTML authored by ${response.authoringAgent}.`,
       };
       run.updatedAt = new Date().toISOString();
-      return { files: authoredHostFiles(response), authoringAgent: response.authoringAgent };
+      return {
+        files: authoredHostFiles(response),
+        authoringAgent: response.authoringAgent,
+        responseHash: authoringResponseHash(response),
+      };
     } finally {
-      await deleteAuthoringRequest(queueRoot, run.id);
-      await deleteAuthoringResponse(queueRoot, run.id);
+      await deleteAuthoringRequest(queueRoot, run.id, round);
+      await deleteAuthoringResponse(queueRoot, run.id, round);
     }
   }
 
@@ -755,18 +931,13 @@ async function readBounded(request: IncomingMessage, limit: number): Promise<Uin
   return Buffer.concat(chunks);
 }
 
-function parsePreferences(value: unknown): {
-  engine: 'agent' | 'deterministic';
-  mode: GenerationMode;
-  layout: GenerationLayout;
-  instructions?: string;
-} {
+function parsePreferences(value: unknown): RunPreferences {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new SmartUiError('INVALID_INPUT', 'Generation preferences must be an object.');
   }
   const input = value as Record<string, unknown>;
   const keys = Object.keys(input);
-  if (keys.some((key) => !['engine', 'mode', 'layout', 'instructions'].includes(key))) {
+  if (keys.some((key) => !['engine', 'mode', 'layout', 'instructions', 'improve'].includes(key))) {
     throw new SmartUiError('INVALID_INPUT', 'Generation preferences contain an unknown field.');
   }
   const engine = input['engine'] ?? 'agent';
@@ -779,6 +950,10 @@ function parsePreferences(value: unknown): {
   if (!['fixed', 'responsive', 'component'].includes(String(input['layout']))) {
     throw new SmartUiError('INVALID_INPUT', 'Layout must be fixed, responsive, or component.');
   }
+  const improve = input['improve'];
+  if (improve !== undefined && typeof improve !== 'boolean') {
+    throw new SmartUiError('INVALID_INPUT', 'Improve must be a boolean.');
+  }
   const instructions = input['instructions'];
   if (
     instructions !== undefined &&
@@ -790,11 +965,79 @@ function parsePreferences(value: unknown): {
     engine: engine as 'agent' | 'deterministic',
     mode: input['mode'] as GenerationMode,
     layout: input['layout'] as GenerationLayout,
+    improve: engine === 'agent' && improve !== false,
     ...(typeof instructions === 'string' && instructions.length > 0 ? { instructions } : {}),
   };
 }
 
-function runSummary(run: StudioRun) {
+function parseDecision(value: unknown): {
+  action: 'accept' | 'improve';
+  round?: number;
+  feedback?: string;
+} {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new SmartUiError('INVALID_INPUT', 'A decision must be an object.');
+  }
+  const input = value as Record<string, unknown>;
+  if (Object.keys(input).some((key) => !['action', 'round', 'feedback'].includes(key))) {
+    throw new SmartUiError('INVALID_INPUT', 'The decision contains an unknown field.');
+  }
+  const action = input['action'];
+  if (action !== 'accept' && action !== 'improve') {
+    throw new SmartUiError('INVALID_INPUT', 'Decision action must be accept or improve.');
+  }
+  const round = input['round'];
+  if (round !== undefined && (!Number.isInteger(round) || (round as number) < 1)) {
+    throw new SmartUiError('INVALID_INPUT', 'Decision round must be a positive integer.');
+  }
+  const feedback = input['feedback'];
+  if (feedback !== undefined && (typeof feedback !== 'string' || feedback.length > 4_000)) {
+    throw new SmartUiError('INVALID_INPUT', 'Feedback must be at most 4000 characters.');
+  }
+  const trimmed = typeof feedback === 'string' ? feedback.trim() : '';
+  if (action === 'improve' && round !== undefined) {
+    throw new SmartUiError('INVALID_INPUT', 'Only an accepted decision names a round.');
+  }
+  return {
+    action,
+    ...(typeof round === 'number' ? { round } : {}),
+    ...(trimmed ? { feedback: trimmed } : {}),
+  };
+}
+
+function selectRecord(run: StudioRun, record: GenerationRecord, recordArtifactPath: string): void {
+  run.record = record;
+  run.recordArtifactPath = recordArtifactPath;
+}
+
+function markAccepted(run: StudioRun, round: number): void {
+  for (const item of run.rounds) item.accepted = item.round === round;
+  run.acceptedRound = round;
+}
+
+function textHash(value: string): string {
+  return `sha256:${createHash('sha256').update(value, 'utf8').digest('hex')}`;
+}
+
+/** Bounded deterministic evidence from one completed round, derived from its immutable record. */
+function priorEvidence(run: StudioRun, round: RunRound): AuthoringPriorEvidence {
+  const record = run.records.get(round.round);
+  const pass = record ? [...record.passes].reverse().find((item) => item.accepted) : undefined;
+  return {
+    round: round.round,
+    visualSimilarityPercent: round.visualSimilarity,
+    visualMismatchPercent: round.visualMismatchPercent,
+    ...(record?.input.finalMode ? { finalMode: record.input.finalMode } : {}),
+    findings: (pass?.findings ?? []).slice(0, 20).map((finding) => ({
+      category: finding.category.slice(0, 100),
+      severity: finding.severity.slice(0, 50),
+      message: finding.message.slice(0, 400),
+    })),
+    warnings: (record?.warnings ?? []).slice(0, 10).map((warning) => warning.slice(0, 400)),
+  };
+}
+
+function runSummary(run: StudioRun, maxImproveRounds: number) {
   const record = run.record;
   const acceptedPass = record
     ? [...record.passes].reverse().find((pass) => pass.accepted)
@@ -807,6 +1050,30 @@ function runSummary(run: StudioRun) {
     phase: run.phase,
     progress: run.progress,
     inspection: run.inspection,
+    rounds: run.rounds.map((item) => ({
+      round: item.round,
+      createdAt: item.createdAt,
+      engine: item.engine,
+      authoringAgent: item.authoringAgent ?? null,
+      feedback: item.feedback ?? null,
+      responseHash: item.responseHash ?? null,
+      visualSimilarity: item.visualSimilarity,
+      visualMismatchPercent: item.visualMismatchPercent,
+      accepted: item.accepted,
+    })),
+    selectedRound: run.selectedRound ?? null,
+    acceptedRound: run.acceptedRound ?? null,
+    decision:
+      run.phase === 'awaiting-decision'
+        ? {
+            canImprove: run.rounds.length <= maxImproveRounds,
+            remainingImproveRounds: Math.max(0, maxImproveRounds - run.rounds.length + 1),
+            maxImproveRounds,
+          }
+        : null,
+    pendingAuthoring: run.pending
+      ? { round: run.pending.round, feedback: run.pending.feedback ?? null }
+      : null,
     generation: record
       ? {
           generationId: record.id,
@@ -949,6 +1216,10 @@ async function persistRun(run: StudioRun): Promise<void> {
     phase: run.phase,
     progress: run.progress,
     ...(run.inspection ? { inspection: run.inspection } : {}),
+    ...(run.preferences ? { preferences: run.preferences } : {}),
+    ...(run.rounds.length > 0 ? { rounds: run.rounds } : {}),
+    ...(run.selectedRound ? { selectedRound: run.selectedRound } : {}),
+    ...(run.acceptedRound ? { acceptedRound: run.acceptedRound } : {}),
     ...(run.recordArtifactPath ? { recordArtifactPath: run.recordArtifactPath } : {}),
     ...(run.error ? { error: run.error } : {}),
   };
@@ -985,24 +1256,31 @@ async function recoverRuns(
         filename: pointer.filename,
         createdAt: pointer.createdAt,
         updatedAt: pointer.updatedAt,
-        phase:
-          pointer.phase === 'generating' || pointer.phase === 'awaiting-agent'
-            ? 'interrupted'
-            : pointer.phase,
-        progress:
-          pointer.phase === 'generating' || pointer.phase === 'awaiting-agent'
-            ? { stage: 'interrupted', value: 1, message: 'The previous Studio process exited.' }
-            : pointer.progress,
+        phase: isActivePhase(pointer.phase) ? 'interrupted' : pointer.phase,
+        progress: isActivePhase(pointer.phase)
+          ? { stage: 'interrupted', value: 1, message: 'The previous Studio process exited.' }
+          : pointer.progress,
         ...(pointer.inspection ? { inspection: pointer.inspection } : {}),
+        ...(pointer.preferences ? { preferences: pointer.preferences } : {}),
+        rounds: pointer.rounds ?? [],
+        records: new Map<number, GenerationRecord>(),
+        ...(pointer.selectedRound ? { selectedRound: pointer.selectedRound } : {}),
+        ...(pointer.acceptedRound ? { acceptedRound: pointer.acceptedRound } : {}),
         ...(pointer.recordArtifactPath ? { recordArtifactPath: pointer.recordArtifactPath } : {}),
         ...(pointer.error ? { error: pointer.error } : {}),
         controller: undefined,
         task: undefined,
       };
-      if (pointer.recordArtifactPath) {
-        const bytes = await new LocalArtifactStore(run.artifactRoot).read(
-          pointer.recordArtifactPath,
+      const store = new LocalArtifactStore(run.artifactRoot);
+      for (const item of run.rounds) {
+        const bytes = await store.read(item.recordArtifactPath);
+        run.records.set(
+          item.round,
+          generationRecordSchema.parse(JSON.parse(new TextDecoder().decode(bytes))),
         );
+      }
+      if (pointer.recordArtifactPath) {
+        const bytes = await store.read(pointer.recordArtifactPath);
         run.record = generationRecordSchema.parse(JSON.parse(new TextDecoder().decode(bytes)));
         if (run.record.generatedFiles.length > 0) await startRunPreview(run);
       }
@@ -1026,13 +1304,26 @@ function parsePersistedRun(value: unknown): PersistedRun {
     !Number.isFinite(Date.parse(run['createdAt'])) ||
     typeof run['updatedAt'] !== 'string' ||
     !Number.isFinite(Date.parse(run['updatedAt'])) ||
-    !['inspected', 'generating', 'awaiting-agent', 'completed', 'failed', 'canceled', 'interrupted'].includes(
-      String(run['phase']),
-    ) ||
+    !RUN_PHASES.includes(String(run['phase']) as RunPhase) ||
     !run['progress'] ||
     typeof run['progress'] !== 'object'
   ) {
     throw new Error('invalid run');
+  }
+  const rounds = run['rounds'];
+  if (rounds !== undefined) {
+    if (!Array.isArray(rounds)) throw new Error('invalid rounds');
+    for (const [index, item] of rounds.entries()) {
+      if (
+        !item ||
+        typeof item !== 'object' ||
+        (item as RunRound).round !== index + 1 ||
+        typeof (item as RunRound).recordArtifactPath !== 'string' ||
+        !RECORD_PATH.test((item as RunRound).recordArtifactPath)
+      ) {
+        throw new Error('invalid round');
+      }
+    }
   }
   const recordArtifactPath = run['recordArtifactPath'];
   if (
@@ -1073,8 +1364,7 @@ async function purgeExpiredRuns(
 ): Promise<void> {
   const threshold = Date.now() - retentionMs;
   for (const run of [...runs.values()]) {
-    if (run.phase === 'generating' || run.phase === 'awaiting-agent' || new Date(run.updatedAt).getTime() >= threshold)
-      continue;
+    if (isActivePhase(run.phase) || new Date(run.updatedAt).getTime() >= threshold) continue;
     try {
       await deleteRun(run, runsRoot);
       runs.delete(run.id);
@@ -1166,6 +1456,17 @@ function boundedAgentTimeout(value: number | undefined): number {
     );
   }
   return Math.floor(value);
+}
+
+function boundedImproveRounds(value: number | undefined): number {
+  if (value === undefined) return DEFAULT_MAX_IMPROVE_ROUNDS;
+  if (!Number.isInteger(value) || value < 0 || value > MAX_AUTHORING_ROUNDS - 1) {
+    throw new SmartUiError(
+      'INVALID_INPUT',
+      `Studio improvement rounds must be an integer from 0 to ${MAX_AUTHORING_ROUNDS - 1}.`,
+    );
+  }
+  return value;
 }
 
 function isContained(root: string, target: string): boolean {

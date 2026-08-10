@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, readdir, stat, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, readdir, realpath, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { request as httpRequest } from 'node:http';
 import { join } from 'node:path';
@@ -192,9 +192,18 @@ describe('local Studio server security and lifecycle', () => {
       body: JSON.stringify({ engine: 'agent', mode: 'semantic', layout: 'responsive' }),
     });
     await waitForPhase(context, run.runId, 'awaiting-agent');
-    const requestPath = join(context.workspace, 'agent-queue', 'requests', `${run.runId}.json`);
-    const request = JSON.parse(await readFile(requestPath, 'utf8')) as { runId: string };
-    expect(request.runId).toBe(run.runId);
+    const requestPath = join(
+      context.workspace,
+      'agent-queue',
+      'requests',
+      run.runId,
+      'round-1.json',
+    );
+    const request = JSON.parse(await readFile(requestPath, 'utf8')) as {
+      runId: string;
+      round: number;
+    };
+    expect(request).toMatchObject({ runId: run.runId, round: 1 });
 
     await context.request(`/api/runs/${run.runId}/cancel`, {
       method: 'POST',
@@ -220,7 +229,7 @@ describe('local Studio server security and lifecycle', () => {
       body: JSON.stringify({ engine: 'agent', mode: 'semantic', layout: 'responsive' }),
     });
     const failed = await waitForPhase(context, run.runId, 'failed');
-    expect(failed.error?.message).toMatch(/No connected MCP agent/u);
+    expect(failed.error?.message).toMatch(/expired before the agent responded/u);
   });
 });
 
@@ -250,7 +259,7 @@ const cleanSvg =
   '<svg xmlns="http://www.w3.org/2000/svg" width="120" height="80"><rect width="120" height="80" fill="#4f7cff"/><text x="12" y="42" fill="white" font-size="18">Hello</text></svg>';
 
 async function studioFixture(maxSvgBytes: number, agentTimeoutMs?: number) {
-  const workspace = await mkdtemp(join(tmpdir(), 'smart-ui-studio-workspace-'));
+  const workspace = await realpath(await mkdtemp(join(tmpdir(), 'smart-ui-studio-workspace-')));
   await initializeStudioWorkspace(workspace);
   await writeFile(
     join(workspace, 'smart-ui.config.json'),

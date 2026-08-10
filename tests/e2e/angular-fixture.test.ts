@@ -21,11 +21,22 @@ const url = 'http://127.0.0.1:4273';
 let server: ReturnType<typeof spawn>;
 
 beforeAll(async () => {
-  server = spawn('pnpm', ['exec', 'ng', 'serve', '--host', '127.0.0.1', '--port', '4273'], {
-    cwd: fixtureRoot,
-    stdio: 'ignore',
-    shell: false,
-  });
+  server = spawn(
+    process.execPath,
+    [
+      join(fixtureRoot, 'node_modules/@angular/cli/bin/ng.js'),
+      'serve',
+      '--host',
+      '127.0.0.1',
+      '--port',
+      '4273',
+    ],
+    {
+      cwd: fixtureRoot,
+      stdio: 'ignore',
+      shell: false,
+    },
+  );
   for (let attempt = 0; attempt < 160; attempt++) {
     try {
       if ((await fetch(url)).ok) return;

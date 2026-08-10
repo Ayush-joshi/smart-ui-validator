@@ -31,16 +31,16 @@ existing deterministic pipeline (render both in Chromium, compare, keep evidence
 
 `git status` shows (all unstaged, nothing committed this session):
 
-| Path | State | What it does |
-| --- | --- | --- |
-| `packages/core/src/agent-html-author.ts` | new, **to be replaced** | `AgentHtmlAuthor` calls an external OpenAI-compatible chat-completions endpoint (`SMART_UI_AGENT_URL/MODEL/API_KEY` env). The user explicitly does **not** want this path. Salvage the prompt-assembly logic (`userPrompt`, text-node extraction, truncation) into the new request payload; delete the fetch/endpoint parts. |
-| `packages/core/src/generation-orchestrator.ts` | modified, **keep** | Adds `proposalPolicy: 'non-regression' \| 'prefer-proposal'` to `GenerationOrchestratorDependencies`. `prefer-proposal` keeps any valid, non-repeated proposal while still recording honest comparison evidence. Studio agent runs use this. |
-| `packages/core/src/index.ts` | modified | Exports `agent-html-author.js`. Update to export whatever replaces it. |
-| `apps/studio/src/server.ts` | modified, **partially keep** | Session response now reports `agent: { configured, model }`; `parsePreferences` accepts `engine: 'agent' \| 'deterministic'`; `generate()` branches on engine, inspects first, wraps agent files in `HostProposedHtmlGenerationProvider('studio-agent:<model>', files)` with deterministic `fallbackGenerator` and `prefer-proposal`. Keep the shape; replace the `AgentHtmlAuthor` call with the MCP bridge below. |
-| `apps/studio/src/client.tsx` | modified, **keep with copy edits** | Engine radio group (AI agent default, deterministic secondary), agent-aware context textbox label/placeholder, `engine` in the generate POST, agent provenance in review. Update copy that mentions `SMART_UI_AGENT_URL` env config — agent availability now depends on the MCP bridge, not env vars. |
-| `apps/studio/src/studio.css` | modified, keep | Styles for the engine choice grid. |
-| `.vscode/mcp.json` | new, keep | Workspace MCP config: stdio server `smart-ui` → `apps/mcp-server/dist/index.js`, `SMART_UI_MCP_ROOT=${workspaceFolder}`. |
-| `.smart-ui-mcp-runs/`, `tests/.mcp-svg-generate-LWMnUs/` | untracked leftovers | Test debris from MCP tool trials this session. Safe to delete; do not commit. |
+| Path                                                     | State                              | What it does                                                                                                                                                                                                                                                                                                                                                                                                        |
+| -------------------------------------------------------- | ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `packages/core/src/agent-html-author.ts`                 | new, **to be replaced**            | `AgentHtmlAuthor` calls an external OpenAI-compatible chat-completions endpoint (`SMART_UI_AGENT_URL/MODEL/API_KEY` env). The user explicitly does **not** want this path. Salvage the prompt-assembly logic (`userPrompt`, text-node extraction, truncation) into the new request payload; delete the fetch/endpoint parts.                                                                                        |
+| `packages/core/src/generation-orchestrator.ts`           | modified, **keep**                 | Adds `proposalPolicy: 'non-regression' \| 'prefer-proposal'` to `GenerationOrchestratorDependencies`. `prefer-proposal` keeps any valid, non-repeated proposal while still recording honest comparison evidence. Studio agent runs use this.                                                                                                                                                                        |
+| `packages/core/src/index.ts`                             | modified                           | Exports `agent-html-author.js`. Update to export whatever replaces it.                                                                                                                                                                                                                                                                                                                                              |
+| `apps/studio/src/server.ts`                              | modified, **partially keep**       | Session response now reports `agent: { configured, model }`; `parsePreferences` accepts `engine: 'agent' \| 'deterministic'`; `generate()` branches on engine, inspects first, wraps agent files in `HostProposedHtmlGenerationProvider('studio-agent:<model>', files)` with deterministic `fallbackGenerator` and `prefer-proposal`. Keep the shape; replace the `AgentHtmlAuthor` call with the MCP bridge below. |
+| `apps/studio/src/client.tsx`                             | modified, **keep with copy edits** | Engine radio group (AI agent default, deterministic secondary), agent-aware context textbox label/placeholder, `engine` in the generate POST, agent provenance in review. Update copy that mentions `SMART_UI_AGENT_URL` env config — agent availability now depends on the MCP bridge, not env vars.                                                                                                               |
+| `apps/studio/src/studio.css`                             | modified, keep                     | Styles for the engine choice grid.                                                                                                                                                                                                                                                                                                                                                                                  |
+| `.vscode/mcp.json`                                       | new, keep                          | Workspace MCP config: stdio server `smart-ui` → `apps/mcp-server/dist/index.js`, `SMART_UI_MCP_ROOT=${workspaceFolder}`.                                                                                                                                                                                                                                                                                            |
+| `.smart-ui-mcp-runs/`, `tests/.mcp-svg-generate-LWMnUs/` | untracked leftovers                | Test debris from MCP tool trials this session. Safe to delete; do not commit.                                                                                                                                                                                                                                                                                                                                       |
 
 The build was green after these edits (`pnpm build` passed; `pnpm test` not yet run against them).
 
@@ -83,19 +83,19 @@ answer authoring requests.
 
 ### New MCP tools (in `apps/mcp-server/src/server.ts`, follow existing tool patterns)
 
-| Tool | Contract |
-| --- | --- |
+| Tool                             | Contract                                                                                                                                                                                                                                  |
+| -------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `list_studio_authoring_requests` | Read-only (`readOnlyHint: true`). Input: optional `studioWorkspace` absolute path (must resolve inside `SMART_UI_MCP_ROOT`). Returns compact pending requests; large SVG evidence paged the same way `generation-context` resources page. |
-| `submit_studio_authored_html` | Requires `approved: true` plus exact `runId`. Validates the response payload against the queue contract, writes the response file, returns the acceptance status. `openWorldHint: false`, not destructive. |
+| `submit_studio_authored_html`    | Requires `approved: true` plus exact `runId`. Validates the response payload against the queue contract, writes the response file, returns the acceptance status. `openWorldHint: false`, not destructive.                                |
 
 Register both in the stdio smoke script expectations (`scripts/check-mcp-stdio.mjs` asserts tool
 counts — update `23`/`5` accordingly) and in `docs/mcp.md`.
 
 ### Containment decision (must decide before coding)
 
-`SMART_UI_MCP_ROOT` is the repo checkout; the current Studio workspace
-(`C:\Users\AyushJoshi\smart-ui-studio-workspace`) is outside it, so the MCP server cannot legally
-touch the queue. Pick one:
+`SMART_UI_MCP_ROOT` is the repo checkout; a Studio workspace outside that root (for example a
+`smart-ui-studio-workspace` directory in the user's home) cannot legally be touched by the MCP
+server. Pick one:
 
 - **Recommended:** run Studio with a workspace inside the repo, e.g.
   `--workspace <repo>\.studio-workspace`, and add `.studio-workspace/` to `.gitignore`. No policy
@@ -136,7 +136,8 @@ pnpm test:e2e             # real Chromium
 
 Add tests: queue write/read/expiry/malformed-payload (fail closed), MCP tool contract tests via the
 in-memory transport pattern in `tests/mcp-server.test.ts`, Studio server `awaiting-agent` lifecycle
-+ cancel + timeout in `tests/studio-server.test.ts`.
+
+- cancel + timeout in `tests/studio-server.test.ts`.
 
 ## Runbook for the live test afterwards
 

@@ -41,6 +41,7 @@ describe('Studio real-browser workflow', () => {
         .setInputFiles(resolve('fixtures/svg-generation/basic.svg'));
       await page.locator('#preferences-title').waitFor();
       expect(await page.locator('.summary-strip').textContent()).toContain('Accepted');
+      await page.locator('input[name="engine"][value="deterministic"]').check();
       await page.locator('input[name="mode"][value="exact"]').check();
       await page.getByRole('button', { name: 'Generate offline bundle' }).click();
       await page.locator('#generate-title').waitFor();
@@ -58,6 +59,7 @@ describe('Studio real-browser workflow', () => {
         .locator('input[type="file"]')
         .setInputFiles(resolve('fixtures/svg-generation/basic.svg'));
       await page.locator('#preferences-title').waitFor();
+      await page.locator('input[name="engine"][value="deterministic"]').check();
       await page.getByRole('button', { name: 'Generate offline bundle' }).click();
       await page.getByRole('button', { name: 'Cancel generation' }).click();
       await page.getByRole('heading', { name: 'Generation canceled' }).waitFor({ timeout: 15_000 });

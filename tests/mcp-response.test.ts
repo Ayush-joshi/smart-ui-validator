@@ -102,7 +102,7 @@ describe('compact MCP run response', () => {
       total: 6,
       hasMore: true,
       tool: 'get_findings',
-      arguments: { path: expect.stringContaining('objects/run.json') },
+      arguments: { path: expect.stringMatching(/objects[\\/]run\.json$/u) },
     });
   });
 });

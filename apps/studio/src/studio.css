@@ -268,6 +268,38 @@ h3 {
   font-size: 13px;
   user-select: all;
 }
+.feedback-echo {
+  margin-top: 10px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.toggle {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 4px 0 18px;
+}
+.toggle input {
+  margin-top: 3px;
+}
+.toggle small {
+  display: block;
+  color: var(--muted);
+}
+.decision {
+  border-color: var(--accent-2);
+}
+.decision .actions {
+  margin-top: 6px;
+}
+.rounds .finding.current {
+  border-left: 3px solid var(--accent);
+  padding-left: 10px;
+}
+.rounds .finding button {
+  align-self: flex-start;
+  margin-top: 4px;
+}
 details {
   margin: 15px 0 30px;
 }

@@ -5,10 +5,24 @@ type Phase =
   | 'inspected'
   | 'generating'
   | 'awaiting-agent'
+  | 'awaiting-agent-revision'
+  | 'awaiting-decision'
   | 'completed'
   | 'failed'
   | 'canceled'
   | 'interrupted';
+
+interface RunRoundSummary {
+  round: number;
+  createdAt: string;
+  engine: Engine;
+  authoringAgent: string | null;
+  feedback: string | null;
+  responseHash: string | null;
+  visualSimilarity: number | null;
+  visualMismatchPercent: number | null;
+  accepted: boolean;
+}
 
 interface RunSummary {
   runId: string;
@@ -17,6 +31,15 @@ interface RunSummary {
   updatedAt: string;
   phase: Phase;
   progress: { stage: string; value: number; message: string };
+  rounds: RunRoundSummary[];
+  selectedRound: number | null;
+  acceptedRound: number | null;
+  decision: null | {
+    canImprove: boolean;
+    remainingImproveRounds: number;
+    maxImproveRounds: number;
+  };
+  pendingAuthoring: null | { round: number; feedback: string | null };
   inspection?: {
     filename: string;
     width: number;
@@ -74,7 +97,7 @@ interface SessionResponse {
   csrfToken: string;
   runs: RunSummary[];
   limits: { maxUploadBytes: number };
-  agent: { configured: boolean; transport: 'mcp'; workspace: string };
+  agent: { configured: boolean; transport: 'mcp'; workspace: string; maxImproveRounds: number };
 }
 
 interface SourceFile {
@@ -92,6 +115,8 @@ export function StudioApp(): ReactNode {
   const [mode, setMode] = useState<Mode>('hybrid');
   const [layout, setLayout] = useState<Layout>('responsive');
   const [instructions, setInstructions] = useState('');
+  const [improve, setImprove] = useState(true);
+  const [feedback, setFeedback] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<{ message: string; recovery?: string }>();
   const [source, setSource] = useState<SourceFile>();
@@ -144,9 +169,7 @@ export function StudioApp(): ReactNode {
       });
       setRuns((current) => [...current, run]);
       setActiveId(run.runId);
-      setMode(
-        engine === 'agent' ? 'semantic' : (run.inspection?.recommendedModes[0] ?? 'hybrid'),
-      );
+      setMode(engine === 'agent' ? 'semantic' : (run.inspection?.recommendedModes[0] ?? 'hybrid'));
       setStep('preferences');
     } catch (value) {
       showFailure(setError)(value);
@@ -167,11 +190,39 @@ export function StudioApp(): ReactNode {
           engine,
           mode,
           layout,
+          improve,
           ...(instructions.trim() ? { instructions } : {}),
         }),
       });
       setRuns((current) => replaceRun(current, run));
       setStep('generate');
+    } catch (value) {
+      showFailure(setError)(value);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function decide(action: 'accept' | 'improve', round?: number): Promise<void> {
+    if (!session || !active) return;
+    setBusy(true);
+    setError(undefined);
+    try {
+      const run = await api<RunSummary>(`/api/runs/${active.runId}/decision`, session.csrfToken, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action,
+          ...(action === 'accept' && round !== undefined ? { round } : {}),
+          ...(action === 'improve' && feedback.trim() ? { feedback } : {}),
+        }),
+      });
+      setRuns((current) => replaceRun(current, run));
+      setSource(undefined);
+      if (action === 'improve') {
+        setFeedback('');
+        setStep('generate');
+      }
     } catch (value) {
       showFailure(setError)(value);
     } finally {
@@ -213,6 +264,8 @@ export function StudioApp(): ReactNode {
     setMode('hybrid');
     setLayout('responsive');
     setInstructions('');
+    setImprove(true);
+    setFeedback('');
     setSource(undefined);
     setError(undefined);
     if (inputRef.current) inputRef.current.value = '';
@@ -372,8 +425,8 @@ export function StudioApp(): ReactNode {
                   />
                   <strong>AI agent (default)</strong>
                   <span>
-                    The MCP-connected chat agent authors real HTML and CSS from the design
-                    evidence; deterministic checks then render, measure, and verify it.
+                    The MCP-connected chat agent authors real HTML and CSS from the design evidence;
+                    deterministic checks then render, measure, and verify it.
                   </span>
                 </label>
                 <label className={engine === 'deterministic' ? 'choice selected' : 'choice'}>
@@ -444,6 +497,22 @@ export function StudioApp(): ReactNode {
               />
               <small>{instructions.length} / 4,000</small>
             </label>
+            {engine === 'agent' && (
+              <label className="toggle">
+                <input
+                  type="checkbox"
+                  checked={improve}
+                  onChange={(event) => setImprove(event.target.checked)}
+                />
+                <span>
+                  Confirm each result before finishing{' '}
+                  <small>
+                    review the deterministic evidence, then accept it or ask the agent for up to{' '}
+                    {session?.agent.maxImproveRounds ?? 5} improvement rounds
+                  </small>
+                </span>
+              </label>
+            )}
             <div className="actions">
               <button className="primary" disabled={busy} onClick={() => void generate()}>
                 {engine === 'agent' ? 'Generate with AI agent' : 'Generate offline bundle'}
@@ -471,15 +540,24 @@ export function StudioApp(): ReactNode {
               <br />
               {active.progress.message}
             </p>
-            {active.phase === 'awaiting-agent' && (
+            {(active.phase === 'awaiting-agent' || active.phase === 'awaiting-agent-revision') && (
               <div className="agent-waiting">
                 <p>
                   Paste this into the chat connected to the <code>smart-ui</code> MCP server, then
-                  keep this tab open while the agent authors the design:
+                  keep this tab open while the agent authors
+                  {active.pendingAuthoring && active.pendingAuthoring.round > 1
+                    ? ` improvement round ${active.pendingAuthoring.round}`
+                    : ' the design'}
+                  :
                 </p>
                 <code>
-                  {`Use the smart-ui MCP server. Call list_studio_authoring_requests with studioWorkspace "${session?.agent.workspace ?? ''}", author complete offline index.html and styles.css for run ${active.runId} (no scripts, no external URLs), then call submit_studio_authored_html with approved: true and that exact runId.`}
+                  {`Use the smart-ui MCP server. Call list_studio_authoring_requests with studioWorkspace "${session?.agent.workspace ?? ''}", author complete offline index.html and styles.css for run ${active.runId} round ${active.pendingAuthoring?.round ?? 1} (no scripts, no external URLs), then call submit_studio_authored_html with approved: true and that exact runId and round.`}
                 </code>
+                {active.pendingAuthoring?.feedback && (
+                  <p className="feedback-echo">
+                    Feedback sent with this round: {active.pendingAuthoring.feedback}
+                  </p>
+                )}
               </div>
             )}
             <ol className="stage-list">
@@ -507,7 +585,16 @@ export function StudioApp(): ReactNode {
         )}
 
         {step === 'review' && active && (
-          <Review run={active} source={source} onSource={openSource} onDelete={removeRun} />
+          <Review
+            run={active}
+            source={source}
+            feedback={feedback}
+            busy={busy}
+            onFeedback={setFeedback}
+            onDecide={decide}
+            onSource={openSource}
+            onDelete={removeRun}
+          />
         )}
       </main>
       <footer>
@@ -520,11 +607,19 @@ export function StudioApp(): ReactNode {
 export function Review({
   run,
   source,
+  feedback,
+  busy,
+  onFeedback,
+  onDecide,
   onSource,
   onDelete,
 }: {
   run: RunSummary;
   source: SourceFile | undefined;
+  feedback: string;
+  busy: boolean;
+  onFeedback(value: string): void;
+  onDecide(action: 'accept' | 'improve', round?: number): Promise<void>;
   onSource(index: number): Promise<void>;
   onDelete(): Promise<void>;
 }): ReactNode {
@@ -551,7 +646,13 @@ export function Review({
               ? ` → ${result.finalMode}`
               : ''}
           </p>
-          <p className={result.engine === 'agent' && result.agent?.accepted ? 'engine-note good' : 'engine-note'}>
+          <p
+            className={
+              result.engine === 'agent' && result.agent?.accepted
+                ? 'engine-note good'
+                : 'engine-note'
+            }
+          >
             {result.engine === 'agent'
               ? result.agent?.accepted
                 ? `Authored by the AI agent (${result.agent.host}) and verified against the design.`
@@ -592,6 +693,76 @@ export function Review({
         <Metric label="Uncertainties" value={String(result.uncertaintyCount)} />
         <Metric label="Final mode" value={result.finalMode ?? result.requestedMode} />
       </div>
+      {run.rounds.length > 1 && (
+        <div className="panel inset rounds">
+          <h3>Authoring rounds</h3>
+          {run.rounds.map((item) => (
+            <div
+              className={item.round === run.selectedRound ? 'finding current' : 'finding'}
+              key={item.round}
+            >
+              <strong>
+                Round {item.round}
+                {item.accepted ? ' · accepted' : item.round === run.selectedRound ? ' · shown' : ''}
+              </strong>
+              <span>
+                {item.visualSimilarity === null
+                  ? 'Not scored'
+                  : `${item.visualSimilarity.toFixed(3)}% similarity`}
+              </span>
+              <small>
+                {item.authoringAgent ?? 'deterministic engine'}
+                {item.feedback ? ` · asked for: ${item.feedback}` : ''}
+              </small>
+              {run.decision && item.round !== run.selectedRound && (
+                <button disabled={busy} onClick={() => void onDecide('accept', item.round)}>
+                  Accept round {item.round}
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+      {run.decision && (
+        <div className="panel inset decision">
+          <h3>Accept this result, or ask for an improvement</h3>
+          {run.error && <p className="engine-note">{run.error.message}</p>}
+          <p>
+            Round {run.selectedRound} is measured above. Accepting keeps it as the run result;
+            improving sends your feedback and these deterministic deltas to the connected agent for
+            one more authored round.
+          </p>
+          <label className="note">
+            <span>
+              What should the agent improve? <small>optional, maximum 4,000 characters</small>
+            </span>
+            <textarea
+              maxLength={4000}
+              value={feedback}
+              disabled={busy || !run.decision.canImprove}
+              onChange={(event) => onFeedback(event.target.value)}
+              placeholder="Name the concrete differences to fix: spacing, colors, type scale, missing content, alignment."
+            />
+            <small>{feedback.length} / 4,000</small>
+          </label>
+          <div className="actions">
+            <button className="primary" disabled={busy} onClick={() => void onDecide('accept')}>
+              Accept round {run.selectedRound}
+            </button>
+            <button
+              disabled={busy || !run.decision.canImprove}
+              onClick={() => void onDecide('improve')}
+            >
+              Ask the agent to improve
+            </button>
+          </div>
+          <small>
+            {run.decision.canImprove
+              ? `${run.decision.remainingImproveRounds} improvement round(s) remain.`
+              : 'The improvement round bound was reached; accept the round you prefer.'}
+          </small>
+        </div>
+      )}
       {result.previewUrl && (
         <div className="preview-card">
           <div className="card-title">
@@ -780,14 +951,12 @@ function replaceRun(runs: RunSummary[], run: RunSummary): RunSummary[] {
   return runs.map((item) => (item.runId === run.runId ? run : item));
 }
 function stepFor(run: RunSummary): Step {
-  return run.phase === 'inspected'
-    ? 'preferences'
-    : isRunning(run.phase)
-      ? 'generate'
-      : 'review';
+  return run.phase === 'inspected' ? 'preferences' : isRunning(run.phase) ? 'generate' : 'review';
 }
 function isRunning(phase: Phase | undefined): boolean {
-  return phase === 'generating' || phase === 'awaiting-agent';
+  return (
+    phase === 'generating' || phase === 'awaiting-agent' || phase === 'awaiting-agent-revision'
+  );
 }
 function canVisit(step: Step, run: RunSummary | undefined): boolean {
   return (

@@ -2,6 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdtemp, readdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { pnpm } from './pnpm-command.mjs';
 
 const packages = [
   ['smart-ui-validator-core', 'packages/core'],
@@ -18,7 +19,7 @@ const forbidden = [
 ];
 for (const [name, directory] of packages) {
   const destination = await mkdtemp(join(tmpdir(), 'smart-ui-pack-'));
-  execFileSync('pnpm', ['pack', '--pack-destination', destination], {
+  pnpm(['pack', '--pack-destination', destination], {
     cwd: resolve(directory),
     encoding: 'utf8',
   });
@@ -27,7 +28,8 @@ for (const [name, directory] of packages) {
   const files = execFileSync('tar', ['-tzf', join(destination, tarball)], {
     encoding: 'utf8',
   })
-    .split('\n')
+    .split(/\r?\n/u)
+    .map((file) => file.trim())
     .filter(Boolean);
   const rejected = files.filter((file) => forbidden.some((pattern) => pattern.test(file)));
   if (rejected.length > 0)

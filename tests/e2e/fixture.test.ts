@@ -22,8 +22,15 @@ let server: ReturnType<typeof spawn>;
 
 beforeAll(async () => {
   server = spawn(
-    'pnpm',
-    ['exec', 'vite', '--host', '127.0.0.1', '--port', '4173', '--strictPort'],
+    process.execPath,
+    [
+      join(fixtureRoot, 'node_modules/vite/bin/vite.js'),
+      '--host',
+      '127.0.0.1',
+      '--port',
+      '4173',
+      '--strictPort',
+    ],
     { cwd: fixtureRoot, stdio: 'ignore', shell: false },
   );
   for (let attempt = 0; attempt < 80; attempt++) {

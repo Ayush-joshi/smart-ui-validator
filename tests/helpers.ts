@@ -1,9 +1,27 @@
+import { mkdtemp, rm, symlink } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type {
   BrowserElementEvidence,
   BrowserEvidence,
   DesignContract,
   DesignElement,
 } from '../packages/core/src/index.js';
+
+/** Unprivileged Windows sessions cannot create symbolic links, so link containment is unprovable there. */
+export const symlinksSupported = await detectSymlinkSupport();
+
+async function detectSymlinkSupport(): Promise<boolean> {
+  const root = await mkdtemp(join(tmpdir(), 'smart-ui-symlink-probe-'));
+  try {
+    await symlink(root, join(root, 'probe'));
+    return true;
+  } catch {
+    return false;
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+}
 
 export const PNG_BYTES = Uint8Array.from(
   Buffer.from(

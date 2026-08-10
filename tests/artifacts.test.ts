@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { LocalArtifactStore } from '../packages/core/src/index.js';
+import { symlinksSupported } from './helpers.js';
 
 describe('LocalArtifactStore', () => {
   it('deduplicates unchanged content by hash', async () => {
@@ -24,15 +25,18 @@ describe('LocalArtifactStore', () => {
     );
   });
 
-  it('rejects reads through links that leave the artifact root', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'smart-ui-artifacts-'));
-    const outside = join(await mkdtemp(join(tmpdir(), 'smart-ui-outside-')), 'secret.txt');
-    await writeFile(outside, 'secret');
-    await symlink(outside, join(root, 'linked-secret'));
-    await expect(new LocalArtifactStore(root).read('linked-secret')).rejects.toThrow(
-      /cannot be a symbolic link/,
-    );
-  });
+  it.skipIf(!symlinksSupported)(
+    'rejects reads through links that leave the artifact root',
+    async () => {
+      const root = await mkdtemp(join(tmpdir(), 'smart-ui-artifacts-'));
+      const outside = join(await mkdtemp(join(tmpdir(), 'smart-ui-outside-')), 'secret.txt');
+      await writeFile(outside, 'secret');
+      await symlink(outside, join(root, 'linked-secret'));
+      await expect(new LocalArtifactStore(root).read('linked-secret')).rejects.toThrow(
+        /cannot be a symbolic link/,
+      );
+    },
+  );
 
   it('rejects a pre-existing object whose bytes do not match its address', async () => {
     const root = await mkdtemp(join(tmpdir(), 'smart-ui-artifacts-'));

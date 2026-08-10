@@ -395,13 +395,14 @@ describe('stable host-neutral MCP contract', () => {
     temporaryPaths.push(studioWorkspace);
     const runId = 'run-11111111-1111-4111-8111-111111111111';
     const now = Date.now();
-    const requestsDir = join(studioWorkspace, 'agent-queue', 'requests');
+    const requestsDir = join(studioWorkspace, 'agent-queue', 'requests', runId);
     await mkdir(requestsDir, { recursive: true });
     await writeFile(
-      join(requestsDir, `${runId}.json`),
+      join(requestsDir, 'round-1.json'),
       JSON.stringify({
         schemaVersion: '1.0',
         runId,
+        round: 1,
         designName: 'design',
         viewport: { width: 320, height: 180 },
         mode: 'semantic',
@@ -426,10 +427,18 @@ describe('stable host-neutral MCP contract', () => {
     expect(listed.isError, JSON.stringify(listed.content)).toBeFalsy();
     expect(listed.structuredContent).toMatchObject({
       count: 1,
-      requests: [{ runId, readableText: ['Semantic title'], instructions: 'Keep the heading copy.' }],
+      requests: [
+        {
+          runId,
+          round: 1,
+          readableText: ['Semantic title'],
+          instructions: 'Keep the heading copy.',
+        },
+      ],
     });
-    const listedRequest = (listed.structuredContent as { requests: Array<{ canvasGuidance: string }> })
-      .requests[0];
+    const listedRequest = (
+      listed.structuredContent as { requests: Array<{ canvasGuidance: string }> }
+    ).requests[0];
     expect(listedRequest?.canvasGuidance).toContain('320x180');
 
     const unapproved = await client.callTool({
@@ -464,11 +473,19 @@ describe('stable host-neutral MCP contract', () => {
       },
     });
     expect(submitted.isError, JSON.stringify(submitted.content)).toBeFalsy();
-    expect(submitted.structuredContent).toMatchObject({ runId, accepted: true, fileCount: 2 });
+    expect(submitted.structuredContent).toMatchObject({
+      runId,
+      round: 1,
+      accepted: true,
+      fileCount: 2,
+    });
     const written = JSON.parse(
-      await readFile(join(studioWorkspace, 'agent-queue', 'responses', `${runId}.json`), 'utf8'),
+      await readFile(
+        join(studioWorkspace, 'agent-queue', 'responses', runId, 'round-1.json'),
+        'utf8',
+      ),
     );
-    expect(written).toMatchObject({ runId, authoringAgent: 'contract-test-agent' });
+    expect(written).toMatchObject({ runId, round: 1, authoringAgent: 'contract-test-agent' });
 
     const missing = await client.callTool({
       name: 'submit_studio_authored_html',
@@ -486,4 +503,3 @@ describe('stable host-neutral MCP contract', () => {
     expect(missing.isError).toBe(true);
   });
 });
-
