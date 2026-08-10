@@ -4,10 +4,12 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   HeuristicRepairProvider,
+  HostProposedRepairProvider,
   HtmlReporter,
   LocalArtifactStore,
   LocalPolicy,
   MockCodingProvider,
+  PlaywrightBrowserProvider,
   SmartUiOrchestrator,
   type BrowserEvidence,
   type BrowserProvider,
@@ -44,6 +46,37 @@ describe('bounded repair coordinator', () => {
     expect(await readFile(css, 'utf8')).toContain('#3d63dd');
     expect(Object.isFrozen(result.record.passes[0])).toBe(true);
     expect(Object.isFrozen(result.record.passes[0]?.findings)).toBe(true);
+    expect(result.record.passes.every((pass) => typeof pass.diffPercent === 'number')).toBe(true);
+  });
+
+  it('retains a patch that improves raster mismatch before the binary raster check passes', async () => {
+    const [target, before, after] = await Promise.all([
+      screenshot('<style>html,body{margin:0;width:10px;height:10px;background:white}</style>'),
+      screenshot('<style>html,body{margin:0;width:10px;height:10px;background:black}</style>'),
+      screenshot(
+        '<style>html,body{margin:0;width:10px;height:10px;background:linear-gradient(to right,white 0 50%,black 50%)}</style>',
+      ),
+    ]);
+    const harness = await createHarness({}, target);
+    const result = await harness.run({
+      browser: scriptedBrowser([
+        evidence([], { screenshot: before }),
+        evidence([], { screenshot: after }),
+      ]),
+      repair: new HostProposedRepairProvider([
+        { relativePath: 'src/value.txt', content: 'improved', rationale: 'reduce raster mismatch' },
+      ]),
+      writableFiles: ['src/value.txt'],
+      design: [],
+    });
+
+    expect(result.record.passes[0]?.score).toBeLessThan(100);
+    expect(result.record.passes.at(-1)?.score).toBe(result.record.passes[0]?.score);
+    expect(result.record.passes[0]?.diffPercent).toBeGreaterThan(
+      result.record.passes.at(-1)?.diffPercent ?? 100,
+    );
+    expect(result.record.changedFiles).toEqual(['src/value.txt']);
+    expect(await readFile(join(harness.targetRoot, 'src/value.txt'), 'utf8')).toBe('improved');
   });
 
   it('stops and reverts repeated identical findings', async () => {
@@ -187,14 +220,17 @@ describe('bounded repair coordinator', () => {
   });
 });
 
-async function createHarness(config: Record<string, unknown> = {}) {
+async function createHarness(
+  config: Record<string, unknown> = {},
+  referenceBytes: Uint8Array = PNG_BYTES,
+) {
   const targetRoot = await mkdtemp(join(tmpdir(), 'smart-ui-target-'));
   const artifactRoot = await mkdtemp(join(tmpdir(), 'smart-ui-artifacts-'));
   if (Object.keys(config).length > 0) {
     await writeFile(join(targetRoot, 'smart-ui.config.json'), JSON.stringify(config));
   }
   const store = new LocalArtifactStore(artifactRoot);
-  const reference = await store.put(PNG_BYTES, 'image/png', 'target.png');
+  const reference = await store.put(referenceBytes, 'image/png', 'target.png');
   return {
     targetRoot,
     async run(options: {
@@ -244,6 +280,26 @@ async function createHarness(config: Record<string, unknown> = {}) {
       });
     },
   };
+}
+
+async function screenshot(content: string): Promise<Uint8Array> {
+  const captured = await new PlaywrightBrowserProvider().capture({
+    url: `data:text/html,${encodeURIComponent(content)}`,
+    viewport: { width: 10, height: 10, deviceScaleFactor: 1 },
+    timeoutMs: 10_000,
+    locale: 'en-US',
+    theme: 'light',
+    allowedEndpoints: [],
+    blockExternalNetwork: true,
+    evidenceLimits: {
+      maxElements: 10,
+      maxTextLength: 100,
+      maxConsoleMessages: 10,
+      maxFailedRequests: 10,
+      maxArtifactBytes: 1_000_000,
+    },
+  });
+  return captured.screenshot;
 }
 
 function mismatching(): BrowserEvidence {

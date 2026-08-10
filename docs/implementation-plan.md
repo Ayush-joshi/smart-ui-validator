@@ -4,6 +4,12 @@
 
 Status: Four-phase roadmap completed and verified on 2026-08-06
 
+Agent-boundary follow-up verified on 2026-08-10: compact MCP responses retain targeted
+expected/actual/delta evidence, `get_findings` provides filtered pagination, host-proposed approved
+file batches use bounded revalidation and rollback, and convergence considers deterministic raster
+improvement without accepting a structural-score regression. The bundled heuristic remains an
+explicit narrow fallback rather than a production model adapter.
+
 Target project: this `smart-ui-validator` repository
 
 Related project: the hardened, separately maintained `agent-memory` fork used by Phase 3

@@ -110,6 +110,120 @@ describe('stable host-neutral MCP contract', () => {
       ).structuredContent,
     ).toMatchObject({ ready: true, normalized: false });
 
+    const contract = JSON.parse(await readFile(workflowContractPath, 'utf8')) as {
+      reference: Record<string, unknown>;
+    };
+    const runPath = join(workflowRoot, '.smart-ui', 'paged-findings.run.json');
+    await writeFile(
+      runPath,
+      JSON.stringify({
+        schemaVersion: '1.0',
+        id: 'paged-findings',
+        status: 'succeeded',
+        startedAt: '2026-08-10T00:00:00.000Z',
+        completedAt: '2026-08-10T00:00:01.000Z',
+        targetRoot: workflowRoot,
+        designContract: workflowContractPath,
+        inputs: { url: 'http://127.0.0.1:4200', designId: 'design' },
+        decisions: [],
+        targetArtifact: contract.reference,
+        artifacts: [contract.reference],
+        changedFiles: [],
+        timingsMs: { total: 1 },
+        warnings: [],
+        failures: [],
+        provenance: { tool: 'smart-ui', version: '0.4.2' },
+        score: 50,
+        stoppedReason: 'validation-only',
+        passes: [
+          {
+            passIndex: 0,
+            findings: [
+              {
+                id: 'width',
+                category: 'geometry',
+                severity: 'error',
+                confidence: 1,
+                targetDomLocator: '[data-validation-id="card"]',
+                expected: 320,
+                actual: 300,
+                delta: 20,
+                message: 'width mismatch',
+                suggestedRepairCategory: 'size',
+                evidenceArtifacts: [contract.reference],
+              },
+              {
+                id: 'padding',
+                category: 'geometry',
+                severity: 'warning',
+                confidence: 0.9,
+                targetDomLocator: '[data-validation-id="card"]',
+                expected: 24,
+                actual: 16,
+                delta: 8,
+                message: 'padding mismatch',
+                suggestedRepairCategory: 'padding',
+                evidenceArtifacts: [contract.reference],
+              },
+            ],
+            score: 50,
+            diffPercent: 12.5,
+            changedFiles: [],
+            reverted: false,
+            timingsMs: { capture: 1 },
+            failures: [],
+          },
+        ],
+      }),
+    );
+    const findingsPage = await client.callTool({
+      name: 'get_findings',
+      arguments: { path: runPath, category: 'geometry', cursor: 1, limit: 1 },
+    });
+    expect(findingsPage.isError, JSON.stringify(findingsPage.content)).toBeFalsy();
+    expect(findingsPage.structuredContent).toMatchObject({
+      runId: 'paged-findings',
+      passIndex: 0,
+      visualMismatchPercent: 12.5,
+      total: 2,
+      cursor: 1,
+      nextCursor: null,
+      findings: [
+        {
+          id: 'padding',
+          targetDomLocator: '[data-validation-id="card"]',
+          expected: 24,
+          actual: 16,
+          delta: 8,
+        },
+      ],
+    });
+
+    const unapprovedRepair = await client.callTool({
+      name: 'repair_component',
+      arguments: {
+        targetRoot: workflowRoot,
+        designContractPath: workflowContractPath,
+        artifactRoot: workflowArtifactRoot,
+        url: 'http://127.0.0.1:4200',
+        approved: true,
+        allowWrite: ['src/approved.css'],
+        proposedChanges: [
+          {
+            relativePath: 'src/not-approved.css',
+            content: '.card {}',
+            rationale: 'test exact approval',
+          },
+        ],
+      },
+    });
+    expect(unapprovedRepair.isError).toBe(true);
+    expect(unapprovedRepair.content).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ text: expect.stringContaining('explicitly approved') }),
+      ]),
+    );
+
     const denied = await client.callTool({
       name: 'inspect_project',
       arguments: { targetRoot: resolve('/') },

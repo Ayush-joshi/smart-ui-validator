@@ -45,6 +45,7 @@ describe('offline HTML report', () => {
             },
           ],
           score: 90,
+          diffPercent: 12.5,
           changedFiles: [],
           reverted: false,
           screenshot: image,
@@ -65,5 +66,6 @@ describe('offline HTML report', () => {
     );
     expect(html).not.toMatch(/https?:\/\//);
     expect(html).toContain('Actual: <code>undefined</code>');
+    expect(html).toContain('visual mismatch 12.5%');
   });
 });

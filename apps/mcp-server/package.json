@@ -1,6 +1,6 @@
 {
   "name": "smart-ui-validator-mcp",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "license": "MIT",
   "description": "Approval-gated stdio MCP server for Smart UI inspection, deterministic validation, bounded repair, reports, and governed memory.",
   "keywords": [

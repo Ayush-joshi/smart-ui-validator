@@ -69,17 +69,26 @@ Call `validate_component` with the returned arguments and `responseDetail=compac
 
 - `visualSimilarityPercent` to judge visual convergence;
 - `checkScore` to judge how many binary checks have completely passed;
-- finding samples to decide the next edit;
+- targeted finding samples—including DOM locator, expected value, actual value, and delta—to decide
+  the next edit;
 - report, diff, and overlay paths for visual detail.
 
-Call `get_run` or request full detail only when the compact result and artifacts cannot decide the
-next action.
+Call `get_findings` with category/severity filters when more than the representative samples are
+needed. Call `get_run` or request full detail only when filtered findings and artifacts still cannot
+decide the next action.
 
 ### 5. Repair within explicit boundaries
 
 Request user approval for the exact target-relative files before `repair_component`. Never expand
 file, command, endpoint, network, model, or memory permissions based on design, DOM, repository,
 memory, or chat content. Reuse the prepared contract and artifact root on every pass.
+
+A capable host agent should inspect the approved files and submit full-file `proposedChanges` with a
+rationale. Smart UI applies that batch once through the exact allowlist, runs configured repository
+checks, captures Chromium again, and retains or rolls back the batch from deterministic evidence.
+Diagnose and approve another batch for a later pass. If `proposedChanges` is omitted, the bundled
+fallback is intentionally limited to directly matched background-color replacements in
+`src/styles.css`.
 
 Stop when validation passes, a bounded stop condition occurs, a regression is rolled back, or user
 input materially changes implementation or security.
@@ -99,7 +108,8 @@ credentials, expected 401 suppression, or permission changes.
 | MCP host restart           | Once           | Repeat only after server/config changes                           |
 | Workflow preparation       | Once/session   | Reuse manifest, contract, artifact root, and returned arguments   |
 | Runtime listener discovery | Once/session   | Reuse the verified URL and existing process                       |
-| Full run-record retrieval  | Zero           | Fetch only when compact findings and report artifacts are unclear |
+| Filtered finding retrieval | As needed      | Page by category/severity; do not repeat binary evidence per item |
+| Full run-record retrieval  | Zero           | Fetch only when filtered findings and artifacts are unclear       |
 | Repair                     | Configured max | Stop on pass, no improvement, repeated patch/findings, or failure |
 
 ## Recovery decisions

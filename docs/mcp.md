@@ -18,8 +18,12 @@ Every filesystem input is contained within the server process working directory.
 outside that root fail closed. Do not set it to a home directory or another broad shared path.
 
 Long operations pass MCP cancellation signals into the bounded core. Completed calls return compact
-structured content, a deterministic terminal run record, and artifact references. `answer_question`
-and `continue_run` provide process-local answer handoff only; durable queues and automatic
+structured content, targeted representative findings, a deterministic terminal run record, and
+artifact references. `get_findings` pages complete structured findings without repeating binary
+evidence. `repair_component` accepts an explicitly approved `proposedChanges` batch from the host
+agent and runs it through exact-write policy, repository checks, Chromium revalidation, convergence
+analysis, and rollback. Omitting the batch selects the documented narrow background-color fallback.
+`answer_question` and `continue_run` provide process-local answer handoff only; durable queues and automatic
 cross-process run resumption remain host/deployment responsibilities and capability discovery says
 so explicitly.
 

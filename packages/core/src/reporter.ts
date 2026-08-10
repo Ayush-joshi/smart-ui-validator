@@ -21,6 +21,7 @@ export class HtmlReporter implements Reporter {
           <summary>
             <strong>Validation ${pass.passIndex}</strong>
             <span>score ${formatScore(pass.score)}</span>
+            ${pass.diffPercent === undefined ? '' : `<span>visual mismatch ${formatScore(pass.diffPercent)}</span>`}
             <span>${pass.findings.length} findings</span>
             ${pass.reverted ? '<span class="danger">reverted</span>' : ''}
           </summary>
@@ -72,6 +73,7 @@ export class HtmlReporter implements Reporter {
   <header><div><h1>Smart UI validation report</h1><div class="meta">Run <code>${escape(record.id)}</code></div></div><div class="status status-${escape(record.status)}">${escape(record.status)} · ${escape(record.stoppedReason)}</div></header>
   <div class="stats">
     <div class="stat"><strong>${record.score === undefined ? 'N/A' : formatScore(record.score)}</strong><span>final score</span></div>
+    <div class="stat"><strong>${finalPass?.diffPercent === undefined ? 'N/A' : formatScore(finalPass.diffPercent)}</strong><span>visual mismatch</span></div>
     <div class="stat"><strong>${record.passes.length}</strong><span>validation records</span></div>
     <div class="stat"><strong>${record.changedFiles.length}</strong><span>retained file changes</span></div>
     <div class="stat"><strong>${finalPass?.findings.length ?? 0}</strong><span>remaining findings</span></div>

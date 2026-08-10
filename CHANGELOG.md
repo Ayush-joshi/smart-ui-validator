@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.4.2 - 2026-08-10
+
+- Added targeted compact MCP findings with DOM locators, confidence, expected/actual values, deltas,
+  category-balanced prioritization, sensitive-value redaction, and filtered pagination through
+  `get_findings`.
+- Added an exact-approval host repair bridge so an MCP host agent can submit one bounded full-file
+  patch batch for repository checks, Chromium revalidation, deterministic retention, or rollback;
+  the existing background-color heuristic is now an explicit narrow fallback.
+- Persisted visual mismatch on every new pass and updated convergence to retain measurable raster
+  improvement before the binary threshold passes while rejecting check-score or visual regressions.
+- Added visual mismatch to offline reports and expanded MCP, repair, backward-compatibility,
+  redaction, pagination, approval, and real-Chromium verification coverage.
+
 ## 0.4.1 - 2026-08-09
 
 - Added public npm package metadata, package-level usage documentation, and an explicit publication

@@ -68,6 +68,7 @@ interface PatchTransaction {
   rationale: string[];
   snapshots: FileSnapshot[];
   previousScore: number;
+  previousDiffPercent: number | undefined;
   previousFindingSignature: string;
 }
 
@@ -177,7 +178,11 @@ export class SmartUiOrchestrator {
         finalScore = captured.comparison.score;
 
         if (pendingTransaction) {
-          const improvement = captured.comparison.score - pendingTransaction.previousScore;
+          const scoreImprovement = captured.comparison.score - pendingTransaction.previousScore;
+          const visualImprovement =
+            pendingTransaction.previousDiffPercent === undefined || !captured.diff
+              ? undefined
+              : pendingTransaction.previousDiffPercent - captured.comparison.diffPercent;
           const attemptedFindingSignature = signatureForFindings(captured.comparison.findings);
           if (attemptedFindingSignature === pendingTransaction.previousFindingSignature) {
             passes.push(
@@ -207,12 +212,26 @@ export class SmartUiOrchestrator {
             });
             break;
           }
-          if (improvement < config.validation.minimumScoreImprovement) {
+          const scoreRegressed = scoreImprovement < 0;
+          const visualRegressed =
+            visualImprovement !== undefined &&
+            visualImprovement < -config.validation.minimumScoreImprovement;
+          const measurablyImproved =
+            !scoreRegressed &&
+            !visualRegressed &&
+            (scoreImprovement >= config.validation.minimumScoreImprovement ||
+              (visualImprovement !== undefined &&
+                visualImprovement >= config.validation.minimumScoreImprovement));
+          if (!measurablyImproved) {
             passes.push(
               makePassRecord(passes.length, captured, pendingTransaction, true, [
                 {
                   code: 'NO_IMPROVEMENT',
-                  message: `Patch changed score by ${improvement.toFixed(3)}, below the required ${config.validation.minimumScoreImprovement}.`,
+                  message: repairImprovementMessage(
+                    scoreImprovement,
+                    visualImprovement,
+                    config.validation.minimumScoreImprovement,
+                  ),
                   recoverable: true,
                 },
               ]),
@@ -238,7 +257,7 @@ export class SmartUiOrchestrator {
           for (const file of pendingTransaction.files) committedChangedFiles.add(file);
           decisions.push({
             kind: 'repair',
-            message: `Repair ${pendingTransaction.hash} improved the score by ${improvement.toFixed(3)}.`,
+            message: `Repair ${pendingTransaction.hash} was retained: ${repairImprovementMessage(scoreImprovement, visualImprovement, config.validation.minimumScoreImprovement)}`,
           });
           pendingTransaction = null;
         }
@@ -310,7 +329,7 @@ export class SmartUiOrchestrator {
         const transactionBase = {
           hash: patchHash,
           files: proposedChanges.map((change) => change.relativePath),
-          rationale: proposedChanges.map((change) => change.rationale),
+          rationale: proposedChanges.map((change) => redactSensitiveText(change.rationale, 4_000)),
         };
         if (patchHashes.has(patchHash)) {
           passes.push(
@@ -321,6 +340,7 @@ export class SmartUiOrchestrator {
                 ...transactionBase,
                 snapshots: [],
                 previousScore: captured.comparison.score,
+                previousDiffPercent: captured.diff ? captured.comparison.diffPercent : undefined,
                 previousFindingSignature: findingSignature,
               },
               false,
@@ -345,6 +365,7 @@ export class SmartUiOrchestrator {
                 ...transactionBase,
                 snapshots: [],
                 previousScore: captured.comparison.score,
+                previousDiffPercent: captured.diff ? captured.comparison.diffPercent : undefined,
                 previousFindingSignature: findingSignature,
               },
               false,
@@ -366,6 +387,7 @@ export class SmartUiOrchestrator {
           ...transactionBase,
           snapshots,
           previousScore: captured.comparison.score,
+          previousDiffPercent: captured.diff ? captured.comparison.diffPercent : undefined,
           previousFindingSignature: findingSignature,
         };
         const commandFailures = await this.runPostPatchCommands(
@@ -424,7 +446,7 @@ export class SmartUiOrchestrator {
       timingsMs: timings,
       warnings: [...options.contract.ambiguities, ...options.contract.sourceEvidence.uncertainties],
       failures,
-      provenance: { tool: 'smart-ui', version: '0.4.1' },
+      provenance: { tool: 'smart-ui', version: '0.4.2' },
       passes,
       ...(finalScore === undefined ? {} : { score: finalScore }),
       stoppedReason,
@@ -599,6 +621,7 @@ function makePassRecord(
     passIndex,
     findings: captured.comparison.findings,
     score: captured.comparison.score,
+    diffPercent: captured.comparison.diffPercent,
     changedFiles: transaction?.files ?? [],
     reverted,
     ...(transaction
@@ -617,6 +640,18 @@ function makePassRecord(
     failures,
   });
   return deepFreeze(record);
+}
+
+function repairImprovementMessage(
+  scoreImprovement: number,
+  visualImprovement: number | undefined,
+  threshold: number,
+): string {
+  const visual =
+    visualImprovement === undefined
+      ? 'visual mismatch was unavailable'
+      : `visual mismatch improved by ${visualImprovement.toFixed(3)} points`;
+  return `check score changed by ${scoreImprovement.toFixed(3)} points and ${visual}; required measurable improvement is ${threshold}.`;
 }
 
 function deepFreeze<T>(value: T): T {

@@ -200,6 +200,8 @@ export const passRecordSchema = z
     passIndex: z.number().int().nonnegative(),
     findings: z.array(validationFindingSchema),
     score: z.number().min(0).max(100),
+    /** Optional for compatibility with run records written before visual mismatch was persisted. */
+    diffPercent: z.number().min(0).max(100).optional(),
     changedFiles: z.array(z.string()),
     reverted: z.boolean().default(false),
     proposal: patchProposalSchema.optional(),

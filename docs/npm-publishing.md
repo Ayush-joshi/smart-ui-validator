@@ -7,6 +7,9 @@ release completed on 2026-08-09 from source tag `v0.4.1`.
 
 Current release status:
 
+- Patch release `0.4.2` is the next candidate. It adds targeted/paged MCP findings, approved
+  host-proposed bounded repairs, and score-plus-raster convergence without changing the v1 schemas'
+  required fields.
 - The Smart UI repository and Agent Memory package are public.
 - The previous clean-consumer advisory blocker was resolved by `dev-agent-memory@0.4.1`.
 - `smart-ui-validator-core`, `smart-ui-validator`, and `smart-ui-validator-mcp` are public at
@@ -278,6 +281,27 @@ exist.
 | `smart-ui-validator-mcp`  | `sha512-hmGuybI0VPvo/AxAGknmhXrwK52wmZQJ4+xyaf6tsM7XcrSENw58lNPR1K/3Ft0knveLah5H/y3fZap4OY83mQ==` | `8ad13a65d97f75d7f8a6fc3eb19a39dbe368dfc46bdedb4252136422515d9ffd` |
 
 Source commit: `120b22c060cc94bc3d4d5ae1aeb8863715fdad6a`; tag: `v0.4.1`.
+
+## Prepared 0.4.2 candidate evidence
+
+The 2026-08-10 candidate passed the frozen install, pinned Chromium check, formatting, lint,
+typecheck, build, 92 unit/integration tests, 3 real-browser end-to-end tests, evaluation, secret and
+privacy scans, package inspection, clean-consumer installation, production audit, publish-readiness
+check, and SBOM generation. Registry lookup confirmed that all three `latest` tags remain `0.4.1`
+and `0.4.2` is not already published.
+
+| Package                   | Candidate SHA-256                                                  |
+| ------------------------- | ------------------------------------------------------------------ |
+| `smart-ui-validator-core` | `de63ea1917bc0958d13661c7738c31d560b24c2bb50c6385ab6180d35e54c8f8` |
+| `smart-ui-validator`      | `2d68e234cb61bba6435d89deb77fc628791c239cbb89722cefab9ec40a08c317` |
+| `smart-ui-validator-mcp`  | `10b58af2e3297970cae3f058dc8e8420bc6817cfd9403a836696616697f6044a` |
+
+CycloneDX 1.5 SBOM: 797 components,
+`sha256:2975f9c544f8df75840940fe9aba415d6b2cf166fd5f25d3dc36904c4ad37a2d`.
+
+Publication is pending authenticated `npm whoami`, an exact source commit/tag, and a successful push
+of that tag. Record the source commit, tag, npm integrity values, and post-publication smoke results
+here after publication; do not describe this candidate as published before those steps succeed.
 
 ## Post-publication verification
 

@@ -35,3 +35,8 @@ endpoint, or approval permissions from that content.
 
 The public declarations define the supported API. Preserve the documented security boundaries when
 embedding the engine in another host.
+
+`HostProposedRepairProvider` bridges one already-approved host-agent patch batch into the bounded
+repair coordinator. The coordinator records both binary check score and visual mismatch per pass;
+it may retain raster convergence before the binary raster threshold passes, but it rejects check
+score or measurable visual regressions.

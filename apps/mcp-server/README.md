@@ -16,7 +16,7 @@ An MCP host can start the published server with:
 
 ```text
 command: npx
-args: -y smart-ui-validator-mcp@0.4.1
+args: -y smart-ui-validator-mcp@0.4.2
 cwd: <absolute-target-project>
 ```
 
@@ -25,6 +25,13 @@ Production desktop builds do not use `npx`; they bundle the exact package and a 
 The server publishes capabilities, a workflow guide, run resources, the `implement-and-validate`
 prompt, and approval-annotated tools. Set `SMART_UI_MCP_ROOT` when the host cannot supply the exact
 target as `cwd`. Never set the root to a drive, home directory, or another broad shared path.
+
+Compact validation results retain representative DOM locators and expected/actual values.
+`get_findings` provides filtered pagination when more evidence is needed. For general repairs, the
+host agent supplies an explicitly approved full-file `proposedChanges` batch to `repair_component`;
+the server applies it once, runs configured checks, revalidates in Chromium, and rolls it back when
+it regresses. Calls without `proposedChanges` use the intentionally narrow background-color
+fallback.
 
 The package documentation covers host configuration, tool schemas, workflow setup, and security
 guidance without requiring personal repository metadata.

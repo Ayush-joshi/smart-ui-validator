@@ -70,7 +70,7 @@ Install the CLI in the React or Angular project that Smart UI will validate, the
 first-time setup command:
 
 ```bash
-npm install --save-dev smart-ui-validator@0.4.1
+npm install --save-dev smart-ui-validator@0.4.2
 npx smart-ui setup --target . --agent-memory
 npx smart-ui doctor --target .
 ```
@@ -120,7 +120,7 @@ Create a `.mcp.json` file in your target project (where you want Claude to work)
   "mcpServers": {
     "smart-ui": {
       "command": "npx",
-      "args": ["-y", "smart-ui-validator-mcp@0.4.1"],
+      "args": ["-y", "smart-ui-validator-mcp@0.4.2"],
       "cwd": "/absolute/path/to/your/project",
       "env": {
         "SMART_UI_MCP_ROOT": "/absolute/path/to/your/project"
@@ -193,9 +193,25 @@ Open your IDE or terminal, boot up your local dev server (e.g., `http://localhos
 
 ### 3. The Validator Takes Over
 
-- **Validation:** The AI writes the initial code and calls the Validator. The Validator launches headless Chromium, captures the DOM, and returns an exact mathematical critique.
-- **The Repair Loop:** The AI drafts CSS/Component patches to fix the critique. The Validator applies the patch, runs your tests (`pnpm test`), and takes another screenshot.
+- **Validation:** The AI writes the initial code and calls the Validator. The Validator launches
+  headless Chromium, captures the DOM, and returns representative findings with the target DOM
+  locator, expected value, actual value, delta, confidence, and repair category.
+- **Focused retrieval:** When a run has more findings than fit in the compact response, the AI calls
+  `get_findings` to page by category or severity without repeating screenshots or other binary
+  evidence.
+- **The Repair Loop:** After you approve the exact files, the AI submits a full-file
+  `proposedChanges` batch. The Validator applies that batch once through its exact write policy,
+  runs configured checks, and takes another Chromium screenshot. Calls without `proposedChanges`
+  use only the deliberately narrow background-color fallback.
 - **Rollbacks:** If the AI accidentally breaks the layout or fails a test, the Validator cleanly rolls the file back to the previous state.
+
+Each validation pass records both the binary check score and proportional visual mismatch. A patch
+can therefore be retained when it measurably improves the raster before crossing the final pass
+threshold, but it is rejected if the structural score or visual result regresses.
+
+> **Reference-image note:** A PNG, JPEG, or SVG without a semantic sidecar provides raster evidence
+> only. Supply a structural spec or Figma element evidence when you need deterministic statements
+> such as “padding is 16px but should be 24px.”
 
 ### 4. Confirming Memory (Learning)
 

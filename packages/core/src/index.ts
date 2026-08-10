@@ -22,6 +22,7 @@ export * from './merge.js';
 export * from './repair-provider.js';
 export * from './dom-extractor.js';
 export * from './heuristic-repair.js';
+export * from './host-proposed-repair.js';
 export * from './security.js';
 export * from './interaction.js';
 export * from './memory.js';
