@@ -45,6 +45,13 @@ export interface GenerationOrchestratorDependencies {
   exporter: GenerationExporter;
   config: Config;
   tool?: 'smart-ui' | 'smart-ui-mcp' | 'smart-ui-studio';
+  /**
+   * How an approved host/agent proposal competes with the deterministic fallback.
+   * 'non-regression' (default) keeps the proposal only when it does not regress the fallback's
+   * score or visual mismatch. 'prefer-proposal' keeps any valid, non-repeated proposal while still
+   * recording honest deterministic comparison evidence for both passes.
+   */
+  proposalPolicy?: 'non-regression' | 'prefer-proposal';
   onProgress?: (event: {
     stage: 'sanitize' | 'generate' | 'preview' | 'compare' | 'package' | 'report' | 'export';
     progress: number;
@@ -253,10 +260,11 @@ export class GenerationOrchestrator {
     const proposalAccepted = baselineEvaluation
       ? requestedPasses > 0 &&
         !repeatedOutput &&
-        proposedEvaluation.comparison.score >= baselineEvaluation.comparison.score &&
-        proposedEvaluation.comparison.diffPercent <=
-          baselineEvaluation.comparison.diffPercent +
-            this.dependencies.config.generation.maxProposalRegressionPercent
+        (this.dependencies.proposalPolicy === 'prefer-proposal' ||
+          (proposedEvaluation.comparison.score >= baselineEvaluation.comparison.score &&
+            proposedEvaluation.comparison.diffPercent <=
+              baselineEvaluation.comparison.diffPercent +
+                this.dependencies.config.generation.maxProposalRegressionPercent))
       : true;
     const accepted =
       proposalAccepted || !baselineEvaluation ? proposedEvaluation : baselineEvaluation;

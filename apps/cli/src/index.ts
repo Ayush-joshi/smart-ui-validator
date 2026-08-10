@@ -50,7 +50,10 @@ registerMemoryCommands(program, invocationRoot);
 program
   .command('studio')
   .description('Launch the local-only SVG generation Studio on an isolated loopback origin')
-  .requiredOption('--workspace <path>', 'dedicated Studio workspace')
+  .option(
+    '--workspace <path>',
+    'dedicated Studio workspace (defaults to <cwd>/.studio-workspace, kept inside the MCP root)',
+  )
   .option('--init', 'initialize an empty dedicated workspace before startup')
   .option('--init-only', 'initialize the workspace and exit without starting the server')
   .option('--open', 'open the exact loopback URL in the system browser')
@@ -64,14 +67,14 @@ program
   .option('--health-check', 'start, report all Studio health checks, and exit')
   .option('--json', 'emit one compact startup or initialization result')
   .action(async (options: StudioCliOptions) => {
-    const workspace = userPath(options.workspace);
+    const workspace = userPath(options.workspace ?? '.studio-workspace');
     const studio = await loadStudioModule();
-    if (options.init || options.initOnly) {
-      const initialized = await studio.initializeStudioWorkspace(workspace);
-      if (options.initOnly) {
-        print(initialized, options.json);
-        return;
-      }
+    // The dedicated workspace is always initialized (idempotently) so the agent-powered flow works
+    // with zero setup; the MCP-connected agent reaches its queue inside this in-repo workspace.
+    const initialized = await studio.initializeStudioWorkspace(workspace);
+    if (options.initOnly) {
+      print(initialized, options.json);
+      return;
     }
     const server = await studio.startStudioServer({
       workspaceRoot: workspace,
@@ -799,7 +802,7 @@ interface GenerateCliOptions {
 }
 
 interface StudioCliOptions {
-  workspace: string;
+  workspace?: string;
   init?: boolean;
   initOnly?: boolean;
   open?: boolean;

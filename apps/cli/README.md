@@ -91,7 +91,15 @@ provenance, and an immutable `GenerationRecord`.
 Studio is the local visual interface for the SVG workflow above. It is not a repository validator,
 hosted backend, model host, or remote collaboration service.
 
-Use a new dedicated empty workspace:
+Studio initializes a dedicated workspace automatically. From a repository checkout it defaults to
+`<cwd>/.studio-workspace` (inside the MCP root), so its default AI-agent engine — powered by the
+connected `smart-ui` MCP chat agent — works with no flags:
+
+```bash
+npx smart-ui studio
+```
+
+Pass `--workspace` to use an explicit dedicated directory, or to initialize/verify without starting:
 
 ```bash
 npx smart-ui studio --workspace /absolute/smart-ui-studio --init-only
@@ -100,10 +108,12 @@ npx smart-ui studio --workspace /absolute/smart-ui-studio --open
 ```
 
 Studio binds only to `127.0.0.1`, starts headless unless `--open` is explicit, and never accepts a
-filesystem path from page JavaScript. Its four steps are SVG input and inspection, mode/layout
-preferences, cancellable generation, and review/download. Review includes the isolated preview,
-escaped source, deterministic differences, viewport classifications, findings, uncertainties,
-evidence images, individual files, report, and reproducible ZIP.
+filesystem path from page JavaScript. Its four steps are SVG input and inspection, engine/mode/layout
+preferences, cancellable generation, and review/download. The AI-agent engine pauses on an
+`awaiting-agent` step with a ready-to-paste prompt for the MCP-connected chat; the deterministic
+engine needs no host. Review includes the isolated preview, escaped source, deterministic
+differences, viewport classifications, findings, uncertainties, evidence images, individual files,
+report, and reproducible ZIP.
 
 `--retention-hours` defaults to 24 hours. Runs are recoverable after restart and can be deleted one at
 a time from the UI. Local Studio storage is plaintext, telemetry is off, and no credentials are

@@ -358,30 +358,46 @@ is displayed as escaped text, while the accepted page runs on a separate CSP-res
 origin with scripts and network access denied. Browser state is only a view of the persisted
 generation record, so completed runs can be recovered after Studio restarts.
 
+### Generation engines
+
+Studio offers two engines on the Preferences step:
+
+- **AI agent (default):** the chat agent connected to this repository's `smart-ui` MCP server authors
+  the HTML and CSS. Studio writes a bounded authoring request into its workspace, the agent picks it
+  up with `list_studio_authoring_requests`, authors offline files sized to the design's exact canvas,
+  and returns them with `submit_studio_authored_html`. Studio then renders and measures the result
+  through the same deterministic pipeline. While a run waits, Studio shows a ready-to-paste prompt —
+  containing the workspace path and run ID — to hand to the MCP-connected chat.
+- **Deterministic:** the built-in bounded generator; no model is involved.
+
+Because the agent reaches the queue through `SMART_UI_MCP_ROOT`, the Studio workspace must live inside
+the MCP root. Running Studio from this repository checkout satisfies this by default (see below).
+
 ### Start Studio
 
-Use a dedicated empty directory. Studio refuses filesystem roots, your home directory, symlink
-roots, and non-empty directories that it did not initialize.
-
-Initialize once, verify the packaged engine and real browser adapter, then start Studio:
+Studio initializes a dedicated workspace automatically. From this repository checkout, the default
+workspace is `<cwd>/.studio-workspace`, which is already inside the MCP root, so the agent engine
+works with no extra flags:
 
 ```bash
-npx smart-ui studio \
-  --workspace /absolute/path/to/smart-ui-studio \
-  --init-only
-
-npx smart-ui studio \
-  --workspace /absolute/path/to/smart-ui-studio \
-  --health-check \
-  --json
-
-npx smart-ui studio \
-  --workspace /absolute/path/to/smart-ui-studio \
-  --open
+npx smart-ui studio
 ```
 
-You can combine initialization and startup on the first run with `--init --open`. Without `--open`,
-Studio starts headless and prints the local URL for you to open manually. Stop it with `Ctrl+C`.
+Studio refuses filesystem roots, your home directory, symlink roots, and non-empty directories that
+it did not initialize. To use an explicit dedicated directory, or to initialize/verify without
+starting, pass `--workspace`:
+
+```bash
+npx smart-ui studio --workspace /absolute/path/to/smart-ui-studio --init-only
+
+npx smart-ui studio --workspace /absolute/path/to/smart-ui-studio --health-check --json
+
+npx smart-ui studio --workspace /absolute/path/to/smart-ui-studio --open
+```
+
+Without `--open`, Studio starts headless and prints the local URL for you to open manually. Stop it
+with `Ctrl+C`. After rebuilding the MCP server, restart it in your host (in VS Code: **MCP: List
+Servers → smart-ui → Restart**) so new tools and evidence are picked up.
 
 `--retention-hours <hours>` controls expiry for completed local runs and defaults to 24 hours.
 `--port <port>` requests an exact loopback port; the default `0` is safer for concurrent runs because
@@ -391,10 +407,12 @@ the operating system chooses an available ephemeral port.
 
 1. **Input:** drag, drop, or choose one `.svg`. Studio sanitizes it and shows dimensions, hashes,
    scene size, readable text, decisions, uncertainties, and recommended modes.
-2. **Preferences:** choose exact, hybrid, or semantic mode; choose fixed, responsive, or component
-   layout; and optionally provide one bounded implementation note.
+2. **Preferences:** choose the AI-agent or deterministic engine; choose exact, hybrid, or semantic
+   mode; choose fixed, responsive, or component layout; and optionally provide one bounded context
+   note for the agent.
 3. **Generate:** follow sanitization, inspection, generation, preview, comparison, packaging, and
-   reporting progress. You can cancel an in-flight run.
+   reporting progress. With the AI-agent engine, the run pauses on an `awaiting-agent` step that shows
+   the prompt to paste into the MCP-connected chat. You can cancel an in-flight run.
 4. **Review:** inspect the isolated preview, visual similarity/mismatch, viewport classifications,
    source code, findings, uncertainties, generated-output screenshot, heatmap, and overlay. Download
    individual accepted files, the reproducible ZIP, or the offline report.

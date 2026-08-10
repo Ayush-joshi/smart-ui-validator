@@ -44,6 +44,8 @@ The repository-free surface is intentionally small and separate from repository 
 | `get_generation`         | Returns a compact validated record by default or the complete validated `GenerationRecord` with `responseDetail=full`; generated bodies remain artifacts.                                                                         |
 | `get_generation_report`  | Returns record, preview-file, report, archive, screenshot, diff, overlay, and context references.                                                                                                                                 |
 | `export_generation`      | Requires a generation ID, accepted manifest hash, exact complete generated path list, exact new empty destination, and `approved: true`.                                                                                          |
+| `list_studio_authoring_requests` | Read-only. Lists pending Smart UI Studio HTML authoring requests inside a contained Studio workspace, returning bounded design evidence, readable text, user context, the sanitized SVG, and per-request `canvasGuidance` that anchors the authored HTML to the design's exact render/compare canvas. |
+| `submit_studio_authored_html`    | Requires the exact waiting `runId` and `approved: true`. Validates and writes the agent's complete offline `index.html`, `styles.css`, and optional `assets/*.svg` back to the waiting Studio run; Studio then renders, measures, and verifies them. |
 
 `generate_html_from_svg` accepts exact, hybrid, or semantic mode; fixed, responsive, or component
 layout; an explicit source viewport; locale/theme; bounded instructions; timeout/pass limits;
@@ -64,9 +66,17 @@ archive, and export checks. Calls with a progress token receive bounded stage no
 SVG or generated-code bodies. `generate`, `generation:export`, and `generation:delete` are additive
 authorization actions; repository `repair` permission does not imply any of them.
 
-Smart UI Studio is not an MCP transport or an additional MCP tool set. It is a local browser host for
-the same `GenerationOrchestrator`; agents should use the SVG tools above, while human users who want a
-visual workflow can launch `smart-ui studio` independently.
+Smart UI Studio is a local browser host for the same `GenerationOrchestrator`. Its default AI-agent
+engine is powered by the connected MCP chat agent through a contained file-queue bridge: Studio writes
+a bounded authoring request into `<studio-workspace>/agent-queue/requests/`, the agent picks it up with
+`list_studio_authoring_requests`, authors offline HTML/CSS sized to the returned `canvasGuidance`, and
+returns it with `submit_studio_authored_html`. The authored files pass through the same host-proposal
+validation, isolated rendering, and deterministic comparison as any other proposal. Both tools resolve
+the Studio workspace against `SMART_UI_MCP_ROOT`, so the workspace must live inside the MCP root.
+Running `smart-ui studio` from this repository checkout uses `<cwd>/.studio-workspace` by default and
+initializes it automatically, so no flags are required. While a run waits, Studio surfaces a
+ready-to-paste prompt containing the workspace path and run ID. Human users who prefer the
+deterministic engine can still use the SVG tools above or select the deterministic engine in Studio.
 
 Build and configure source-checkout hosts with the absolute `apps/mcp-server/dist/index.js` path. The
 [agent-first workflow](./agent-workflow.md) provides repository setup and retry budgets; the

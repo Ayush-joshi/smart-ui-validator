@@ -1,0 +1,13 @@
+{
+  "servers": {
+    "smart-ui": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["${workspaceFolder}/apps/mcp-server/dist/index.js"],
+      "cwd": "${workspaceFolder}",
+      "env": {
+        "SMART_UI_MCP_ROOT": "${workspaceFolder}"
+      }
+    }
+  }
+}

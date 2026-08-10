@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- Added an agent-powered Studio generation engine (default) driven by the connected `smart-ui` MCP
+  chat agent through a contained file-queue bridge (`studio-agent-bridge`), plus the
+  `list_studio_authoring_requests` and `submit_studio_authored_html` MCP tools, an `awaiting-agent`
+  Studio phase, and a ready-to-paste prompt carrying the workspace path and run ID.
+- Added `authoringCanvasGuidance` so authored HTML is anchored to the design's exact render/compare
+  canvas (size, aspect ratio, and scale) per layout intent.
+- Simplified Studio startup: `--workspace` is now optional and defaults to `<cwd>/.studio-workspace`
+  inside the MCP root, and the dedicated workspace is initialized automatically.
+- Added a planned confirm-then-improve refinement loop design at
+  `docs/confirm-then-improve-plan.md`, including deferred larger improvements.
 - Added the private React/Vite local Studio build input and packaged `smart-ui studio` command with
   dedicated-workspace initialization, headless loopback startup, health checks, upload/preferences/
   progress/review workflow, cancellation, persisted recovery, retention, and verified single-run

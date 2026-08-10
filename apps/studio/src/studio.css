@@ -246,6 +246,28 @@ h3 {
 .good {
   color: var(--accent);
 }
+.engine-note {
+  margin-top: 6px;
+  font-size: 13px;
+  opacity: 0.85;
+}
+.agent-waiting {
+  margin: 12px 0;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: rgba(127, 127, 127, 0.08);
+  text-align: left;
+}
+.agent-waiting code {
+  display: block;
+  margin-top: 8px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: rgba(127, 127, 127, 0.16);
+  font-size: 13px;
+  user-select: all;
+}
 details {
   margin: 15px 0 30px;
 }

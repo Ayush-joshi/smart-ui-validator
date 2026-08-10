@@ -45,4 +45,5 @@ export * from './generation-exporter.js';
 export * from './generation-reporter.js';
 export * from './generation-orchestrator.js';
 export * from './host-proposed-generation.js';
+export * from './studio-agent-bridge.js';
 export * from './generation-evaluation.js';

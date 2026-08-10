@@ -167,12 +167,89 @@ describe('local Studio server security and lifecycle', () => {
     const healthText = JSON.stringify(await recovered.server.health());
     expect(healthText).not.toContain(context.workspace);
   });
+
+  it('reports the contained agent workspace and mcp transport in the session', async () => {
+    const context = await studioFixture(4_000);
+    const session = await json<{
+      agent: { configured: boolean; transport: string; workspace: string };
+    }>(await context.request('/api/session'));
+    expect(session.agent).toMatchObject({ configured: true, transport: 'mcp' });
+    expect(session.agent.workspace).toBe(context.workspace);
+  });
+
+  it('waits for the connected MCP agent, writes a bounded request, and deletes it on cancel', async () => {
+    const context = await studioFixture(4_000);
+    const run = await json<{ runId: string }>(
+      await context.request('/api/runs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'image/svg+xml', 'X-Smart-UI-Filename': 'agent.svg' },
+        body: cleanSvg,
+      }),
+    );
+    await context.request(`/api/runs/${run.runId}/generate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ engine: 'agent', mode: 'semantic', layout: 'responsive' }),
+    });
+    await waitForPhase(context, run.runId, 'awaiting-agent');
+    const requestPath = join(context.workspace, 'agent-queue', 'requests', `${run.runId}.json`);
+    const request = JSON.parse(await readFile(requestPath, 'utf8')) as { runId: string };
+    expect(request.runId).toBe(run.runId);
+
+    await context.request(`/api/runs/${run.runId}/cancel`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: '{}',
+    });
+    await waitForPhase(context, run.runId, 'canceled');
+    await expect(stat(requestPath)).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it('fails closed when no connected agent authors the design in time', async () => {
+    const context = await studioFixture(4_000, 1_000);
+    const run = await json<{ runId: string }>(
+      await context.request('/api/runs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'image/svg+xml', 'X-Smart-UI-Filename': 'agent.svg' },
+        body: cleanSvg,
+      }),
+    );
+    await context.request(`/api/runs/${run.runId}/generate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ engine: 'agent', mode: 'semantic', layout: 'responsive' }),
+    });
+    const failed = await waitForPhase(context, run.runId, 'failed');
+    expect(failed.error?.message).toMatch(/No connected MCP agent/u);
+  });
 });
+
+interface StudioRunSummary {
+  runId: string;
+  phase: string;
+  error?: { message: string };
+}
+
+async function waitForPhase(
+  context: { request(path: string, init?: RequestInit): Promise<Response> },
+  runId: string,
+  phase: string,
+): Promise<StudioRunSummary> {
+  for (let attempt = 0; attempt < 200; attempt += 1) {
+    const run = await json<StudioRunSummary>(await context.request(`/api/runs/${runId}`));
+    if (run.phase === phase) return run;
+    if (['completed', 'failed', 'canceled'].includes(run.phase) && run.phase !== phase) {
+      throw new Error(`Run reached ${run.phase} before ${phase}: ${JSON.stringify(run.error)}`);
+    }
+    await new Promise((accept) => setTimeout(accept, 50));
+  }
+  throw new Error(`Run ${runId} never reached ${phase}.`);
+}
 
 const cleanSvg =
   '<svg xmlns="http://www.w3.org/2000/svg" width="120" height="80"><rect width="120" height="80" fill="#4f7cff"/><text x="12" y="42" fill="white" font-size="18">Hello</text></svg>';
 
-async function studioFixture(maxSvgBytes: number) {
+async function studioFixture(maxSvgBytes: number, agentTimeoutMs?: number) {
   const workspace = await mkdtemp(join(tmpdir(), 'smart-ui-studio-workspace-'));
   await initializeStudioWorkspace(workspace);
   await writeFile(
@@ -187,14 +264,20 @@ async function studioFixture(maxSvgBytes: number) {
   await writeFile(join(staticRoot, 'app-placeholder'), 'unused');
   await import('node:fs/promises').then(({ mkdir }) => mkdir(join(staticRoot, 'assets')));
   await writeFile(join(staticRoot, 'assets', 'app.js'), 'document.body.dataset.ready="true";');
-  return connect(workspace, staticRoot);
+  return connect(workspace, staticRoot, undefined, agentTimeoutMs);
 }
 
-async function connect(workspace: string, staticRoot: string, retentionMs?: number) {
+async function connect(
+  workspace: string,
+  staticRoot: string,
+  retentionMs?: number,
+  agentTimeoutMs?: number,
+) {
   const server = await startStudioServer({
     workspaceRoot: workspace,
     staticRoot,
     ...(retentionMs ? { retentionMs } : {}),
+    ...(agentTimeoutMs ? { agentTimeoutMs } : {}),
   });
   servers.push(server);
   const origin = server.url.slice(0, -1);

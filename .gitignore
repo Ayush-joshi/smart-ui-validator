@@ -3,6 +3,8 @@ dist/
 .angular/
 coverage/
 .smart-ui/
+.smart-ui-mcp-runs/
+.studio-workspace/
 playwright-report/
 test-results/
 *.log

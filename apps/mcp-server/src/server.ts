@@ -25,17 +25,22 @@ import {
   ReproducibleGenerationExporter,
   SmartUiError,
   SmartUiOrchestrator,
+  agentQueueRoot,
+  authoringCanvasGuidance,
   designContractSchema,
   designBundleSchema,
   generationRecordSchema,
+  listPendingAuthoringRequests,
   loadConfig,
   memoryLayerSchema,
   memoryScopeSchema,
   memorySensitivitySchema,
+  readAuthoringRequest,
   runRecordSchema,
   redactSensitiveText,
   redactSensitiveValue,
   resolveMemoryPath,
+  writeAuthoringResponse,
   type BrowserInteractionState,
   type DesignBundle,
   type GenerationRecord,
@@ -115,6 +120,8 @@ export const MCP_TOOL_DEFINITIONS = [
   ['export_generation', false],
   ['get_generation', true],
   ['get_generation_report', true],
+  ['list_studio_authoring_requests', true],
+  ['submit_studio_authored_html', false],
 ] as const;
 
 const targetSchema = z.object({ targetRoot: z.string().min(1) });
@@ -831,6 +838,94 @@ export function createSmartUiMcpServer(): McpServer {
         exportRoot,
         exportedFiles,
       });
+    },
+  );
+  server.registerTool(
+    'list_studio_authoring_requests',
+    tool(
+      'List pending Smart UI Studio HTML authoring requests inside a contained Studio workspace.',
+      true,
+      { studioWorkspace: z.string().min(1) },
+    ),
+    async ({ studioWorkspace }) => {
+      const workspace = trustedAbsolutePath(studioWorkspace, 'studioWorkspace');
+      const pending = await listPendingAuthoringRequests(agentQueueRoot(workspace));
+      return result({
+        studioWorkspace: workspace,
+        count: pending.length,
+        requests: pending.map((request) => ({
+          runId: request.runId,
+          designName: request.designName,
+          viewport: request.viewport,
+          mode: request.mode,
+          layout: request.layout,
+          theme: request.theme,
+          locale: request.locale,
+          fallbackStack: request.fallbackStack,
+          unavailableFonts: request.unavailableFonts,
+          readableText: request.readableText,
+          ...(request.instructions ? { instructions: request.instructions } : {}),
+          canvasGuidance: authoringCanvasGuidance(request),
+          sanitizedSvg: request.sanitizedSvg,
+          svgTruncated: request.svgTruncated,
+          createdAt: request.createdAt,
+          expiresAt: request.expiresAt,
+        })),
+        guide:
+          'Author complete offline index.html and styles.css (no scripts, no external URLs) sized to each request canvasGuidance so the result matches the design scale, then call submit_studio_authored_html with approved:true and the exact runId.',
+      });
+    },
+  );
+  server.registerTool(
+    'submit_studio_authored_html',
+    tool(
+      'Submit approved authored HTML/CSS back to a waiting Smart UI Studio run.',
+      false,
+      {
+        studioWorkspace: z.string().min(1),
+        runId: z.string().regex(/^run-[0-9a-f-]{36}$/),
+        approved: z.literal(true),
+        authoringAgent: z.string().min(1).max(200),
+        files: z
+          .array(
+            z
+              .object({
+                path: z.string().min(1).max(1_024),
+                content: z.string().min(1).max(2_000_000),
+              })
+              .strict(),
+          )
+          .min(2)
+          .max(100),
+      },
+    ),
+    async ({ studioWorkspace, runId, authoringAgent, files }) => {
+      const workspace = trustedAbsolutePath(studioWorkspace, 'studioWorkspace');
+      const queueRoot = agentQueueRoot(workspace);
+      const request = await readAuthoringRequest(queueRoot, runId);
+      if (!request) {
+        throw new SmartUiError(
+          'NOT_FOUND',
+          'No pending Studio authoring request matches this run identifier.',
+        );
+      }
+      if (Date.parse(request.expiresAt) <= Date.now()) {
+        throw new SmartUiError(
+          'POLICY_VIOLATION',
+          'The Studio authoring request expired; generate again before authoring.',
+        );
+      }
+      assertHostGenerationProposalBudget(
+        files.map((file) => ({ relativePath: file.path, content: file.content })),
+      );
+      await writeAuthoringResponse(queueRoot, {
+        schemaVersion: '1.0',
+        runId,
+        authoringAgent,
+        createdAt: new Date().toISOString(),
+        files,
+      });
+      return result({ runId, accepted: true, fileCount: files.length });
     },
   );
   const answers = new Map<string, Record<string, string>>();

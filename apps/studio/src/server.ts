@@ -19,8 +19,10 @@ import { basename, dirname, extname, isAbsolute, join, parse, relative, resolve 
 import { fileURLToPath } from 'node:url';
 import type { AddressInfo } from 'node:net';
 import {
+  DEFAULT_AUTHORING_TIMEOUT_MS,
   DeterministicHtmlGenerationProvider,
   GenerationOrchestrator,
+  HostProposedHtmlGenerationProvider,
   HtmlGenerationReporter,
   LocalArtifactStore,
   LocalSvgStructureProvider,
@@ -28,14 +30,22 @@ import {
   PlaywrightBrowserProvider,
   ReproducibleGenerationExporter,
   SmartUiError,
+  agentQueueRoot,
+  authoredHostFiles,
+  buildAuthoringRequest,
+  deleteAuthoringRequest,
+  deleteAuthoringResponse,
   generationRecordSchema,
   loadConfig,
   svgGenerationInputSchema,
+  waitForAuthoringResponse,
+  writeAuthoringRequest,
   type ArtifactRef,
   type GeneratedPreviewSession,
   type GenerationLayout,
   type GenerationMode,
   type GenerationRecord,
+  type HtmlGenerationProvider,
 } from 'smart-ui-validator-core';
 
 const MARKER_NAME = '.smart-ui-studio.json';
@@ -66,6 +76,8 @@ export interface StudioServerOptions {
   staticRoot?: string;
   port?: number;
   retentionMs?: number;
+  /** How long a run waits for the connected MCP agent to author HTML before failing closed. */
+  agentTimeoutMs?: number;
 }
 
 export interface StudioServer {
@@ -99,7 +111,14 @@ interface InspectionSummary {
   recommendedModes: GenerationMode[];
 }
 
-type RunPhase = 'inspected' | 'generating' | 'completed' | 'failed' | 'canceled' | 'interrupted';
+type RunPhase =
+  | 'inspected'
+  | 'generating'
+  | 'awaiting-agent'
+  | 'completed'
+  | 'failed'
+  | 'canceled'
+  | 'interrupted';
 
 interface StudioRun {
   id: string;
@@ -184,6 +203,8 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
   );
   const assets = await loadStaticAssets(staticRoot);
   const retentionMs = boundedRetention(options.retentionMs ?? DEFAULT_RETENTION_MS);
+  const agentTimeoutMs = boundedAgentTimeout(options.agentTimeoutMs);
+  const queueRoot = agentQueueRoot(workspace);
   const capability = randomBytes(32).toString('base64url');
   const csrf = randomBytes(32).toString('base64url');
   const runs = new Map<string, StudioRun>();
@@ -246,6 +267,7 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
         csrfToken: csrf,
         runs: [...runs.values()].map(runSummary),
         limits: { maxUploadBytes: (await loadConfig(workspace)).generation.limits.maxSvgBytes },
+        agent: { configured: true, transport: 'mcp', workspace },
       });
     }
     const readOnlyArtifactRequest =
@@ -309,7 +331,7 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
       if (request.method !== 'POST') return method(response, 'POST');
       exactContentType(request, 'application/json');
       await readJsonBody(request);
-      if (run.phase === 'generating') run.controller?.abort();
+      if (run.phase === 'generating' || run.phase === 'awaiting-agent') run.controller?.abort();
       return json(response, 202, { runId: run.id, cancellationRequested: true });
     }
     if (segments[3] === 'files' && segments.length === 5) {
@@ -406,14 +428,44 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
 
   async function generate(
     run: StudioRun,
-    preferences: { mode: GenerationMode; layout: GenerationLayout; instructions?: string },
+    preferences: {
+      engine: 'agent' | 'deterministic';
+      mode: GenerationMode;
+      layout: GenerationLayout;
+      instructions?: string;
+    },
   ): Promise<void> {
     try {
       const config = await loadConfig(workspace);
       const store = new LocalArtifactStore(run.artifactRoot);
+      const generationInput = svgGenerationInputSchema.parse({
+        workspaceRoot: workspace,
+        svgPath: run.uploadPath,
+        artifactRoot: run.artifactRoot,
+        generationId: `generation-${randomUUID()}`,
+        mode: preferences.mode,
+        layout: preferences.layout,
+        ...(preferences.instructions ? { instructions: preferences.instructions } : {}),
+        rendering: { background: { kind: 'transparent' }, locale: 'en-US', theme: 'light' },
+      });
+      const structure = new LocalSvgStructureProvider(store, config.generation.limits);
+      let generator: HtmlGenerationProvider = new DeterministicHtmlGenerationProvider();
+      let fallbackGenerator: HtmlGenerationProvider | undefined;
+      let proposalPolicy: 'non-regression' | 'prefer-proposal' | undefined;
+      if (preferences.engine === 'agent') {
+        const files = await authorWithConnectedAgent(run, generationInput, config);
+        generator = new HostProposedHtmlGenerationProvider(
+          `studio-agent:${files.authoringAgent}`,
+          files.files,
+        );
+        fallbackGenerator = new DeterministicHtmlGenerationProvider();
+        proposalPolicy = 'prefer-proposal';
+      }
       const result = await new GenerationOrchestrator({
-        structure: new LocalSvgStructureProvider(store, config.generation.limits),
-        generator: new DeterministicHtmlGenerationProvider(),
+        structure,
+        generator,
+        ...(fallbackGenerator ? { fallbackGenerator } : {}),
+        ...(proposalPolicy ? { proposalPolicy } : {}),
         preview: new LoopbackGeneratedPreviewProvider(),
         browser: new PlaywrightBrowserProvider(),
         artifacts: store,
@@ -425,19 +477,7 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
           run.progress = { stage: event.stage, value: event.progress, message: event.message };
           run.updatedAt = new Date().toISOString();
         },
-      }).run(
-        svgGenerationInputSchema.parse({
-          workspaceRoot: workspace,
-          svgPath: run.uploadPath,
-          artifactRoot: run.artifactRoot,
-          generationId: `generation-${randomUUID()}`,
-          mode: preferences.mode,
-          layout: preferences.layout,
-          ...(preferences.instructions ? { instructions: preferences.instructions } : {}),
-          rendering: { background: { kind: 'transparent' }, locale: 'en-US', theme: 'light' },
-        }),
-        run.controller?.signal,
-      );
+      }).run(generationInput, run.controller?.signal);
       run.record = result.record;
       run.recordArtifactPath = result.recordArtifact.relativePath;
       run.phase = result.record.canceled
@@ -468,6 +508,57 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
     } finally {
       run.updatedAt = new Date().toISOString();
       await persistRun(run);
+    }
+  }
+
+  async function authorWithConnectedAgent(
+    run: StudioRun,
+    generationInput: ReturnType<typeof svgGenerationInputSchema.parse>,
+    config: Awaited<ReturnType<typeof loadConfig>>,
+  ): Promise<{ files: ReturnType<typeof authoredHostFiles>; authoringAgent: string }> {
+    const signal = run.controller?.signal;
+    const inspectionArtifactRoot = join(run.root, 'agent-inspection-artifacts');
+    const inspectionStore = new LocalArtifactStore(inspectionArtifactRoot);
+    const inspectionInput = svgGenerationInputSchema.parse({
+      ...generationInput,
+      artifactRoot: inspectionArtifactRoot,
+    });
+    const inspection = await new LocalSvgStructureProvider(
+      inspectionStore,
+      config.generation.limits,
+    ).inspect(inspectionInput, signal);
+    const request = buildAuthoringRequest({
+      runId: run.id,
+      input: generationInput,
+      inspection,
+      timeoutMs: agentTimeoutMs,
+    });
+    await writeAuthoringRequest(queueRoot, request);
+    run.phase = 'awaiting-agent';
+    run.progress = {
+      stage: 'agent',
+      value: 0.2,
+      message:
+        'Waiting for the connected MCP agent to author HTML. In chat, ask it to check Smart UI Studio authoring requests.',
+    };
+    run.updatedAt = new Date().toISOString();
+    await persistRun(run);
+    try {
+      const response = await waitForAuthoringResponse(queueRoot, run.id, {
+        timeoutMs: agentTimeoutMs,
+        ...(signal ? { signal } : {}),
+      });
+      run.phase = 'generating';
+      run.progress = {
+        stage: 'generate',
+        value: 0.25,
+        message: `Validating and measuring HTML authored by ${response.authoringAgent}.`,
+      };
+      run.updatedAt = new Date().toISOString();
+      return { files: authoredHostFiles(response), authoringAgent: response.authoringAgent };
+    } finally {
+      await deleteAuthoringRequest(queueRoot, run.id);
+      await deleteAuthoringResponse(queueRoot, run.id);
     }
   }
 
@@ -665,6 +756,7 @@ async function readBounded(request: IncomingMessage, limit: number): Promise<Uin
 }
 
 function parsePreferences(value: unknown): {
+  engine: 'agent' | 'deterministic';
   mode: GenerationMode;
   layout: GenerationLayout;
   instructions?: string;
@@ -674,8 +766,12 @@ function parsePreferences(value: unknown): {
   }
   const input = value as Record<string, unknown>;
   const keys = Object.keys(input);
-  if (keys.some((key) => !['mode', 'layout', 'instructions'].includes(key))) {
+  if (keys.some((key) => !['engine', 'mode', 'layout', 'instructions'].includes(key))) {
     throw new SmartUiError('INVALID_INPUT', 'Generation preferences contain an unknown field.');
+  }
+  const engine = input['engine'] ?? 'agent';
+  if (engine !== 'agent' && engine !== 'deterministic') {
+    throw new SmartUiError('INVALID_INPUT', 'Engine must be agent or deterministic.');
   }
   if (!['exact', 'hybrid', 'semantic'].includes(String(input['mode']))) {
     throw new SmartUiError('INVALID_INPUT', 'Mode must be exact, hybrid, or semantic.');
@@ -691,6 +787,7 @@ function parsePreferences(value: unknown): {
     throw new SmartUiError('INVALID_INPUT', 'Implementation note must be at most 4000 characters.');
   }
   return {
+    engine: engine as 'agent' | 'deterministic',
     mode: input['mode'] as GenerationMode,
     layout: input['layout'] as GenerationLayout,
     ...(typeof instructions === 'string' && instructions.length > 0 ? { instructions } : {}),
@@ -715,6 +812,13 @@ function runSummary(run: StudioRun) {
           generationId: record.id,
           status: record.status,
           stoppedReason: record.stoppedReason,
+          engine: record.provenance.hostProposal ? 'agent' : 'deterministic',
+          agent: record.provenance.hostProposal
+            ? {
+                host: record.provenance.host ?? 'agent',
+                accepted: record.provenance.hostProposalAccepted ?? false,
+              }
+            : null,
           requestedMode: record.input.requestedMode,
           finalMode: record.input.finalMode,
           manifestHash: record.manifestHash,
@@ -881,9 +985,12 @@ async function recoverRuns(
         filename: pointer.filename,
         createdAt: pointer.createdAt,
         updatedAt: pointer.updatedAt,
-        phase: pointer.phase === 'generating' ? 'interrupted' : pointer.phase,
+        phase:
+          pointer.phase === 'generating' || pointer.phase === 'awaiting-agent'
+            ? 'interrupted'
+            : pointer.phase,
         progress:
-          pointer.phase === 'generating'
+          pointer.phase === 'generating' || pointer.phase === 'awaiting-agent'
             ? { stage: 'interrupted', value: 1, message: 'The previous Studio process exited.' }
             : pointer.progress,
         ...(pointer.inspection ? { inspection: pointer.inspection } : {}),
@@ -919,7 +1026,7 @@ function parsePersistedRun(value: unknown): PersistedRun {
     !Number.isFinite(Date.parse(run['createdAt'])) ||
     typeof run['updatedAt'] !== 'string' ||
     !Number.isFinite(Date.parse(run['updatedAt'])) ||
-    !['inspected', 'generating', 'completed', 'failed', 'canceled', 'interrupted'].includes(
+    !['inspected', 'generating', 'awaiting-agent', 'completed', 'failed', 'canceled', 'interrupted'].includes(
       String(run['phase']),
     ) ||
     !run['progress'] ||
@@ -966,7 +1073,8 @@ async function purgeExpiredRuns(
 ): Promise<void> {
   const threshold = Date.now() - retentionMs;
   for (const run of [...runs.values()]) {
-    if (run.phase === 'generating' || new Date(run.updatedAt).getTime() >= threshold) continue;
+    if (run.phase === 'generating' || run.phase === 'awaiting-agent' || new Date(run.updatedAt).getTime() >= threshold)
+      continue;
     try {
       await deleteRun(run, runsRoot);
       runs.delete(run.id);
@@ -1045,6 +1153,17 @@ function safeDownloadName(value: string): string {
 function boundedRetention(value: number): number {
   if (!Number.isFinite(value) || value < 1_000 || value > 30 * 24 * 60 * 60 * 1_000) {
     throw new SmartUiError('INVALID_INPUT', 'Studio retention must be from 1 second to 30 days.');
+  }
+  return Math.floor(value);
+}
+
+function boundedAgentTimeout(value: number | undefined): number {
+  if (value === undefined) return DEFAULT_AUTHORING_TIMEOUT_MS;
+  if (!Number.isFinite(value) || value < 1_000 || value > 60 * 60 * 1_000) {
+    throw new SmartUiError(
+      'INVALID_INPUT',
+      'Studio agent timeout must be from 1 second to 60 minutes.',
+    );
   }
   return Math.floor(value);
 }

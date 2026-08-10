@@ -1,7 +1,14 @@
 import React, { StrictMode, useEffect, useRef, useState, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
 
-type Phase = 'inspected' | 'generating' | 'completed' | 'failed' | 'canceled' | 'interrupted';
+type Phase =
+  | 'inspected'
+  | 'generating'
+  | 'awaiting-agent'
+  | 'completed'
+  | 'failed'
+  | 'canceled'
+  | 'interrupted';
 
 interface RunSummary {
   runId: string;
@@ -25,6 +32,8 @@ interface RunSummary {
     generationId: string;
     status: string;
     stoppedReason: string;
+    engine: Engine;
+    agent: null | { host: string; accepted: boolean };
     requestedMode: Mode;
     finalMode?: Mode;
     manifestHash?: string;
@@ -58,12 +67,14 @@ interface RunSummary {
 
 type Mode = 'exact' | 'hybrid' | 'semantic';
 type Layout = 'fixed' | 'responsive' | 'component';
+type Engine = 'agent' | 'deterministic';
 type Step = 'input' | 'preferences' | 'generate' | 'review';
 
 interface SessionResponse {
   csrfToken: string;
   runs: RunSummary[];
   limits: { maxUploadBytes: number };
+  agent: { configured: boolean; transport: 'mcp'; workspace: string };
 }
 
 interface SourceFile {
@@ -77,6 +88,7 @@ export function StudioApp(): ReactNode {
   const [runs, setRuns] = useState<RunSummary[]>([]);
   const [activeId, setActiveId] = useState<string>();
   const [step, setStep] = useState<Step>('input');
+  const [engine, setEngine] = useState<Engine>('agent');
   const [mode, setMode] = useState<Mode>('hybrid');
   const [layout, setLayout] = useState<Layout>('responsive');
   const [instructions, setInstructions] = useState('');
@@ -92,6 +104,7 @@ export function StudioApp(): ReactNode {
       .then((value) => {
         setSession(value);
         setRuns(value.runs);
+        if (!value.agent.configured) setEngine('deterministic');
         const latest = value.runs.at(-1);
         if (latest) {
           setActiveId(latest.runId);
@@ -102,12 +115,12 @@ export function StudioApp(): ReactNode {
   }, []);
 
   useEffect(() => {
-    if (!session || active?.phase !== 'generating') return;
+    if (!session || !isRunning(active?.phase)) return;
     const timer = window.setInterval(() => {
-      void api<RunSummary>(`/api/runs/${active.runId}`, session.csrfToken)
+      void api<RunSummary>(`/api/runs/${active!.runId}`, session.csrfToken)
         .then((run) => {
           setRuns((current) => replaceRun(current, run));
-          if (run.phase !== 'generating') setStep('review');
+          if (!isRunning(run.phase)) setStep('review');
         })
         .catch(showFailure(setError));
     }, 400);
@@ -131,7 +144,9 @@ export function StudioApp(): ReactNode {
       });
       setRuns((current) => [...current, run]);
       setActiveId(run.runId);
-      setMode(run.inspection?.recommendedModes[0] ?? 'hybrid');
+      setMode(
+        engine === 'agent' ? 'semantic' : (run.inspection?.recommendedModes[0] ?? 'hybrid'),
+      );
       setStep('preferences');
     } catch (value) {
       showFailure(setError)(value);
@@ -148,7 +163,12 @@ export function StudioApp(): ReactNode {
       const run = await api<RunSummary>(`/api/runs/${active.runId}/generate`, session.csrfToken, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mode, layout, ...(instructions.trim() ? { instructions } : {}) }),
+        body: JSON.stringify({
+          engine,
+          mode,
+          layout,
+          ...(instructions.trim() ? { instructions } : {}),
+        }),
       });
       setRuns((current) => replaceRun(current, run));
       setStep('generate');
@@ -189,6 +209,7 @@ export function StudioApp(): ReactNode {
   function newRun(): void {
     setActiveId(undefined);
     setStep('input');
+    setEngine(session?.agent.configured ? 'agent' : 'deterministic');
     setMode('hybrid');
     setLayout('responsive');
     setInstructions('');
@@ -335,6 +356,43 @@ export function StudioApp(): ReactNode {
             <p className="eyebrow">Step 2</p>
             <h2 id="preferences-title">Set implementation preferences</h2>
             <fieldset>
+              <legend>Generation engine</legend>
+              <div className="choice-grid compact">
+                <label className={engine === 'agent' ? 'choice selected' : 'choice'}>
+                  <input
+                    type="radio"
+                    name="engine"
+                    value="agent"
+                    checked={engine === 'agent'}
+                    disabled={!session?.agent.configured}
+                    onChange={() => {
+                      setEngine('agent');
+                      setMode('semantic');
+                    }}
+                  />
+                  <strong>AI agent (default)</strong>
+                  <span>
+                    The MCP-connected chat agent authors real HTML and CSS from the design
+                    evidence; deterministic checks then render, measure, and verify it.
+                  </span>
+                </label>
+                <label className={engine === 'deterministic' ? 'choice selected' : 'choice'}>
+                  <input
+                    type="radio"
+                    name="engine"
+                    value="deterministic"
+                    checked={engine === 'deterministic'}
+                    onChange={() => {
+                      setEngine('deterministic');
+                      setMode(active.inspection?.recommendedModes[0] ?? 'hybrid');
+                    }}
+                  />
+                  <strong>Deterministic</strong>
+                  <span>Built-in bounded generator; no model is involved.</span>
+                </label>
+              </div>
+            </fieldset>
+            <fieldset>
               <legend>Output mode</legend>
               <div className="choice-grid">
                 {(['hybrid', 'semantic', 'exact'] as Mode[]).map((item) => (
@@ -371,19 +429,24 @@ export function StudioApp(): ReactNode {
             </fieldset>
             <label className="note">
               <span>
-                Implementation note <small>optional, maximum 4,000 characters</small>
+                {engine === 'agent' ? 'Context for the AI agent' : 'Implementation note'}{' '}
+                <small>optional, maximum 4,000 characters</small>
               </span>
               <textarea
                 maxLength={4000}
                 value={instructions}
                 onChange={(event) => setInstructions(event.target.value)}
-                placeholder="Describe only evidence-backed intent that materially affects the output."
+                placeholder={
+                  engine === 'agent'
+                    ? 'Anything the agent should know: exact copy, interactions, breakpoints, brand rules, component semantics, content that is unreadable in the SVG…'
+                    : 'Describe only evidence-backed intent that materially affects the output.'
+                }
               />
               <small>{instructions.length} / 4,000</small>
             </label>
             <div className="actions">
               <button className="primary" disabled={busy} onClick={() => void generate()}>
-                Generate offline bundle
+                {engine === 'agent' ? 'Generate with AI agent' : 'Generate offline bundle'}
               </button>
             </div>
           </section>
@@ -408,19 +471,34 @@ export function StudioApp(): ReactNode {
               <br />
               {active.progress.message}
             </p>
+            {active.phase === 'awaiting-agent' && (
+              <div className="agent-waiting">
+                <p>
+                  Paste this into the chat connected to the <code>smart-ui</code> MCP server, then
+                  keep this tab open while the agent authors the design:
+                </p>
+                <code>
+                  {`Use the smart-ui MCP server. Call list_studio_authoring_requests with studioWorkspace "${session?.agent.workspace ?? ''}", author complete offline index.html and styles.css for run ${active.runId} (no scripts, no external URLs), then call submit_studio_authored_html with approved: true and that exact runId.`}
+                </code>
+              </div>
+            )}
             <ol className="stage-list">
-              {['sanitize', 'inspect', 'generate', 'preview', 'compare', 'package', 'report'].map(
-                (item) => (
-                  <li
-                    key={item}
-                    className={stageReached(item, active.progress.stage) ? 'done' : ''}
-                  >
-                    {title(item)}
-                  </li>
-                ),
-              )}
+              {[
+                ...(engine === 'agent' ? ['agent'] : []),
+                'sanitize',
+                'inspect',
+                'generate',
+                'preview',
+                'compare',
+                'package',
+                'report',
+              ].map((item) => (
+                <li key={item} className={stageReached(item, active.progress.stage) ? 'done' : ''}>
+                  {item === 'agent' ? 'AI agent' : title(item)}
+                </li>
+              ))}
             </ol>
-            {active.phase === 'generating' && (
+            {isRunning(active.phase) && (
               <button className="danger" onClick={() => void cancel()}>
                 Cancel generation
               </button>
@@ -472,6 +550,13 @@ export function Review({
             {result.finalMode && result.finalMode !== result.requestedMode
               ? ` → ${result.finalMode}`
               : ''}
+          </p>
+          <p className={result.engine === 'agent' && result.agent?.accepted ? 'engine-note good' : 'engine-note'}>
+            {result.engine === 'agent'
+              ? result.agent?.accepted
+                ? `Authored by the AI agent (${result.agent.host}) and verified against the design.`
+                : `The AI agent proposal was not retained — showing the deterministic fallback. (${result.stoppedReason})`
+              : 'Generated by the deterministic engine.'}
           </p>
         </div>
         <div className="actions">
@@ -697,9 +782,12 @@ function replaceRun(runs: RunSummary[], run: RunSummary): RunSummary[] {
 function stepFor(run: RunSummary): Step {
   return run.phase === 'inspected'
     ? 'preferences'
-    : run.phase === 'generating'
+    : isRunning(run.phase)
       ? 'generate'
       : 'review';
+}
+function isRunning(phase: Phase | undefined): boolean {
+  return phase === 'generating' || phase === 'awaiting-agent';
 }
 function canVisit(step: Step, run: RunSummary | undefined): boolean {
   return (
@@ -709,7 +797,7 @@ function canVisit(step: Step, run: RunSummary | undefined): boolean {
         (step === 'preferences'
           ? run.phase === 'inspected'
           : step === 'generate'
-            ? run.phase === 'generating'
+            ? isRunning(run.phase)
             : run.phase !== 'inspected'),
     )
   );
@@ -742,28 +830,18 @@ function modeHelp(value: Mode): string {
       : 'Prefer maintainable HTML and CSS where evidence supports it.';
 }
 function stageReached(stage: string, current: string): boolean {
-  return (
-    [
-      'sanitize',
-      'inspect',
-      'generate',
-      'preview',
-      'compare',
-      'package',
-      'report',
-      'completed',
-    ].indexOf(stage) <=
-    [
-      'sanitize',
-      'inspect',
-      'generate',
-      'preview',
-      'compare',
-      'package',
-      'report',
-      'completed',
-    ].indexOf(current)
-  );
+  const order = [
+    'agent',
+    'sanitize',
+    'inspect',
+    'generate',
+    'preview',
+    'compare',
+    'package',
+    'report',
+    'completed',
+  ];
+  return order.indexOf(stage) <= order.indexOf(current);
 }
 
 if (typeof document !== 'undefined') {

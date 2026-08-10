@@ -46,6 +46,13 @@ absolute Smart UI checkout path, and review the trust prompt. The sample enables
 writes to the workspace, and limits networking to loopback. Sandboxing availability varies by host
 platform; when unavailable, rely on Smart UI's exact policy plus OS/container controls.
 
+The bundled `.vscode/mcp.json` runs the built server from `apps/mcp-server/dist/index.js` with
+`SMART_UI_MCP_ROOT` set to the workspace folder. After rebuilding the server, restart it (**MCP: List
+Servers → smart-ui → Restart**) so new tools and evidence load. This connection also powers Studio's
+default AI-agent engine: run `smart-ui studio` (default workspace `<cwd>/.studio-workspace`, inside the
+MCP root), and when a run is `awaiting-agent`, paste the prompt Studio shows into the Copilot chat so
+the agent calls `list_studio_authoring_requests` and `submit_studio_authored_html`.
+
 ## SVG generation without a host
 
 A host is optional for standalone generation. Use `smart-ui generate` for repeatable CLI runs or

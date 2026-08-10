@@ -380,4 +380,110 @@ describe('stable host-neutral MCP contract', () => {
     });
     expect(forgotten.structuredContent).toEqual({ id: memoryId, forgotten: true });
   });
+
+  it('bridges Studio authoring requests and responses through contained MCP tools', async () => {
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    const server = createSmartUiMcpServer();
+    const client = new Client({ name: 'studio-bridge-test', version: '1.0.0' });
+    await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+    closers.push(
+      () => client.close(),
+      () => server.close(),
+    );
+
+    const studioWorkspace = await mkdtemp(join(resolve('tests'), '.mcp-studio-bridge-'));
+    temporaryPaths.push(studioWorkspace);
+    const runId = 'run-11111111-1111-4111-8111-111111111111';
+    const now = Date.now();
+    const requestsDir = join(studioWorkspace, 'agent-queue', 'requests');
+    await mkdir(requestsDir, { recursive: true });
+    await writeFile(
+      join(requestsDir, `${runId}.json`),
+      JSON.stringify({
+        schemaVersion: '1.0',
+        runId,
+        designName: 'design',
+        viewport: { width: 320, height: 180 },
+        mode: 'semantic',
+        layout: 'responsive',
+        theme: 'light',
+        locale: 'en-US',
+        fallbackStack: 'system-ui, sans-serif',
+        unavailableFonts: [],
+        readableText: ['Semantic title'],
+        instructions: 'Keep the heading copy.',
+        sanitizedSvg: '<svg xmlns="http://www.w3.org/2000/svg" width="320" height="180"></svg>',
+        svgTruncated: false,
+        createdAt: new Date(now).toISOString(),
+        expiresAt: new Date(now + 600_000).toISOString(),
+      }),
+    );
+
+    const listed = await client.callTool({
+      name: 'list_studio_authoring_requests',
+      arguments: { studioWorkspace },
+    });
+    expect(listed.isError, JSON.stringify(listed.content)).toBeFalsy();
+    expect(listed.structuredContent).toMatchObject({
+      count: 1,
+      requests: [{ runId, readableText: ['Semantic title'], instructions: 'Keep the heading copy.' }],
+    });
+    const listedRequest = (listed.structuredContent as { requests: Array<{ canvasGuidance: string }> })
+      .requests[0];
+    expect(listedRequest?.canvasGuidance).toContain('320x180');
+
+    const unapproved = await client.callTool({
+      name: 'submit_studio_authored_html',
+      arguments: {
+        studioWorkspace,
+        runId,
+        authoringAgent: 'contract-test-agent',
+        files: [
+          { path: 'index.html', content: '<!doctype html><html lang="en"></html>' },
+          { path: 'styles.css', content: 'body{margin:0}' },
+        ],
+      },
+    });
+    expect(unapproved.isError).toBe(true);
+
+    const submitted = await client.callTool({
+      name: 'submit_studio_authored_html',
+      arguments: {
+        studioWorkspace,
+        runId,
+        approved: true,
+        authoringAgent: 'contract-test-agent',
+        files: [
+          {
+            path: 'index.html',
+            content:
+              '<!doctype html><html lang="en"><head><link rel="stylesheet" href="styles.css"></head><body><h1>Semantic title</h1></body></html>',
+          },
+          { path: 'styles.css', content: 'body{margin:0}' },
+        ],
+      },
+    });
+    expect(submitted.isError, JSON.stringify(submitted.content)).toBeFalsy();
+    expect(submitted.structuredContent).toMatchObject({ runId, accepted: true, fileCount: 2 });
+    const written = JSON.parse(
+      await readFile(join(studioWorkspace, 'agent-queue', 'responses', `${runId}.json`), 'utf8'),
+    );
+    expect(written).toMatchObject({ runId, authoringAgent: 'contract-test-agent' });
+
+    const missing = await client.callTool({
+      name: 'submit_studio_authored_html',
+      arguments: {
+        studioWorkspace,
+        runId: 'run-22222222-2222-4222-8222-222222222222',
+        approved: true,
+        authoringAgent: 'contract-test-agent',
+        files: [
+          { path: 'index.html', content: '<!doctype html><html lang="en"></html>' },
+          { path: 'styles.css', content: 'body{margin:0}' },
+        ],
+      },
+    });
+    expect(missing.isError).toBe(true);
+  });
 });
+

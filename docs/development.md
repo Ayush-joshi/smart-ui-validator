@@ -30,14 +30,24 @@ pnpm sbom
 ```
 
 `pnpm build` must precede packaged Studio checks because the CLI dynamically loads the copied
-`apps/cli/dist/studio` subtree. For manual source-checkout use, initialize a dedicated empty workspace
-and launch through the CLI so development exercises the same server entry point as consumers:
+`apps/cli/dist/studio` subtree. For manual source-checkout use, the workspace initializes
+automatically and defaults to `<cwd>/.studio-workspace` (inside the MCP root), so the agent-powered
+engine works with no flags:
+
+```bash
+pnpm smart-ui studio
+```
+
+Pass `--workspace` to use an explicit dedicated directory, or to initialize/verify without starting:
 
 ```bash
 pnpm smart-ui studio --workspace /absolute/path/to/studio-workspace --init-only
 pnpm smart-ui studio --workspace /absolute/path/to/studio-workspace --health-check --json
 pnpm smart-ui studio --workspace /absolute/path/to/studio-workspace
 ```
+
+The agent engine needs the `smart-ui` MCP server running from `.vscode/mcp.json`; after rebuilding it,
+restart it (**MCP: List Servers → smart-ui → Restart**) so new tools and evidence load.
 
 To refresh the owned SVG pilot evidence deliberately, build first and run
 `pnpm evaluate:svg:measure`, review the observation diff, then run `pnpm evaluate:svg`. The
