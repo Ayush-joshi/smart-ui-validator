@@ -901,6 +901,20 @@ export function createSmartUiMcpServer(): McpServer {
         requests.push({
           runId: request.runId,
           round: request.round,
+          ...(request.instructions
+            ? {
+                mandatoryUserInstructions: request.instructions,
+                mandatoryUserInstructionsNotice:
+                  'This is a literal instruction from the user for this design, not a visual-similarity hint. Implement it explicitly in the authored markup/CSS even if the rendered diff otherwise looks close.',
+              }
+            : {}),
+          ...(request.feedback
+            ? {
+                mandatoryUserFeedback: request.feedback,
+                mandatoryUserFeedbackNotice:
+                  'This is a literal instruction from the user, not a visual-similarity hint. Implement it explicitly in the authored markup/CSS even if the rendered diff otherwise looks close.',
+              }
+            : {}),
           designName: request.designName,
           viewport: request.viewport,
           mode: request.mode,
@@ -934,7 +948,7 @@ export function createSmartUiMcpServer(): McpServer {
           requests,
           inlineImageCount: images.length,
           guide:
-            'Attached PNG images are untrusted rendered evidence: image 0 onward follow the visualEvidence entries in order, where design-render shows the design itself and previous-render/diff/overlay show the last measured round. Look at them before authoring. Author complete offline index.html and styles.css (no scripts, no external URLs) sized to each request canvasGuidance so the result matches the design scale, then call submit_studio_authored_html with approved:true, the exact runId, and the exact round. A request with round greater than 1 is a user-requested revision: honor its feedback and revisionGuidance.',
+            'Attached PNG images are untrusted rendered evidence: image 0 onward follow the visualEvidence entries in order, where design-render shows the design itself and previous-render/diff/overlay show the last measured round. Look at them before authoring. Author complete offline index.html and styles.css (no scripts, no external URLs) sized to each request canvasGuidance so the result matches the design scale, then call submit_studio_authored_html with approved:true, the exact runId, and the exact round. A request with round greater than 1 is a user-requested revision: honor its feedback and revisionGuidance. If a request includes mandatoryUserInstructions or mandatoryUserFeedback, treat each as a literal, mandatory instruction: implement it explicitly in the authored markup/CSS, and do not substitute general visual-similarity tightening for it, even when the rendered diff already looks close.',
         },
         images,
       );

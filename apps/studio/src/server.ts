@@ -1266,6 +1266,9 @@ function runSummary(run: StudioRun, maxImproveRounds: number) {
           evidence: acceptedPass
             ? {
                 screenshot: `/api/runs/${run.id}/evidence/screenshot`,
+                design: acceptedPass.reference
+                  ? `/api/runs/${run.id}/evidence/design`
+                  : `/api/runs/${run.id}/evidence/screenshot`,
                 diff: `/api/runs/${run.id}/evidence/diff`,
                 overlay: `/api/runs/${run.id}/evidence/overlay`,
               }
@@ -1344,11 +1347,13 @@ async function evidence(
   const artifact =
     kind === 'screenshot'
       ? pass?.screenshot
-      : kind === 'diff'
-        ? pass?.diff
-        : kind === 'overlay'
-          ? pass?.overlay
-          : undefined;
+      : kind === 'design'
+        ? (pass?.reference ?? pass?.screenshot)
+        : kind === 'diff'
+          ? pass?.diff
+          : kind === 'overlay'
+            ? pass?.overlay
+            : undefined;
   if (!artifact) throw new SmartUiError('NOT_FOUND', 'Evidence was not found.');
   const bytes = await new LocalArtifactStore(run.artifactRoot).read(artifact.relativePath);
   binary(response, 200, artifact.mediaType, bytes, methodName);

@@ -83,7 +83,7 @@ interface RunSummary {
     failures: Array<{ code: string; message: string }>;
     previewUrl: string | null;
     downloads: { archive: string | null; report: string | null };
-    evidence: null | { screenshot: string; diff: string; overlay: string };
+    evidence: null | { screenshot: string; design: string; diff: string; overlay: string };
   };
   error?: { code: string; message: string; recovery: string };
 }
@@ -776,7 +776,7 @@ export function Review({
       )}
       {result.evidence && (
         <div className="evidence-grid">
-          <Evidence label="Generated output" src={result.evidence.screenshot} />
+          <Evidence label="Supplied design" src={result.evidence.design} />
           <Evidence label="Difference heatmap" src={result.evidence.diff} />
           <Evidence label="Overlay" src={result.evidence.overlay} />
         </div>

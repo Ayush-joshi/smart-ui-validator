@@ -189,6 +189,7 @@ const generationPassSchema = z
     score: z.number().min(0).max(100),
     diffPercent: z.number().min(0).max(100),
     screenshot: artifactRefSchema,
+    reference: artifactRefSchema.optional(),
     diff: artifactRefSchema,
     overlay: artifactRefSchema,
     provider: z.object({ name: z.string(), version: z.string() }).strict().optional(),

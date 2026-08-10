@@ -70,6 +70,7 @@ interface EvaluatedBundle {
   provider: HtmlGenerationProvider;
   comparison: Awaited<ReturnType<SmartUiComparator['compare']>>;
   screenshot: ArtifactRef;
+  reference: ArtifactRef;
   diff: ArtifactRef;
   overlay: ArtifactRef;
   outputHash: string;
@@ -523,6 +524,7 @@ export class GenerationOrchestrator {
       provider,
       comparison,
       screenshot,
+      reference: referenceRaster,
       diff,
       overlay,
       outputHash: bundleHash(bundle),
@@ -683,6 +685,7 @@ function passRecord(
     score: evaluated.comparison.score,
     diffPercent: evaluated.comparison.diffPercent,
     screenshot: evaluated.screenshot,
+    reference: evaluated.reference,
     diff: evaluated.diff,
     overlay: evaluated.overlay,
     provider: { name: evaluated.provider.name, version: evaluated.provider.version },

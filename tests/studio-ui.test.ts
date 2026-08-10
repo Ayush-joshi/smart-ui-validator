@@ -60,7 +60,12 @@ describe('Studio frontend components', () => {
         failures: [],
         previewUrl: 'http://127.0.0.1:43210/index.html',
         downloads: { archive: '/archive', report: '/report' },
-        evidence: { screenshot: '/screenshot', diff: '/diff', overlay: '/overlay' },
+        evidence: {
+          screenshot: '/screenshot',
+          design: '/design',
+          diff: '/diff',
+          overlay: '/overlay',
+        },
       },
     };
     const html = renderToStaticMarkup(
