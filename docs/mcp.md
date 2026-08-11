@@ -48,7 +48,8 @@ The repository-free surface is intentionally small and separate from repository 
 | `submit_studio_authored_html`    | Requires the exact waiting `runId` and `approved: true`. Validates and writes the agent's complete offline `index.html`, `styles.css`, and optional `assets/*.svg` back to the waiting Studio run; Studio then renders, measures, and verifies them.                                                                                                                                                                                                                             |
 
 `generate_html_from_svg` accepts exact, hybrid, or semantic mode; fixed, responsive, or component
-layout; an explicit source viewport; locale/theme; bounded instructions; timeout/pass limits;
+layout; an explicit source viewport; bounded `StructuredDesignContext` and `PresentationSpec`;
+locale/theme; bounded instructions; timeout/pass limits;
 compact/full response detail; and an optional complete UTF-8 host file proposal. Host files require
 `hostProposalApproved: true`; only `index.html`, `styles.css`, and text SVG assets under `assets/`
 are accepted in this release. Binary/base64 proposal bodies are not placed in MCP context.
@@ -68,8 +69,9 @@ authorization actions; repository `repair` permission does not imply any of them
 
 Smart UI Studio is a local browser host for the same `GenerationOrchestrator`. Its default AI-agent
 engine is powered by the connected MCP chat agent through a contained file-queue bridge: Studio writes
-a bounded authoring request into `<studio-workspace>/agent-queue/requests/`, the agent picks it up with
-`list_studio_authoring_requests`, authors offline HTML/CSS sized to the returned `canvasGuidance`, and
+a bounded schema-2.0 authoring request into `<studio-workspace>/agent-queue/requests/`, the agent picks
+it up with `list_studio_authoring_requests`, receives typed context, its original hash, documented
+redaction status, and exact presentation guidance, then authors offline HTML/CSS sized to the returned `canvasGuidance`, and
 returns it with `submit_studio_authored_html`. The authored files pass through the same host-proposal
 validation, isolated rendering, and deterministic comparison as any other proposal. Both tools resolve
 the Studio workspace against `SMART_UI_MCP_ROOT`, so the workspace must live inside the MCP root.
@@ -77,6 +79,13 @@ Running `smart-ui studio` from this repository checkout uses `<cwd>/.studio-work
 initializes it automatically, so no flags are required. While a run waits, Studio surfaces a
 ready-to-paste prompt containing the workspace path and run ID. Human users who prefer the
 deterministic engine can still use the SVG tools above or select the deterministic engine in Studio.
+
+`smart-ui studio --agent --host codex|claude|copilot` provides the supported bootstrap path. It checks
+Node, MCP-root containment, build freshness, packaged Studio assets, workspace writability, loopback,
+Chromium, and exact host configuration before startup. `--dry-run` and `--check-only` do not write;
+`--ensure-engine` is the explicit installation/build opt-in. `smart-ui doctor --studio-agent` calls
+the same redacted checks. Absent configuration is created atomically; differing existing files are
+reported with recovery guidance and never overwritten.
 
 Build and configure source-checkout hosts with the absolute `apps/mcp-server/dist/index.js` path. The
 [agent-first workflow](./agent-workflow.md) provides repository setup and retry budgets; the

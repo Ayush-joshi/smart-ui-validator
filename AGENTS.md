@@ -176,6 +176,34 @@ Evidence came from owned deterministic local fixtures, not live external hosts o
 remote Studio, authentication/tenant isolation, encrypted local stores, binary/multi-turn host
 proposals, durable multi-process registries, and a separately published Studio remain unimplemented.
 
+### Deferred large improvements — Phase 1
+
+Status: Implemented and verified on 2026-08-11.
+
+The repository now includes versioned `StructuredDesignContext`, `PresentationSpec`, `DesignBundle`
+2.0, `GenerationRecord` 2.0, and Studio authoring request 2.0 contracts with fail-closed old/new
+readers and deterministic 1.0 upgrades. Typed exact copy, tokens, semantics, interactions,
+provenance, and canvas intent flow through CLI, MCP, Studio persistence, authoring rounds, reports,
+and content-addressed artifacts. Source, fallback, proposal, preview, diff, and overlay share the
+same bounded primary canvas with intrinsic/contain/cover/stretch fit, alignment, and DPR; legacy
+intrinsic output remains compatible.
+
+Studio exposes accessible structured-context and exact-canvas editors. `smart-ui studio --agent`
+supports Codex, Claude, and Copilot plus check-only, JSON, dry-run, and explicit engine installation;
+`smart-ui doctor --studio-agent` shares its redacted Node/build/assets/Chromium/workspace/
+containment/loopback/config checks. Host configs are atomically created only when absent and differing
+files are never overwritten.
+
+Verification passed Prettier, ESLint, TypeScript, production build, 159 unit/integration tests, 13
+dedicated Studio tests, 7 real-Chromium E2E scenarios, the 25-tool built stdio handshake, both owned
+evaluation gates, a 222-file secret scan, package inspection (107 core, 18 CLI, 7 MCP files), packed
+clean-consumer bootstraps for all three hosts, publish readiness, and a 774-component CycloneDX SBOM.
+The 12-scenario SVG corpus retained 100% safe completion/repeatability/compatibility and 97.548%
+minimum source similarity. The privacy check passed for 222 source files after the repository-root
+`.codex/` machine-local bootstrap output was narrowly ignored; tracked host examples remain included.
+No live external Codex/Claude/Copilot session was exercised. Ordered named-viewport evaluation
+remains Phase 2 work.
+
 ## Working rules
 
 - Inspect the full repository, git status, and this file before each phase.

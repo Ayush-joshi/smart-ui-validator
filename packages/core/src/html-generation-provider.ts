@@ -88,6 +88,7 @@ export class DeterministicHtmlGenerationProvider implements HtmlGenerationProvid
     }
 
     const { width, height } = inspection.bundle.viewport;
+    const presentation = inspection.bundle.presentationSpec;
     const background =
       input.rendering.background.kind === 'color'
         ? input.rendering.background.value
@@ -125,6 +126,17 @@ export class DeterministicHtmlGenerationProvider implements HtmlGenerationProvid
 `;
     const variables = cssVariables(inspection.bundle.repeatedValues);
     const responsive = input.layout === 'responsive';
+    const canvasLayout = usesExplicitCanvasLayout(presentation, width, height)
+      ? presentationCanvasCss(presentation, width, height)
+      : `.generated-ui { margin: 0; width: 100%; }
+.canvas {
+  position: relative;
+  width: ${responsive ? `min(100%, ${width}px)` : `${width}px`};
+  aspect-ratio: ${width} / ${height};
+  overflow: hidden;
+  container-type: inline-size;
+  background: var(--smart-ui-background);
+}`;
     const css = `:root {
   --smart-ui-width: ${width};
   --smart-ui-height: ${height};
@@ -134,15 +146,7 @@ export class DeterministicHtmlGenerationProvider implements HtmlGenerationProvid
 * { box-sizing: border-box; }
 html, body { margin: 0; min-height: 100%; background: var(--smart-ui-background); }
 body { font-family: var(--smart-ui-font-stack); }
-.generated-ui { margin: 0; width: 100%; }
-.canvas {
-  position: relative;
-  width: ${responsive ? `min(100%, ${width}px)` : `${width}px`};
-  aspect-ratio: ${width} / ${height};
-  overflow: hidden;
-  container-type: inline-size;
-  background: var(--smart-ui-background);
-}
+${canvasLayout}
 .artwork, .semantic-layer { position: absolute; inset: 0; width: 100%; height: 100%; }
 .artwork svg { display: block; width: 100%; height: 100%; }
 .semantic-layer { pointer-events: none; }
@@ -188,6 +192,64 @@ body { font-family: var(--smart-ui-font-stack); }
     ];
     return { files, decisions, uncertainties, finalMode };
   }
+}
+
+function usesExplicitCanvasLayout(
+  presentation: SvgInspectionResult['bundle']['presentationSpec'],
+  sourceWidth: number,
+  sourceHeight: number,
+): boolean {
+  return !(
+    presentation.fit === 'intrinsic' &&
+    presentation.horizontalAlignment === 'start' &&
+    presentation.verticalAlignment === 'start' &&
+    presentation.primaryCanvas.width === sourceWidth &&
+    presentation.primaryCanvas.height === sourceHeight
+  );
+}
+
+function presentationCanvasCss(
+  presentation: SvgInspectionResult['bundle']['presentationSpec'],
+  sourceWidth: number,
+  sourceHeight: number,
+): string {
+  const target = presentation.primaryCanvas;
+  const availableX = target.width / sourceWidth;
+  const availableY = target.height / sourceHeight;
+  const [scaleX, scaleY] =
+    presentation.fit === 'stretch'
+      ? [availableX, availableY]
+      : presentation.fit === 'contain'
+        ? [Math.min(availableX, availableY), Math.min(availableX, availableY)]
+        : presentation.fit === 'cover'
+          ? [Math.max(availableX, availableY), Math.max(availableX, availableY)]
+          : [1, 1];
+  const renderedWidth = sourceWidth * scaleX;
+  const renderedHeight = sourceHeight * scaleY;
+  const offsetX = alignmentOffset(target.width - renderedWidth, presentation.horizontalAlignment);
+  const offsetY = alignmentOffset(target.height - renderedHeight, presentation.verticalAlignment);
+  return `.generated-ui {
+  position: relative;
+  margin: 0;
+  width: ${target.width}px;
+  height: ${target.height}px;
+  overflow: hidden;
+  background: var(--smart-ui-background);
+}
+.canvas {
+  position: absolute;
+  width: ${sourceWidth}px;
+  height: ${sourceHeight}px;
+  overflow: hidden;
+  container-type: inline-size;
+  background: var(--smart-ui-background);
+  transform-origin: top left;
+  transform: translate(${decimal(offsetX)}px, ${decimal(offsetY)}px) scale(${decimal(scaleX)}, ${decimal(scaleY)});
+}`;
+}
+
+function alignmentOffset(remaining: number, alignment: 'start' | 'center' | 'end'): number {
+  return alignment === 'center' ? remaining / 2 : alignment === 'end' ? remaining : 0;
 }
 
 function semanticElement(

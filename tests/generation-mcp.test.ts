@@ -110,6 +110,35 @@ describe('SVG generation MCP Phase 2', () => {
     const svgPath = join(workspace, 'screen.svg');
     const config = configSchema.parse({});
     const inspectionStore = new LocalArtifactStore(join(workspace, 'proposal-context'));
+    const structuredDesignContext = {
+      schemaVersion: '1.0' as const,
+      exactCopy: [
+        {
+          id: 'title',
+          label: 'Screen title',
+          text: 'Approved host proposal',
+          sourceNodeIds: ['source-text'],
+          provenance: 'MCP contract test',
+        },
+      ],
+      designTokens: [],
+      componentSemantics: [],
+      interactions: [],
+      generalNotes: 'Keep the approved proposal visually identical.',
+    };
+    const presentationSpec = {
+      schemaVersion: '1.0' as const,
+      primaryCanvas: {
+        id: 'desktop',
+        width: 320,
+        height: 180,
+        deviceScaleFactor: 1,
+      },
+      fit: 'intrinsic' as const,
+      horizontalAlignment: 'start' as const,
+      verticalAlignment: 'start' as const,
+      viewports: [],
+    };
     const input: SvgGenerationInput = {
       workspaceRoot: workspace,
       svgPath,
@@ -121,6 +150,8 @@ describe('SVG generation MCP Phase 2', () => {
         locale: 'en-US',
         theme: 'light',
       },
+      structuredDesignContext,
+      presentationSpec,
       dryRun: false,
     };
     const inspected = await new LocalSvgStructureProvider(
@@ -144,6 +175,8 @@ describe('SVG generation MCP Phase 2', () => {
         svgPath,
         mode: 'hybrid',
         layout: 'responsive',
+        structuredDesignContext,
+        presentationSpec,
         hostProposalApproved: true,
         proposalHost: 'contract-test-host',
         proposedFiles: proposal,
@@ -155,6 +188,8 @@ describe('SVG generation MCP Phase 2', () => {
       finalMode: 'hybrid',
       manifestHash: expect.stringMatching(/^sha256:/),
       hostProposal: { submitted: true, used: true },
+      presentationSpec,
+      structuredContextHash: expect.stringMatching(/^sha256:/),
       metrics: {
         visualMismatchPercent: expect.any(Number),
         responsiveRobustnessFindings: expect.any(Number),
@@ -248,6 +283,8 @@ describe('SVG generation MCP Phase 2', () => {
         workspaceRoot: workspace,
         svgPath,
         mode: 'hybrid',
+        structuredDesignContext,
+        presentationSpec,
         hostProposalApproved: true,
         proposedFiles: baseline.files.map((file) => ({
           relativePath: file.relativePath,

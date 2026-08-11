@@ -41,6 +41,10 @@ export class HtmlGenerationReporter implements GenerationReporter {
           `<tr><td>${escape(item.name)}</td><td>${item.viewport.width}×${item.viewport.height}</td><td>${escape(item.classification)}</td><td>${item.similarity === undefined ? 'not scored' : `${item.similarity.toFixed(3)}%`}</td><td>${item.findings.length}</td></tr>`,
       )
       .join('');
+    const presentation =
+      record.schemaVersion === '2.0'
+        ? `<p>Primary canvas <code>${escape(record.input.presentationSpec.primaryCanvas.id)}</code>: ${record.input.presentationSpec.primaryCanvas.width}×${record.input.presentationSpec.primaryCanvas.height} at DPR ${record.input.presentationSpec.primaryCanvas.deviceScaleFactor}; fit ${escape(record.input.presentationSpec.fit)}; alignment ${escape(record.input.presentationSpec.horizontalAlignment)}/${escape(record.input.presentationSpec.verticalAlignment)}.</p><p>Structured context <code>${escape(record.input.structuredContextHash)}</code>${record.designBundle ? `; full validated typed evidence is retained in <a href="${escape(artifactHref(record.designBundle))}">the design bundle</a>` : ''}.</p>`
+        : '<p>Legacy intrinsic-canvas record (schema 1.0).</p>';
     const html = `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Smart UI SVG generation ${escape(record.id)}</title>
@@ -51,7 +55,8 @@ export class HtmlGenerationReporter implements GenerationReporter {
 <div class="stats"><div class="card"><strong>${escape(record.input.finalMode ?? record.input.requestedMode)}</strong><span>final mode</span></div><div class="card"><strong>${finalPass ? `${(100 - finalPass.diffPercent).toFixed(3)}%` : 'N/A'}</strong><span>visual similarity</span></div><div class="card"><strong>${record.sanitization.nodeCount}</strong><span>sanitized nodes</span></div><div class="card"><strong>${record.uncertainties.length}</strong><span>uncertainties</span></div></div>
 <section><h2>Evidence</h2><div class="visuals">${visuals || '<p>No rendered evidence was produced.</p>'}</div></section>
 <section><h2>Generated files</h2><ul>${files || '<li>No deliverable was written.</li>'}</ul></section>
-<section><h2>Viewport evidence</h2><table><thead><tr><th>Name</th><th>Viewport</th><th>Classification</th><th>Similarity</th><th>Findings</th></tr></thead><tbody>${viewports}</tbody></table></section>
+	<section><h2>Viewport evidence</h2><table><thead><tr><th>Name</th><th>Viewport</th><th>Classification</th><th>Similarity</th><th>Findings</th></tr></thead><tbody>${viewports}</tbody></table></section>
+	<section><h2>Presentation and design context</h2>${presentation}</section>
 <section><h2>Sanitization</h2><p>Original <code>${escape(record.originalInputHash)}</code><br>Sanitized <code>${escape(record.sanitizedHash ?? 'not accepted')}</code></p><ul>${record.sanitization.decisions.map((item) => `<li>${escape(item)}</li>`).join('')}</ul></section>
 <section><h2>Decisions</h2><ul>${decisions || '<li>No generation decisions.</li>'}</ul></section>
 <section><h2>Uncertainties</h2><ul>${uncertainties || '<li>No reported uncertainties.</li>'}</ul></section>

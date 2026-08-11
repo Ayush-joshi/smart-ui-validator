@@ -48,9 +48,13 @@ import {
   deleteAuthoringRequest,
   deleteAuthoringResponse,
   generationRecordSchema,
+  emptyStructuredDesignContext,
+  intrinsicPresentationSpec,
   highestIssuedAuthoringRound,
   loadConfig,
   svgGenerationInputSchema,
+  presentationSpecSchema,
+  structuredDesignContextSchema,
   waitForAuthoringResponse,
   writeAuthoringRequest,
   type ArtifactRef,
@@ -61,6 +65,8 @@ import {
   type GenerationMode,
   type GenerationRecord,
   type HtmlGenerationProvider,
+  type PresentationSpec,
+  type StructuredDesignContext,
   type SvgInspectionResult,
 } from 'smart-ui-validator-core';
 
@@ -72,7 +78,7 @@ const RUN_ID = /^run-[a-f0-9-]{36}$/u;
 const RECORD_PATH = /^objects\/[a-f0-9]{2}\/[a-f0-9]{64}\.json$/u;
 const DEFAULT_RETENTION_MS = 24 * 60 * 60 * 1_000;
 const DEFAULT_MAX_IMPROVE_ROUNDS = 5;
-const MAX_JSON_BYTES = 16_384;
+const MAX_JSON_BYTES = 65_536;
 
 const STUDIO_CSP = [
   "default-src 'self'",
@@ -146,6 +152,8 @@ interface RunPreferences {
   mode: GenerationMode;
   layout: GenerationLayout;
   instructions?: string;
+  structuredDesignContext: StructuredDesignContext;
+  presentationSpec: PresentationSpec;
   improve: boolean;
 }
 
@@ -190,7 +198,7 @@ interface StudioRun {
 }
 
 interface PersistedRun {
-  schemaVersion: '1.0';
+  schemaVersion: '2.0';
   runId: string;
   filename: string;
   createdAt: string;
@@ -394,7 +402,7 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
       if (run.phase !== 'inspected') {
         throw new SmartUiError('POLICY_VIOLATION', 'Only an inspected run can start generation.');
       }
-      const preferences = parsePreferences(await readJsonBody(request));
+      const preferences = parsePreferences(await readJsonBody(request), run.inspection);
       const firstRound = await nextAuthoringRound(run);
       run.preferences = preferences;
       run.phase = 'generating';
@@ -562,6 +570,8 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
         mode: preferences.mode,
         layout: preferences.layout,
         ...(preferences.instructions ? { instructions: preferences.instructions } : {}),
+        structuredDesignContext: preferences.structuredDesignContext,
+        presentationSpec: preferences.presentationSpec,
         rendering: { background: { kind: 'transparent' }, locale: 'en-US', theme: 'light' },
       });
       const structure = new LocalSvgStructureProvider(store, config.generation.limits);
@@ -787,7 +797,7 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
         screenshot = (
           await new PlaywrightBrowserProvider().capture({
             url: session.url,
-            viewport: inspection.bundle.viewport,
+            viewport: inspection.bundle.presentationSpec.primaryCanvas,
             timeoutMs: Math.min(config.generation.timeoutMs, 60_000),
             locale: input.rendering.locale,
             theme: input.rendering.theme,
@@ -809,7 +819,7 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
       return [
         {
           kind: 'design-render',
-          label: `Rendered reference of the design at ${inspection.bundle.viewport.width}x${inspection.bundle.viewport.height}`,
+          label: `Rendered reference of the design on canvas ${inspection.bundle.presentationSpec.primaryCanvas.id} at ${inspection.bundle.presentationSpec.primaryCanvas.width}x${inspection.bundle.presentationSpec.primaryCanvas.height}`,
           mediaType: 'image/png',
           workspaceRelativePath: workspaceRelativeArtifact(
             workspace,
@@ -1059,13 +1069,26 @@ async function readBounded(request: IncomingMessage, limit: number): Promise<Uin
   return Buffer.concat(chunks);
 }
 
-function parsePreferences(value: unknown): RunPreferences {
+function parsePreferences(value: unknown, inspection?: InspectionSummary): RunPreferences {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new SmartUiError('INVALID_INPUT', 'Generation preferences must be an object.');
   }
   const input = value as Record<string, unknown>;
   const keys = Object.keys(input);
-  if (keys.some((key) => !['engine', 'mode', 'layout', 'instructions', 'improve'].includes(key))) {
+  if (
+    keys.some(
+      (key) =>
+        ![
+          'engine',
+          'mode',
+          'layout',
+          'instructions',
+          'improve',
+          'structuredDesignContext',
+          'presentationSpec',
+        ].includes(key),
+    )
+  ) {
     throw new SmartUiError('INVALID_INPUT', 'Generation preferences contain an unknown field.');
   }
   const engine = input['engine'] ?? 'agent';
@@ -1089,12 +1112,30 @@ function parsePreferences(value: unknown): RunPreferences {
   ) {
     throw new SmartUiError('INVALID_INPUT', 'Implementation note must be at most 4000 characters.');
   }
+  const structuredDesignContext = structuredDesignContextSchema.parse(
+    input['structuredDesignContext'] ??
+      emptyStructuredDesignContext(typeof instructions === 'string' ? instructions : undefined),
+  );
+  const sourceViewport = inspection
+    ? { width: inspection.width, height: inspection.height, deviceScaleFactor: 1 }
+    : undefined;
+  if (!input['presentationSpec'] && !sourceViewport) {
+    throw new SmartUiError(
+      'INVALID_INPUT',
+      'Presentation intent is missing and source dimensions are unavailable. Re-upload the SVG.',
+    );
+  }
+  const presentationSpec = presentationSpecSchema.parse(
+    input['presentationSpec'] ?? intrinsicPresentationSpec(sourceViewport!),
+  );
   return {
     engine: engine as 'agent' | 'deterministic',
     mode: input['mode'] as GenerationMode,
     layout: input['layout'] as GenerationLayout,
     improve: engine === 'agent' && improve !== false,
     ...(typeof instructions === 'string' && instructions.length > 0 ? { instructions } : {}),
+    structuredDesignContext,
+    presentationSpec,
   };
 }
 
@@ -1198,6 +1239,12 @@ function runSummary(run: StudioRun, maxImproveRounds: number) {
     phase: run.phase,
     progress: run.progress,
     inspection: run.inspection,
+    preferences: run.preferences
+      ? {
+          presentationSpec: run.preferences.presentationSpec,
+          structuredDesignContext: run.preferences.structuredDesignContext,
+        }
+      : null,
     rounds: run.rounds.map((item) => ({
       round: item.round,
       createdAt: item.createdAt,
@@ -1236,6 +1283,9 @@ function runSummary(run: StudioRun, maxImproveRounds: number) {
             : null,
           requestedMode: record.input.requestedMode,
           finalMode: record.input.finalMode,
+          presentationSpec: record.schemaVersion === '2.0' ? record.input.presentationSpec : null,
+          structuredContextHash:
+            record.schemaVersion === '2.0' ? record.input.structuredContextHash : null,
           manifestHash: record.manifestHash,
           files: record.generatedFiles.map((file, index) => ({
             index,
@@ -1361,7 +1411,7 @@ async function evidence(
 
 async function persistRun(run: StudioRun): Promise<void> {
   const value: PersistedRun = {
-    schemaVersion: '1.0',
+    schemaVersion: '2.0',
     runId: run.id,
     filename: run.filename,
     createdAt: run.createdAt,
@@ -1452,7 +1502,7 @@ function parsePersistedRun(value: unknown): PersistedRun {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('invalid run');
   const run = value as Record<string, unknown>;
   if (
-    run['schemaVersion'] !== '1.0' ||
+    (run['schemaVersion'] !== '1.0' && run['schemaVersion'] !== '2.0') ||
     typeof run['runId'] !== 'string' ||
     !RUN_ID.test(run['runId']) ||
     typeof run['filename'] !== 'string' ||
@@ -1488,7 +1538,13 @@ function parsePersistedRun(value: unknown): PersistedRun {
   ) {
     throw new Error('invalid record path');
   }
-  return run as unknown as PersistedRun;
+  const inspection = run['inspection'] as InspectionSummary | undefined;
+  const preferences = run['preferences'];
+  return {
+    ...(run as unknown as Omit<PersistedRun, 'schemaVersion' | 'preferences'>),
+    schemaVersion: '2.0',
+    ...(preferences ? { preferences: parsePreferences(preferences, inspection) } : {}),
+  };
 }
 
 async function deleteRun(run: StudioRun, runsRoot: string): Promise<void> {

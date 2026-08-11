@@ -121,7 +121,7 @@ export async function runSetup(
 }
 
 /** Runs Playwright's package-local installer without invoking a shell or global package manager. */
-async function installPlaywrightChromium(
+export async function installPlaywrightChromium(
   cwd: string,
   options: { onOutput?: (text: string) => void; timeoutMs?: number } = {},
 ): Promise<ProcessResult> {

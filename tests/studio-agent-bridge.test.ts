@@ -23,6 +23,7 @@ import {
   writeAuthoringRequest,
   writeAuthoringResponse,
   type AuthoringPriorEvidence,
+  type StructuredDesignContext,
   type StudioAuthoringResponse,
 } from '../packages/core/src/index.js';
 
@@ -51,6 +52,7 @@ async function inspectedRequest(
     round?: number;
     feedback?: string;
     priorEvidence?: AuthoringPriorEvidence;
+    context?: StructuredDesignContext;
   } = {},
 ) {
   const svgPath = join(ws, 'design.svg');
@@ -65,6 +67,7 @@ async function inspectedRequest(
     layout: 'responsive',
     rendering: { background: { kind: 'transparent' }, locale: 'en-US', theme: 'light' },
     instructions: 'Use the exact heading copy.',
+    ...(extra.context ? { structuredDesignContext: extra.context } : {}),
   });
   const inspection = await new LocalSvgStructureProvider(
     new LocalArtifactStore(artifactRoot),
@@ -109,9 +112,25 @@ function validResponse(round = 1): StudioAuthoringResponse {
 describe('Studio agent authoring bridge', () => {
   it('builds a bounded request carrying design evidence and verbatim user context', async () => {
     const ws = await workspace('build');
-    const request = await inspectedRequest(ws);
-    expect(request).toMatchObject({
+    const context: StructuredDesignContext = {
       schemaVersion: '1.0',
+      exactCopy: [
+        {
+          id: 'title',
+          label: 'Title',
+          text: 'Semantic title',
+          sourceNodeIds: ['text'],
+          provenance: 'Studio user',
+        },
+      ],
+      designTokens: [],
+      componentSemantics: [],
+      interactions: [],
+      generalNotes: 'Use the exact heading copy.',
+    };
+    const request = await inspectedRequest(ws, undefined, { context });
+    expect(request).toMatchObject({
+      schemaVersion: '2.0',
       runId: RUN_ID,
       round: 1,
       mode: 'semantic',
@@ -119,9 +138,34 @@ describe('Studio agent authoring bridge', () => {
       instructions: 'Use the exact heading copy.',
     });
     expect(request.readableText).toContain('Semantic title');
+    expect(request.presentationSpec.primaryCanvas).toMatchObject({
+      id: 'source',
+      width: 320,
+      height: 180,
+    });
+    expect(request.structuredContextHash).toMatch(/^sha256:[a-f0-9]{64}$/u);
+    expect(request.structuredDesignContext).toEqual(context);
+    expect(request.contextRedacted).toBe(false);
     expect(request.sanitizedSvg).toContain('<svg');
     expect(Date.parse(request.expiresAt)).toBeGreaterThan(Date.parse(request.createdAt));
     expect(() => authoringRequestSchema.parse(request)).not.toThrow();
+  });
+
+  it('documents redaction while hashing the validated original structured context', async () => {
+    const ws = await workspace('redaction');
+    const request = await inspectedRequest(ws, undefined, {
+      context: {
+        schemaVersion: '1.0',
+        exactCopy: [],
+        designTokens: [],
+        componentSemantics: [],
+        interactions: [],
+        generalNotes: 'authorization: Bearer private-token',
+      },
+    });
+    expect(request.contextRedacted).toBe(true);
+    expect(request.structuredDesignContext.generalNotes).toContain('[REDACTED]');
+    expect(request.structuredContextHash).toMatch(/^sha256:[a-f0-9]{64}$/u);
   });
 
   it('anchors canvas guidance to the design viewport and layout intent', async () => {

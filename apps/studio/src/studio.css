@@ -367,6 +367,56 @@ legend {
 .note small {
   color: var(--muted);
 }
+.editor-section {
+  padding-top: 18px;
+  border-top: 1px solid var(--line);
+}
+.field-help {
+  color: var(--muted);
+  margin-top: -5px;
+}
+.field-grid,
+.editor-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(145px, 1fr));
+  gap: 10px;
+}
+.field-grid label,
+.editor-row label {
+  display: grid;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.field-grid input,
+.field-grid select,
+.editor-row input,
+.editor-row select {
+  width: 100%;
+  background: #08131c;
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  padding: 9px;
+}
+.editor-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 16px 0 9px;
+}
+.editor-row {
+  align-items: end;
+  padding: 11px;
+  margin-bottom: 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #0b1720;
+}
+.context-group {
+  margin-top: 15px;
+}
 textarea {
   min-height: 110px;
   resize: vertical;

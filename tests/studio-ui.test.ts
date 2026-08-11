@@ -1,7 +1,12 @@
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
-import { Review, StudioApp } from '../apps/studio/src/client.js';
+import {
+  CanvasEditor,
+  Review,
+  StructuredContextEditor,
+  StudioApp,
+} from '../apps/studio/src/client.js';
 
 describe('Studio frontend components', () => {
   it('renders an accessible four-step local upload workflow', () => {
@@ -11,6 +16,61 @@ describe('Studio frontend components', () => {
     expect(html).toContain('Choose or drop an SVG');
     expect(html).toContain('telemetry off');
     expect(html).not.toContain('dangerouslySetInnerHTML');
+  });
+
+  it('renders accessible typed-context and exact-canvas editors', () => {
+    const canvas = renderToStaticMarkup(
+      createElement(CanvasEditor, {
+        sourceWidth: 320,
+        sourceHeight: 180,
+        custom: true,
+        width: 640,
+        height: 360,
+        dpr: 2,
+        fit: 'contain',
+        horizontalAlignment: 'center',
+        verticalAlignment: 'end',
+        viewports: [],
+        onCustom: vi.fn(),
+        onWidth: vi.fn(),
+        onHeight: vi.fn(),
+        onDpr: vi.fn(),
+        onFit: vi.fn(),
+        onHorizontalAlignment: vi.fn(),
+        onVerticalAlignment: vi.fn(),
+        onViewports: vi.fn(),
+      }),
+    );
+    const context = renderToStaticMarkup(
+      createElement(StructuredContextEditor, {
+        value: {
+          schemaVersion: '1.0',
+          exactCopy: [
+            {
+              id: 'title',
+              label: 'Title',
+              text: 'Hello',
+              locale: 'en-US',
+              sourceNodeIds: ['text-1'],
+              provenance: 'studio:user',
+            },
+          ],
+          designTokens: [],
+          componentSemantics: [],
+          interactions: [],
+        },
+        onChange: vi.fn(),
+      }),
+    );
+    expect(canvas).toContain('Primary canvas width');
+    expect(canvas).toContain('Device pixel ratio');
+    expect(canvas).toContain('Named validation viewports');
+    expect(context).toContain('Structured design context');
+    expect(context).toContain('Exact copy');
+    expect(context).toContain('Locale');
+    expect(context).toContain('Source node IDs (comma separated)');
+    expect(context).toContain('Component semantics');
+    expect(context).toContain('Interactions');
   });
 
   it('renders review evidence, source as escaped text, downloads, and an isolated sandboxed preview', () => {

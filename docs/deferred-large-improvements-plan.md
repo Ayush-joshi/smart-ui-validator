@@ -1,160 +1,97 @@
-# Deferred large improvements: assessment and implementation plan
+# SVG generation improvements and validation Studio extension
 
 Status: proposed
 
 Date assessed: 2026-08-11
 
-Source: the eight items under **Deferred large improvements** in
-[`confirm-then-improve-plan.md`](./confirm-then-improve-plan.md).
+This plan evaluates the eight deferred improvements in
+[`confirm-then-improve-plan.md`](./confirm-then-improve-plan.md). It extends the acceptance criteria
+in [`implementation-plan.md`](./implementation-plan.md) and
+[`svg-to-html-generation-plan.md`](./svg-to-html-generation-plan.md). Phase 4 adds a matching Studio
+experience for the existing repository-validation workflow without replacing or changing its
+validation, repair, scoring, or approval behavior.
 
-This plan extends, and does not replace or reduce, the acceptance criteria in
-[`implementation-plan.md`](./implementation-plan.md) and
-[`svg-to-html-generation-plan.md`](./svg-to-html-generation-plan.md).
+## 1. Decisions
 
-## 1. Current baseline
+Scores are relative to the controlled local pilot; 5 is highest.
 
-The repository is further along than the source list implies. The working tree already contains the
-round-aware confirm-then-improve loop: immutable authored rounds, prior deterministic evidence,
-Studio accept/improve decisions, and round-aware MCP request submission. Those changes are
-uncommitted and the complete automated gate set has not yet been rerun. They are the baseline for
-this plan, not work to implement again.
-
-The important current constraints are:
-
-- `DesignBundle.viewport` and Studio authoring guidance use the SVG's intrinsic or explicitly
-  overridden source viewport.
-- Generation evaluates source fidelity at one matching viewport and responsive robustness at one
-  configured narrow width. A robustness-only viewport intentionally has no similarity score.
-- Studio persists run pointers and immutable generation artifacts, but an active task becomes
-  `interrupted` after a process restart. The authoring queue has atomic files and round high-water
-  marks, but no claims, leases, or cross-process compare-and-swap state.
-- Studio accepts one bounded free-text implementation note. It does not have typed copy, token,
-  component-semantic, or interaction evidence.
-- Studio owns the accept/improve HTTP endpoint. MCP can author a round but cannot read or submit the
-  user's decision through a shared host-neutral decision boundary.
-- `workflow:setup` prepares repository validation. It does not fully bootstrap and verify the
-  Studio-plus-agent workflow.
-- Authored proposals already support multiple complete text rounds and multiple UTF-8 files. They do
-  not accept binary assets.
-
-## 2. Decision summary
-
-Scores are relative to the current controlled local pilot: 5 is highest.
-
-|   # | Improvement                              |       Impact       | Feasibility | Decision                                            | Reason                                                                                                                                                                                                                                                                                   |
-| --: | ---------------------------------------- | :----------------: | :---------: | --------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-|   1 | Explicit design-canvas viewport strategy |         5          |      4      | **Implement**                                       | It corrects a foundational ambiguity that affects authoring guidance, reference rendering, scoring, and responsive work. The current input already has a viewport override, but it does not separate intrinsic design dimensions from presentation intent.                               |
-|   2 | First-class multi-viewport fidelity      |         5          |      3      | **Implement after #1**                              | Responsive behavior is a core product promise. The implementation must distinguish matching-reference fidelity from reference-free robustness at every viewport.                                                                                                                         |
-|   3 | Durable multi-process authoring queue    | 3 now / 5 at scale |      3      | **Implement late**                                  | It is not the first fidelity bottleneck, but it is required for several chats or Studio processes to work reliably. Scope it to one local filesystem; remote and multi-node coordination remain deployment-owned.                                                                        |
-|   4 | Structured design context                |         5          |      4      | **Implement**                                       | Exact copy, token values, semantics, and interaction intent are higher-quality and more reviewable evidence than one free-text field.                                                                                                                                                    |
-|   5 | Deterministic round-convergence advice   |         3          |      5      | **Implement**                                       | It is inexpensive once round and viewport evidence are stable. It improves decisions without granting the engine authority to accept or continue automatically.                                                                                                                          |
-|   6 | Host-neutral decision UX                 |         4          |      4      | **Implement**                                       | It removes the VS Code/paste-flow assumption and aligns Studio, Codex, Claude Code, and headless use with one core state machine.                                                                                                                                                        |
-|   7 | One-command agent/Studio bootstrap       |         5          |      5      | **Implement**                                       | It removes a frequent operational failure mode: stale builds, an invalid MCP root, missing host config, and forgotten host restarts.                                                                                                                                                     |
-|   8 | Binary and multi-turn proposals          |         2          |      2      | **Defer binary; close the text multi-turn portion** | Complete text multi-turn proposals are already implemented by authored rounds. Binary uploads would add base64/context pressure, media parsing, malware/content validation, CSP changes, packaging work, and a much larger byte-budget surface without a demonstrated owned-corpus need. |
+|   # | Improvement                              |       Impact       | Feasibility | Decision                                                                                                                                                             |
+| --: | ---------------------------------------- | :----------------: | :---------: | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+|   1 | Explicit design-canvas viewport strategy |         5          |      4      | **Implement.** It fixes a foundational ambiguity between source dimensions and intended presentation size.                                                           |
+|   2 | First-class multi-viewport fidelity      |         5          |      3      | **Implement after #1.** Responsive behavior needs honest per-viewport evidence and acceptance.                                                                       |
+|   3 | Durable multi-process authoring queue    | 3 now / 5 at scale |      3      | **Implement last.** It is required for reliable concurrent Studio processes and chats but is not the first fidelity bottleneck.                                      |
+|   4 | Structured design context                |         5          |      4      | **Implement.** Exact copy, tokens, semantics, and interactions are stronger evidence than one free-text field.                                                       |
+|   5 | Deterministic convergence advice         |         3          |      5      | **Implement.** It can improve accept/revise decisions without controlling them.                                                                                      |
+|   6 | Host-neutral decision UX                 |         4          |      4      | **Implement.** Studio, MCP hosts, and automation should use one decision state machine.                                                                              |
+|   7 | One-command agent/Studio bootstrap       |         5          |      5      | **Implement.** It removes common setup, containment, stale-build, and host-restart failures.                                                                         |
+|   8 | Binary and multi-turn proposals          |         2          |      2      | **Defer binary.** Complete text-based multi-turn proposals already exist; binary support adds substantial security and byte-budget complexity without a proven need. |
 
 ### Selected scope
 
-Implement items 1 through 7. For item 8, update the source plan to state that bounded text
-multi-turn proposals are complete and binary proposals remain deferred. Reconsider binary support
-only when an owned evaluation case cannot reach its accepted result using HTML, CSS, and sanitized
-SVG assets.
+Implement items 1 through 7 in the first three phases. Phase 4 adds the validation Studio experience.
+For item 8, record text multi-turn proposals as complete and keep binary proposals deferred until an
+owned evaluation case demonstrates that HTML, CSS, and sanitized SVG assets are insufficient.
 
-## 3. Architectural decisions
+## 2. Design rules
 
-### 3.1 Separate source dimensions from presentation intent
+### Separate source dimensions from presentation intent
 
-Do not change the meaning of the existing `SvgGenerationInput.viewport` or
-`DesignBundle.viewport` fields in place. Existing records and callers treat them as the normalized
-source viewport.
+Do not change the existing meaning of `SvgGenerationInput.viewport` or `DesignBundle.viewport`.
+Add a versioned `PresentationSpec` containing:
 
-Add a versioned `PresentationSpec` with:
-
-- one required primary target canvas when the new feature is used;
-- width, height, device-pixel ratio, and a stable viewport ID;
-- an explicit fit strategy: `intrinsic`, `contain`, `cover`, or `stretch`;
-- horizontal and vertical alignment for non-stretch modes;
+- a primary target canvas with stable ID, width, height, and DPR;
+- fit mode: `intrinsic`, `contain`, `cover`, or `stretch`;
+- horizontal and vertical alignment;
 - a bounded validation viewport matrix;
-- whether each viewport is required or advisory; and
-- an optional contained reference for that exact viewport.
+- required or advisory status for each viewport; and
+- an optional contained reference for an exact viewport.
 
-The source SVG is rendered onto the primary canvas with the same fit/alignment rules used to explain
-the task to the authoring agent. This prevents the guidance, reference screenshot, generated capture,
-and deterministic comparison from using different canvases.
+The source render, authoring guidance, generated capture, preview, diff, and overlay must use the
+same canvas contract. With no `PresentationSpec`, behavior remains intrinsic and compatible with the
+current default.
 
-Defaults preserve current behavior: the primary canvas equals the normalized source viewport,
-`fit=intrinsic`, and the existing configured narrow viewport remains robustness-only.
+### Keep fidelity and robustness distinct
 
-### 3.2 Preserve evidence semantics at every viewport
+Every viewport has one evidence classification:
 
-Each viewport must be classified independently:
+- `source-fidelity` for the primary matching source;
+- `alternate-reference-fidelity` for a supplied matching viewport reference; or
+- `responsive-robustness` when no matching reference exists.
 
-- `source-fidelity`: the primary target has a matching rendered source;
-- `alternate-reference-fidelity`: a user supplied a separate matching reference for that viewport;
-  or
-- `responsive-robustness`: no matching reference exists, so only deterministic overflow, clipping,
-  reading-order, focus-order, minimum-size, runtime, and accessibility checks are allowed.
+Only matching-reference viewports receive similarity and mismatch scores. Robustness-only viewports
+receive deterministic overflow, clipping, reading-order, focus-order, minimum-size, runtime, and
+accessibility findings. A desktop reference must never be scored against a narrow screenshot.
 
-Never compare a desktop reference raster to a narrow generated screenshot. Never synthesize a
-fidelity percentage for a robustness-only viewport.
+Required viewports participate in overall acceptance. Advisory viewports can warn but cannot
+silently pass or fail the run.
 
-Per-viewport acceptance is explicit. A required matching-reference viewport must meet its fidelity
-threshold; a required robustness viewport must have no blocking findings. Advisory viewports may
-warn but cannot silently fail or pass the complete run.
+### Use typed, bounded design evidence
 
-### 3.3 Use typed, bounded design evidence
+Add a versioned `StructuredDesignContext` shared by Studio, CLI, MCP, and authoring requests:
 
-Add a versioned `StructuredDesignContext` shared by Studio, the queue contract, the headless CLI, and
-MCP. It contains bounded arrays for:
-
-- exact copy: stable local ID, label, text, locale, and optional source-node IDs;
-- design tokens: name, token kind, value, optional usage, and provenance;
-- component semantics: stable local ID, name, role, state/variant, and source-node IDs;
-- interactions: trigger, target, resulting state or behavior, keyboard notes, and source-node IDs;
+- exact copy: ID, label, text, locale, and optional source-node IDs;
+- design tokens: name, kind, value, usage, and provenance;
+- component semantics: ID, name, role, state or variant, and source-node IDs;
+- interactions: trigger, target, resulting behavior or state, keyboard notes, and source-node IDs;
   and
-- general notes, retaining the existing free-text field as an optional compatibility path.
+- optional general notes for compatibility with the existing free-text input.
 
-All strings remain untrusted evidence. Apply per-field, per-array, and total-character budgets;
-redact only secrets and sensitive headers, not valid user copy. Persist exact provenance and include
-the structured context hash in every authored round.
+Enforce per-field, per-array, and total-character budgets. Treat all values as untrusted evidence,
+retain provenance, and include a structured-context hash in each authored round.
 
-### 3.4 Establish one host-neutral workflow coordinator
+### Use one host-neutral workflow coordinator
 
-Extract the authoring and decision lifecycle from Studio HTTP handling into a core
-`AuthoringWorkflowCoordinator` backed by an `AuthoringWorkflowStore`. Studio HTTP, MCP, and the
-headless CLI become thin adapters over the same transitions.
+Move authoring and decision transitions behind a core `AuthoringWorkflowCoordinator` backed by an
+`AuthoringWorkflowStore`. Studio HTTP, MCP, and headless CLI commands must call the same transition
+functions.
 
-The coordinator owns:
+The coordinator owns queueing, claims, submissions, evaluation, accept/improve/cancel decisions,
+expiry, recovery, immutable round evidence, bounds, state versions, and idempotency. There must be
+one authoritative decision record, not separate Studio and MCP decision files.
 
-- inspect, queue, claim, submit response, evaluate, await decision, accept, improve, cancel, expire,
-  recover, and terminal transitions;
-- exact expected run version and round checks;
-- immutable round evidence and the selected/accepted round;
-- bounded round count and wall-clock time; and
-- idempotency keys for decisions and submissions.
+### Keep convergence advisory
 
-There must be only one decision record and transition function. The Studio endpoint and a future MCP
-decision tool call that function; they do not maintain separate files or precedence rules.
-
-### 3.5 Use a durable local registry with expiring leases
-
-Keep the default deployment local and dependency-light. Implement the store as a versioned,
-journaled filesystem registry under the contained Studio workspace, using:
-
-- per-run locks acquired with atomic create semantics;
-- monotonically increasing state versions;
-- atomic temporary-write plus rename for snapshots;
-- append-only bounded transition records for recovery and audit;
-- claim IDs, opaque lease tokens, lease owners, expiry, and heartbeat timestamps; and
-- response/decision compare-and-swap against exact run, round, claim, and state version.
-
-Do not use the experimental Node SQLite API or add a native SQLite dependency merely for this phase.
-The `AuthoringWorkflowStore` interface leaves room for a deployment-owned transactional backend.
-Document that the bundled store supports cooperating processes on one local filesystem, not NFS,
-remote workers, or multi-node failover.
-
-### 3.6 Keep convergence advisory and deterministic
-
-Add a pure `analyzeRoundConvergence` function. It consumes immutable round evidence and emits one of:
+Add a pure `analyzeRoundConvergence` function returning:
 
 - `insufficient-evidence`;
 - `improving`;
@@ -162,258 +99,299 @@ Add a pure `analyzeRoundConvergence` function. It consumes immutable round evide
 - `regressing`; or
 - `mixed`.
 
-Its evidence includes per-reference-viewport similarity deltas, required-viewport pass/fail changes,
-robustness finding deltas, repeated response/output hashes, and whether a prior viewport regressed.
-Thresholds are strict configuration values and are written into provenance.
+It uses per-reference-viewport similarity deltas, required-viewport result changes, robustness
+finding deltas, repeated hashes, and viewport regressions. It can explain whether another round may
+be useful, but it must never accept, improve, cancel, select a round, or invent a score.
 
-The result is advice only. It may say why another round may or may not be useful, but it must never
-submit a decision, choose a round, invent a score, or bypass the configured round bound.
+### Version strict schemas explicitly
 
-### 3.7 Evolve schemas explicitly
+The current Zod schemas are strict. Introduce new schema revisions rather than adding fields under a
+literal `1.0` version.
 
-The existing Zod objects are strict. Do not silently add fields while retaining a literal `1.0`
-schema version.
+- Readers accept supported old and new versions through discriminated unions.
+- Writers emit the new version only after readers and migrations are present.
+- Provide deterministic upgrades for safe persisted state.
+- Fail ambiguous or unsupported state closed with recovery guidance.
+- Preserve the meaning and readability of existing `1.0` records.
 
-- Add a new generation input/record revision for presentation specs, viewport acceptance, and
-  convergence evidence.
-- Add a new authoring request revision for structured context, target canvases, claims, and context
-  hashes.
-- Readers accept the supported old and new versions through an explicit discriminated union.
-- Writers emit the new version after migration lands.
-- Provide deterministic upgrade functions for persisted Studio run pointers and queued requests
-  where safe. Unsupported or ambiguous state fails closed with recovery guidance.
-- Preserve the meaning and readability of all existing `1.0` generation records.
+### Keep validation Studio as a thin host
 
-## 4. Implementation phases
+The validation Studio experience must consume the existing `SmartUiOrchestrator`, `RunRecord`, MCP
+tools, reports, artifacts, policies, and approval boundaries. It must not introduce a second
+validation engine or reinterpret scores and findings.
 
-Each phase is independently reviewable. Do not begin a later phase while its required predecessor is
-red.
+Studio may display runs and collect bounded rerun feedback. It must not directly rerun validation,
+apply repairs, approve writes, update baselines, or choose an agent action. An explicit user request
+is handed to the connected agent, which continues to call the existing validation and repair tools.
+Current instructions and feedback are untrusted evidence and cannot widen paths, commands,
+endpoints, memory scope, or approvals.
 
-### Phase 0 — Reconcile and verify the current baseline
+## 3. Four-phase implementation plan
 
-Goal: establish trustworthy evidence for the already-present confirm-then-improve work.
+### Phase 1 — Authoring inputs, canvas contract, and setup
 
-Work:
+Goal: improve the evidence supplied to the agent, establish explicit presentation intent, and make
+the workflow straightforward to start.
 
-1. Review the current working-tree changes without discarding or rewriting unrelated user work.
-2. Reconcile the outdated status in `confirm-then-improve-plan.md` with the implemented state.
-3. Close current fail-closed gaps before feature work, including malformed authored output being
-   rejected at MCP submission time rather than producing an unscored Studio round.
-4. Run the focused bridge, MCP, Studio server/UI, and SVG sanitizer tests.
-5. Run the complete baseline gates listed in section 6.
+#### Work
 
-Exit criteria:
+1. Verify the current confirm-then-improve baseline and close existing fail-closed gaps before schema
+   changes.
+2. Add the new schema readers, migration functions, `StructuredDesignContext`, and
+   `PresentationSpec`.
+3. Add accessible Studio editors for exact copy, tokens, component semantics, and interactions.
+   Retain the implementation note as general notes.
+4. Add Studio controls for intrinsic or custom primary canvas, DPR, fit, alignment, and bounded named
+   viewports. Persist exact values rather than device labels.
+5. Carry structured context and canvas guidance through persisted preferences, authoring requests,
+   revision rounds, compact MCP output, reports, CLI inputs, and MCP inputs.
+6. Render the source reference, fallback, authored output, preview, diff, and overlay with the same
+   primary-canvas rules.
+7. Enforce viewport count, dimensions, DPR, total pixels, browser time, artifact bytes, and structured
+   context budgets.
+8. Add `smart-ui studio --agent` with:
+   - `--host codex|claude|copilot`;
+   - `--check-only`, `--json`, and `--dry-run`;
+   - explicit `--ensure-engine` for dependency or Chromium installation;
+   - MCP build freshness, Studio assets, Chromium, workspace, containment, and loopback checks; and
+   - idempotent host-config creation without overwriting a differing existing file.
+9. Extend `smart-ui doctor` with the same redacted setup checks.
 
-- Two-round accept/improve behavior is covered by unit/integration tests and real Chromium.
-- Invalid authored HTML/CSS/SVG never creates a response file or an ambiguous blank score.
-- The working-tree baseline and its documentation agree.
-- All baseline gates pass before schema evolution begins.
+#### Exit criteria
 
-### Phase 1 — Typed design context and safe Studio authoring forms
-
-Goal: improve agent evidence quality without changing scoring.
-
-Work:
-
-1. Add `StructuredDesignContext` schemas, budgets, hashes, provenance, and compatibility migration.
-2. Add accessible Studio row editors for exact copy, tokens, component semantics, and interactions;
-   keep the implementation-note field as general notes.
-3. Carry typed context through persisted preferences, authoring requests, MCP compact responses,
-   revision rounds, and reports.
-4. Extend authoring guidance to prioritize exact copy and typed tokens over inferred SVG text or
-   values while clearly marking conflicts.
-5. Add safe JSON import/export of only the structured context object for repeatable tests and bulk
-   entry. Import validates before changing the active form.
-
-Exit criteria:
-
-- A round receives typed context unchanged except documented redaction and bounded normalization.
-- Invalid, oversized, duplicate-ID, or traversal-like source-node evidence fails closed.
-- The report shows which typed fields influenced a round and their provenance.
-- Legacy free-text-only Studio requests continue to work through the compatibility reader.
-
-### Phase 2 — Explicit target canvas and viewport matrix contracts
-
-Goal: make presentation intent explicit and use the same canvas everywhere.
-
-Work:
-
-1. Add `PresentationSpec` and its migration path without reinterpreting the existing source viewport.
-2. Add Studio controls for intrinsic/custom primary canvas, DPR, fit, alignment, and bounded named
-   viewports. Provide sensible presets, but persist exact numeric values rather than device names.
-3. Add equivalent CLI and MCP inputs.
-4. Render the source reference, exact fallback, authored output, preview, screenshots, diff, and
-   overlay with the same primary canvas contract.
-5. Put concise primary-canvas and viewport-matrix guidance in every authoring request and report.
-6. Enforce viewport count, per-dimension, DPR, total-pixel, browser-time, and artifact-byte budgets.
-
-Exit criteria:
-
-- Current callers with no presentation spec produce byte/schema-compatible behavior where promised.
+- Legacy free-text and intrinsic-canvas requests still work through compatibility readers.
+- Typed context reaches the authoring request unchanged except documented validation and redaction.
 - A small intrinsic component can be intentionally compared on a larger canvas without scale drift.
-- `intrinsic`, `contain`, `cover`, and `stretch` have deterministic tests, including alignment and
-  transparent background behavior.
-- A canvas mismatch between reference capture and generated capture is impossible by construction.
+- `intrinsic`, `contain`, `cover`, and `stretch` are deterministic across source and output renders.
+- Setup is idempotent and provides one exact recovery action for stale builds, invalid MCP roots,
+  missing Chromium, unwritable workspaces, and differing host configurations.
+- Invalid authored HTML, CSS, or SVG is rejected before it can create an ambiguous Studio result.
 
-### Phase 3 — First-class multi-viewport validation and acceptance
+### Phase 2 — Multi-viewport evidence, convergence, and host-neutral decisions
 
-Goal: evaluate agent output across a bounded responsive matrix with honest evidence.
+Goal: validate responsive output honestly and expose the same review loop to Studio, MCP hosts, and
+automation.
 
-Work:
+#### Work
 
-1. Replace the one-off narrow capture branch with an ordered matrix evaluator shared by built-in and
-   host-proposed generation.
-2. Support optional contained alternate SVG/image references for exact viewports. Normalize and hash
-   each reference with provenance.
-3. Run matching-reference comparison only when a reference is available; otherwise run the expanded
-   robustness checks.
-4. Record per-viewport thresholds, required/advisory status, result, screenshot, findings, and
-   reference artifact where applicable.
-5. Define overall acceptance as the deterministic aggregation of required viewport results. Keep
-   proposal non-regression checks per viewport so one desktop gain cannot hide a mobile regression.
-6. Update Studio comparison UI, reports, compact MCP results, ZIP manifests, and evaluation
-   scorecards with a viewport table.
+1. Replace the single narrow capture branch with an ordered viewport-matrix evaluator shared by
+   built-in and host-proposed generation.
+2. Support optional contained SVG or image references for exact viewports, with normalization,
+   hashes, and provenance.
+3. Run fidelity comparison only at matching-reference viewports and expanded robustness checks at
+   reference-free viewports.
+4. Record each viewport's classification, threshold, required/advisory status, result, screenshot,
+   reference, similarity or findings, and artifact hashes.
+5. Aggregate required viewport results deterministically. Reject a proposal that improves one
+   viewport but regresses another required viewport by default.
+6. Update Studio, reports, compact MCP results, ZIP manifests, and evaluation scorecards with a
+   consistent viewport result table.
+7. Extract the existing lifecycle into `AuthoringWorkflowCoordinator` while preserving Studio route
+   compatibility.
+8. Add deterministic convergence advice after the second completed round and show its evidence
+   without preselecting an action.
+9. Add:
+   - a read-only MCP tool for authoring and decision state;
+   - an approval-gated, idempotent MCP tool for accept, improve, and cancel; and
+   - a headless CLI flow that can enqueue, wait, report, stop at `awaiting-decision`, or apply a later
+     exact decision.
+10. Require exact run ID, expected state version, round when applicable, and idempotency key for
+    decisions. Reject stale or conflicting actions.
+11. Document equivalent Codex, Claude Code, Copilot, terminal, and automation flows without adding
+    host-specific behavior to the core.
 
-Exit criteria:
+#### Exit criteria
 
-- At least one owned fixture has desktop and narrow matching references with separately measured
-  fidelity.
-- At least one fixture has a source reference plus a reference-free narrow viewport and reports only
-  robustness at narrow width.
-- A proposal improving desktop but regressing a required narrow reference is rejected or clearly
-  retained only under an explicit reviewed policy; the default is rejection.
-- Repeated runs produce stable viewport ordering, classifications, findings, and hashes.
-
-### Phase 4 — Convergence advice and host-neutral decision state
-
-Goal: help users decide and expose the same decision model to every host.
-
-Work:
-
-1. Move lifecycle transitions behind `AuthoringWorkflowCoordinator` while keeping existing Studio
-   routes compatible.
-2. Add and persist deterministic convergence advice after the second completed round.
-3. Display advice, its evidence, and any per-viewport regressions in Studio without preselecting an
-   action.
-4. Add a read-only MCP tool for authoring/run decision state and an approval-gated, idempotent MCP
-   tool for accept/improve/cancel decisions.
-5. Require exact `runId`, expected state version, action, selected round where applicable, and
-   idempotency key. Reject stale or conflicting decisions.
-6. Add a headless CLI flow that can inspect/enqueue/wait/report and either stop at
-   `awaiting-decision`, accept the first result only when explicitly requested, or accept/improve via
-   a later exact command.
-7. Document equivalent Codex, Claude Code, Copilot, terminal, and automation flows. Host names affect
-   setup copy only, never core state behavior.
-
-Exit criteria:
-
+- An owned fixture has desktop and narrow matching references with separate fidelity scores.
+- Another fixture has a matching source viewport and reference-free narrow viewport that reports
+  robustness only.
+- A desktop improvement cannot hide a required mobile regression.
 - Studio HTTP, MCP, and CLI decisions produce the same versioned transition record.
-- Two simultaneous conflicting decisions have one deterministic winner; the stale action fails with
-  recovery guidance.
+- Two conflicting decisions have one deterministic winner; the stale action fails with recovery
+  guidance.
 - No non-interactive flow waits forever or silently accepts a round.
-- Convergence advice is stable, explains its inputs, and cannot invoke a transition.
+- Convergence results are repeatable, explain their inputs, and cannot invoke a transition.
 
-### Phase 5 — Durable local multi-process queue and restart recovery
+### Phase 3 — Durable local coordination and recovery
 
-Goal: support several local Studio processes and chats without duplicate authorship or lost state.
+Goal: make the selected improvements reliable across cooperating local processes and restarts.
 
-Work:
+#### Work
 
-1. Implement the journaled `AuthoringWorkflowStore` and migrate existing queue/run pointers.
-2. Add explicit request claiming and lease renewal. Submission requires the exact unexpired lease
-   token; store only a token hash in durable state.
-3. Add an MCP claim tool or an atomic claim option on an accurately annotated mutating tool. Keep the
-   existing read-only list operation genuinely read-only.
-4. Resume `awaiting-agent`, `awaiting-agent-revision`, and response-received states after restart.
-   Re-run an interrupted deterministic evaluation from its last safe boundary using the same
-   response hash; never fabricate completion.
-5. Make cancel, expiry, lease reclamation, duplicate response, and accepted-round selection
-   idempotent and compare-and-swap protected.
-6. Add retention/compaction for completed journals without deleting immutable generation artifacts
-   before their existing retention policy permits it.
+1. Implement a versioned `AuthoringWorkflowStore` as a journaled local filesystem registry using:
+   - per-run atomic locks;
+   - monotonically increasing state versions;
+   - atomic snapshots;
+   - append-only bounded transition records;
+   - opaque claim IDs and hashed lease tokens; and
+   - lease owner, expiry, and heartbeat metadata.
+2. Add explicit request claiming and renewal. Response submission requires the exact unexpired lease.
+   Keep the existing list operation genuinely read-only.
+3. Protect response submission and decisions with compare-and-swap checks against run, round, claim,
+   and state version.
+4. Resume waiting and response-received states after restart. Restart interrupted deterministic
+   evaluation from the last safe boundary using the same response hash; never fabricate completion.
+5. Make cancellation, expiry, lease reclamation, duplicate submission, and accepted-round selection
+   idempotent.
+6. Add retention and journal compaction without deleting immutable generation artifacts before their
+   existing retention policy permits it.
+7. Rerun bootstrap and clean-consumer checks against the final queue schema and MCP tool surface.
 
-Exit criteria:
+The bundled store supports cooperating processes on one local filesystem. NFS, remote workers,
+multi-node failover, and a hosted transactional backend remain deployment-owned. Do not introduce
+experimental Node SQLite or a native SQLite dependency for this phase.
+
+#### Exit criteria
 
 - Child-process contention tests prove that only one claimant owns a round at a time.
-- A killed claimant's lease expires and another claimant can safely continue.
-- Restart tests cover waiting, response-received, evaluating, awaiting-decision, accepted, canceled,
+- A dead claimant's lease expires and another claimant can continue safely.
+- Restart tests cover waiting, response received, evaluating, awaiting decision, accepted, canceled,
   and expired states.
-- Duplicate submissions or decisions never create duplicate round records or overwrite accepted
-  artifacts.
+- Duplicate submissions and decisions never duplicate rounds or overwrite accepted artifacts.
 - Cross-workspace and symlink attempts fail closed.
+- A packed clean consumer can bootstrap all documented hosts against the final tool surface.
 
-### Phase 6 — One-command agent/Studio bootstrap
+### Phase 4 — Validation workflow experience in Studio
 
-Goal: make the completed workflow easy to start and diagnose.
+Goal: give repository validation the same clear run-review and feedback experience as SVG generation
+while preserving the existing agent-led validation workflow.
 
-Work:
+#### Product experience
 
-1. Add `smart-ui studio --agent` as the supported entrypoint and reuse shared setup helpers rather
-   than spawning arbitrary shell strings.
-2. Check Node/pnpm compatibility, built MCP freshness, bundled Studio assets, Chromium availability,
-   workspace initialization, writability, `SMART_UI_MCP_ROOT` containment, queue schema support,
-   and loopback health.
-3. Support `--host codex|claude|copilot` and emit the exact contained host configuration for the
-   final tool surface.
-4. Create an absent workspace-local host config idempotently when explicitly requested. If a config
-   already exists and differs, do not overwrite it; print a bounded merge patch and exact restart
-   instruction.
-5. Add `--check-only`, `--json`, and `--dry-run`. Keep dependency installation or Chromium download
-   behind an explicit `--ensure-engine` action.
-6. Print the exact Studio URL, workspace, MCP root, server entrypoint, host restart step, and a
-   copyable first request. Never print secrets or capability tokens.
-7. Extend `smart-ui doctor` with the same redacted checks so startup failures have one recovery path.
+Add a top-level Studio workflow switch:
 
-Exit criteria:
+- **SVG generation** keeps the existing generation experience; and
+- **Repository validation** displays validation runs and their existing evidence.
 
-- A clean packed consumer can bootstrap Studio and produce a valid host config without repository
-  source paths.
-- Re-running setup is idempotent and never overwrites a differing user config.
-- An invalid broad MCP root, stale build, missing Chromium, unwritable workspace, or stale host
-  process produces one precise recovery action.
-- Codex, Claude Code, and Copilot config/schema smoke tests discover the same final tools.
+The validation area should provide:
 
-## 5. Deferred binary proposal gate
+- a filterable run list with status, target, component, viewport, start time, and stop reason;
+- a run detail view with check score and visual similarity shown as separate metrics;
+- target, implementation, diff, overlay, and report links from existing artifacts;
+- findings grouped by viewport, category, and severity;
+- pass history, changed files, rollback/regression state, runtime failures, accessibility findings,
+  decisions, and provenance;
+- comparison between two compatible runs without recalculating either score;
+- bounded rerun feedback attached to the selected prior run; and
+- a clear agent handoff state showing whether feedback is pending, acknowledged, running, completed,
+  failed, canceled, or expired.
 
-Do not implement binary proposal submission as part of phases 0-6. Open a new design phase only when
-all of these are true:
+#### Rerun boundary
+
+A rerun remains agent-led:
+
+1. The user selects an existing run, enters optional feedback, and explicitly requests a rerun.
+2. Studio creates a contained, immutable `ValidationRerunRequest` containing the prior run ID,
+   reusable validated inputs, artifact references, feedback and its hash, creation/expiry times, and
+   provenance. It contains no screenshot bytes, complete DOM dump, secrets, or new permissions.
+3. Studio displays a copyable host-neutral prompt. It does not invoke validation itself.
+4. The connected agent reads the request through a read-only MCP tool and acknowledges it through an
+   idempotent coordination tool.
+5. The agent calls the existing `validate_component` or approved `repair_component` workflow. All
+   current path, command, endpoint, write, repair, and baseline approvals remain unchanged.
+6. The resulting existing `RunRecord` links back to the rerun request and prior run. Studio then
+   displays it as a new run; it does not merge or overwrite the earlier record.
+
+Feedback is guidance for the next run, not authority to suppress findings, change thresholds, mask
+regions, approve a baseline, edit code, or bypass deterministic evidence. A request mentioning
+repair still requires the existing exact-file approval before `repair_component` can write.
+
+#### Architecture and work
+
+1. Add a read-only `ValidationRunCatalog` that discovers validated `RunRecord` files and their
+   content-addressed artifacts inside the exact configured workspace. Do not depend only on the MCP
+   server's process-local run map.
+2. Add a Studio validation view model that projects existing records without changing their schema
+   semantics. Unsupported record versions remain visible with bounded recovery guidance rather than
+   being rewritten.
+3. Add a versioned, bounded `ValidationRerunRequest` contract and store it through the Phase 3
+   coordination primitives, with exact workspace containment, expiry, idempotency, and provenance.
+4. Add MCP tools to list/get pending validation rerun requests and acknowledge/link their results.
+   Tool annotations must reflect read versus mutation accurately. These tools coordinate work; they
+   do not validate or repair.
+5. Add Studio routes for validation run listing, detail, artifact retrieval, comparison, rerun
+   request creation, cancellation, and status. Reuse existing Host/Origin/CSRF, session capability,
+   retention, and download-manifest controls.
+6. Reuse shared Studio components for run status, metrics, evidence, findings, history, feedback, and
+   agent handoff while keeping generation and validation view models separate.
+7. Add pagination and evidence budgets so Studio does not load every full record, DOM entry, or
+   screenshot into one response.
+8. Preserve actor, repository, project, component, viewport, prior run, rerun request, feedback hash,
+   agent host, and resulting run provenance.
+9. Update capabilities, tool counts, prompts, README, architecture, MCP, host, operations, security,
+   and roadmap documentation.
+10. Add final evaluation cases and run all quality, browser, security, privacy, packaging,
+    clean-consumer, and reproducibility gates.
+
+#### Explicit non-goals
+
+- No Studio-owned validation or repair implementation.
+- No automatic rerun after feedback is submitted.
+- No automatic repair, baseline update, finding suppression, threshold change, or memory promotion.
+- No change to `validate_component`, `repair_component`, `RunRecord`, comparator, repair stop
+  conditions, or approval semantics unless a separate compatibility fix is required and reviewed.
+- No direct target-repository writes from Studio.
+- No requirement to keep the MCP server process alive for historical run viewing.
+
+#### Exit criteria
+
+- Studio lists and renders existing successful, failed, canceled, and repaired validation records
+  without altering them.
+- Scores, findings, pass history, and artifact hashes shown in Studio match the original record and
+  offline report exactly.
+- Submitting feedback creates only a rerun request; no browser capture, validation, repair, baseline,
+  or target write occurs until an agent explicitly invokes the existing tools.
+- A completed agent-led rerun creates a new immutable `RunRecord` linked to both the prior run and
+  feedback request.
+- Expired, duplicated, stale, canceled, cross-workspace, and symlinked requests fail closed.
+- Existing CLI and MCP validation flows behave identically when Studio is unused.
+- React and Angular validation, repair, rollback, memory, and baseline tests remain green.
+- All required quality and release gates pass.
+
+## 4. Binary proposal gate
+
+Do not implement binary proposal submission in these four phases. Reconsider it only when all of
+the following are true:
 
 1. An owned, licensed fixture demonstrates a material result that cannot be represented with HTML,
    CSS, and sanitized SVG assets.
-2. The required media types, decode rules, metadata stripping, decompression limits, malware/content
-   scanning responsibility, CSP behavior, and export behavior are specified.
-3. Binary bytes can move through artifact handles or a bounded upload channel rather than inline MCP
-   base64.
-4. Per-file and aggregate decoded-byte/pixel budgets are enforced before browser rendering.
-5. Package, privacy, secret, and retention checks cover the new artifact types.
+2. Required media types, decoding, metadata stripping, decompression limits, content scanning, CSP,
+   export, and retention behavior are specified.
+3. Bytes move through artifact handles or a bounded upload channel rather than inline MCP base64.
+4. Per-file and aggregate decoded-byte and pixel budgets are enforced before rendering.
+5. Privacy, secret, package, and clean-consumer checks cover the new artifact types.
 
-Until then, continue allowing only complete UTF-8 `index.html`, `styles.css`, and sanitized
-`assets/*.svg` proposals. Multi-turn behavior remains the immutable complete-file round model; do not
-introduce ambiguous partial patches into one generation record.
+Until then, accept only complete UTF-8 `index.html`, `styles.css`, and sanitized `assets/*.svg`
+proposals. Continue using immutable complete-file rounds instead of ambiguous partial patches.
 
-## 6. Verification strategy
+## 5. Verification
 
-### Focused coverage added by this plan
+### Required new coverage
 
-- Contract migration tests for old and new generation, authoring, and persisted-run records.
-- Property/boundary tests for viewport counts, pixels, DPR, fit, alignment, references, and budgets.
-- Structured-context redaction, size, duplicate ID, injection, provenance, and round-trip tests.
-- Per-viewport fidelity versus robustness classification and acceptance aggregation tests.
-- Proposal regression tests where viewports improve and regress in different combinations.
-- Convergence tests for insufficient, improving, plateau, regressing, mixed, repeated-output, and
-  threshold-boundary histories.
-- MCP annotation, stale-version, idempotency, claim, lease, and decision tests through the official
+- Old/new contract migration and unsupported-version tests.
+- Structured-context bounds, redaction, duplicate ID, provenance, injection, and round-trip tests.
+- Canvas fit, alignment, DPR, transparent background, viewport matrix, and pixel-budget tests.
+- Fidelity-versus-robustness classification and required/advisory aggregation tests.
+- Cross-viewport proposal regression tests.
+- Convergence histories for insufficient, improving, plateau, regressing, mixed, and repeated output.
+- MCP annotations, stale versions, idempotency, claims, leases, and decisions through the official
   in-memory transport.
 - Multi-process contention and crash/restart integration tests.
-- Studio UI tests for accessible context editors, viewport matrices, advice, stale decisions, and
+- Studio accessibility and UI tests for structured inputs, viewports, advice, stale decisions, and
   recovery.
-- Real-Chromium scenarios for custom canvas scaling, alternate responsive references, robustness-only
-  viewports, two-round decisions, and restart recovery.
-- Packed clean-consumer bootstrap tests for all three documented hosts.
+- Validation Studio tests for run discovery, record projection, pagination, artifact access,
+  comparison, feedback requests, agent handoff, and strict no-side-effect submission.
+- Contract tests proving Studio displays the same validation scores, findings, passes, and hashes as
+  the original `RunRecord` and report.
+- Tests proving validation feedback alone cannot invoke a browser, run commands, modify a target,
+  approve a repair, update a baseline, or promote memory.
+- Real-Chromium custom-canvas, responsive-reference, robustness-only, multi-round, and recovery
+  scenarios.
+- Real-Chromium validation Studio scenarios covering run review, feedback handoff, and display of the
+  resulting separately executed agent-led rerun.
+- Packed clean-consumer setup tests for Codex, Claude Code, and Copilot.
 
-### Required gates before a phase is called complete
-
-Run the focused tests during implementation, then all applicable repository gates:
+### Required gates
 
 ```text
 pnpm format:check
@@ -434,39 +412,25 @@ pnpm publish:check
 pnpm sbom
 ```
 
-Record exact test counts, owned fixtures, repeatability results, tool counts, package contents,
-audit findings, and live-versus-mocked integration status. Do not describe configured Codex,
-Claude Code, or Copilot examples as live-verified unless each host was actually exercised.
+Record exact test counts, owned fixtures, repeatability results, tool counts, package contents, and
+live-versus-mocked integration status. Do not describe a configured host as live-verified unless it
+was actually exercised.
 
-## 7. Rollout and compatibility
+## 6. Definition of complete
 
-1. Ship schema readers and migrations before any writer emits new records.
-2. Keep intrinsic single-source behavior as the default through the viewport phases.
-3. Put structured context and custom viewport matrices behind explicit Studio/CLI inputs until the
-   owned corpus and migrations pass.
-4. Introduce MCP tools additively; update capabilities, prompts, docs, expected tool counts, and host
-   smoke tests in the same change.
-5. Enable durable claims only after old unclaimed requests are migrated or expire. Never let old and
-   leased writers race on one queue.
-6. Keep binary proposals disabled and remote/multi-node persistence unclaimed.
-7. Update `README.md`, `docs/architecture.md`, `docs/mcp.md`, `docs/hosts.md`,
-   `docs/svg-generation-contract.md`, `docs/operations.md`, `docs/security.md`, and the two roadmap
-   documents as each behavior becomes real.
+The selected improvements are complete when:
 
-## 8. Definition of complete
-
-The selected improvements are complete only when:
-
-- users can explicitly choose the presentation canvas and bounded viewport matrix;
+- users can supply typed design context and choose an explicit target canvas and bounded viewport
+  matrix;
 - every viewport reports honest fidelity or robustness evidence and required viewport policy drives
   acceptance;
-- typed design evidence reaches the authoring agent with bounds, hashes, and provenance;
-- Studio, MCP, and CLI use one idempotent decision state machine;
+- Studio, MCP, and CLI use one versioned, idempotent decision state machine;
 - convergence advice is deterministic, explainable, and non-authoritative;
 - cooperating local processes use claims and leases without duplicate rounds or lost decisions;
-- `smart-ui studio --agent` verifies and starts the complete workflow with precise recovery guidance;
-- old records and the default intrinsic workflow remain supported through explicit migrations;
-- all repository, browser, evaluation, security, privacy, packaging, and clean-consumer gates pass;
-  and
-- binary proposals, remote coordination, and any unverified live host behavior remain accurately
-  documented as out of scope.
+- `smart-ui studio --agent` verifies and starts the final workflow with precise recovery guidance;
+- Studio provides validation run history, evidence review, comparison, and feedback handoff without
+  owning or automatically triggering validation or repair;
+- old records and intrinsic defaults remain supported through explicit migrations;
+- all browser, evaluation, security, privacy, packaging, and clean-consumer gates pass; and
+- binary proposals, remote coordination, and unverified live-host behavior remain accurately out of
+  scope.

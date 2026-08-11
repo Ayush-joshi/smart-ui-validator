@@ -1,8 +1,10 @@
 #!/usr/bin/env node
 import { randomUUID } from 'node:crypto';
 import { spawn } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { readFile, writeFile } from 'node:fs/promises';
-import { extname, join, resolve } from 'node:path';
+import { dirname, extname, isAbsolute, join, relative, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { Command, Option } from 'commander';
 import {
   AgentMemoryProvider,
@@ -33,6 +35,14 @@ import {
   resolveMemoryPath,
   runDoctor,
   runSetup,
+  ensureStudioAgentHostConfig,
+  installPlaywrightChromium,
+  presentationSpecSchema,
+  structuredDesignContextSchema,
+  runStudioAgentSetupChecks,
+  type StudioAgentHost,
+  type PresentationSpec,
+  type StructuredDesignContext,
 } from 'smart-ui-validator-core';
 import { registerMemoryCommands } from './memory-cli.js';
 import { loadStudioModule } from './studio-loader.js';
@@ -65,10 +75,66 @@ program
     24,
   )
   .option('--health-check', 'start, report all Studio health checks, and exit')
+  .option('--agent', 'bootstrap and verify the Studio plus MCP-agent workflow')
+  .addOption(new Option('--host <host>').choices(['codex', 'claude', 'copilot']).default('codex'))
+  .option('--check-only', 'run setup checks without writing config or starting Studio')
+  .option('--dry-run', 'preview agent setup without writing config or starting Studio')
+  .option('--ensure-engine', 'explicitly install pinned Chromium and rebuild stale local assets')
   .option('--json', 'emit one compact startup or initialization result')
   .action(async (options: StudioCliOptions) => {
     const workspace = userPath(options.workspace ?? '.studio-workspace');
     const studio = await loadStudioModule();
+    if (options.agent) {
+      const runtime = studioAgentRuntime();
+      const mcpRoot = resolve(process.env['SMART_UI_MCP_ROOT'] ?? invocationRoot);
+      const hostConfigPath = studioAgentHostConfigPath(options.host);
+      const expectedHostConfig = studioAgentHostConfig(options.host, runtime.mcpEntryPath, mcpRoot);
+      if (options.ensureEngine) {
+        const installed = await installPlaywrightChromium(invocationRoot);
+        if (installed.exitCode !== 0) {
+          throw new SmartUiError(
+            'PROVIDER_FAILURE',
+            installed.stderr || installed.stdout || 'Pinned Chromium installation failed.',
+          );
+        }
+        if (runtime.sourcePaths) await runExplicitProcess('pnpm', ['build'], invocationRoot);
+      }
+      const configAction =
+        options.checkOnly || options.dryRun
+          ? await ensureStudioAgentHostConfig(hostConfigPath, expectedHostConfig, true)
+          : await ensureStudioAgentHostConfig(hostConfigPath, expectedHostConfig);
+      if (!options.checkOnly && !options.dryRun) await studio.initializeStudioWorkspace(workspace);
+      const setup = await runStudioAgentSetupChecks({
+        workspaceRoot: workspace,
+        mcpRoot,
+        mcpEntryPath: runtime.mcpEntryPath,
+        studioAssetsRoot: runtime.studioAssetsRoot,
+        host: options.host,
+        hostConfigPath,
+        expectedHostConfig,
+        ...(runtime.sourcePaths ? { sourcePaths: runtime.sourcePaths } : {}),
+      });
+      const bootstrap = {
+        schemaVersion: '1.0',
+        ready: setup.ready && (configAction === 'created' || configAction === 'unchanged'),
+        dryRun: options.dryRun ?? false,
+        checkOnly: options.checkOnly ?? false,
+        host: options.host,
+        workspace,
+        mcpRoot,
+        mcpEntry: runtime.mcpEntryPath,
+        hostConfigPath,
+        configAction,
+        checks: setup.checks,
+        restartAction: studioAgentRestartAction(options.host),
+        firstRequest: `Use the smart-ui MCP server. Call list_studio_authoring_requests with studioWorkspace ${JSON.stringify(workspace)} and author the pending exact run and round.`,
+      };
+      if (options.checkOnly || options.dryRun || !bootstrap.ready) {
+        print(bootstrap, options.json);
+        if (!bootstrap.ready) process.exitCode = 4;
+        return;
+      }
+    }
     // The dedicated workspace is always initialized (idempotently) so the agent-powered flow works
     // with zero setup; the MCP-connected agent reaches its queue inside this in-repo workspace.
     const initialized = await studio.initializeStudioWorkspace(workspace);
@@ -114,6 +180,8 @@ program
   )
   .option('--name <name>', 'friendly generated UI name')
   .option('--instructions <text>', 'bounded implementation note')
+  .option('--design-context <path>', 'StructuredDesignContext 1.0 JSON inside the workspace')
+  .option('--presentation <path>', 'PresentationSpec 1.0 JSON inside the workspace')
   .option('--viewport <width>x<height>', 'explicit source viewport', parseGenerationViewport)
   .option('--timeout <milliseconds>', 'generation timeout', parseGenerationTimeout)
   .option(
@@ -135,6 +203,26 @@ program
     const cancel = () => controller.abort();
     process.once('SIGINT', cancel);
     try {
+      const structuredDesignContext = options.designContext
+        ? structuredDesignContextSchema.parse(
+            JSON.parse(
+              await readFile(
+                containedUserPath(workspace, options.designContext, 'design context'),
+                'utf8',
+              ),
+            ),
+          )
+        : undefined;
+      const presentationSpec = options.presentation
+        ? presentationSpecSchema.parse(
+            JSON.parse(
+              await readFile(
+                containedUserPath(workspace, options.presentation, 'presentation spec'),
+                'utf8',
+              ),
+            ),
+          )
+        : undefined;
       const result = await new GenerationOrchestrator({
         structure: new LocalSvgStructureProvider(store, config.generation.limits),
         generator: new DeterministicHtmlGenerationProvider(),
@@ -154,6 +242,8 @@ program
           mode: options.mode,
           layout: options.layout,
           ...(options.instructions ? { instructions: options.instructions } : {}),
+          ...(structuredDesignContext ? { structuredDesignContext } : {}),
+          ...(presentationSpec ? { presentationSpec } : {}),
           ...(options.viewport ? { viewport: options.viewport } : {}),
           rendering: {
             background: { kind: 'transparent' },
@@ -212,10 +302,31 @@ program
   .command('doctor')
   .description('Run redacted read-only environment and target diagnostics')
   .option('--target <path>', 'React or Angular repository root', '.')
+  .option('--studio-agent', 'run the shared Studio plus MCP-agent setup checks')
+  .option('--workspace <path>', 'dedicated Studio workspace', '.studio-workspace')
+  .addOption(new Option('--host <host>').choices(['codex', 'claude', 'copilot']).default('codex'))
   .option('--json', 'emit JSON')
-  .action(async ({ target, json }: { target: string; json?: boolean }) => {
-    const diagnosis = await runDoctor(userPath(target));
-    print(diagnosis, json);
+  .action(async (options: DoctorCliOptions) => {
+    if (options.studioAgent) {
+      const runtime = studioAgentRuntime();
+      const mcpRoot = resolve(process.env['SMART_UI_MCP_ROOT'] ?? invocationRoot);
+      const hostConfigPath = studioAgentHostConfigPath(options.host);
+      const diagnosis = await runStudioAgentSetupChecks({
+        workspaceRoot: userPath(options.workspace),
+        mcpRoot,
+        mcpEntryPath: runtime.mcpEntryPath,
+        studioAssetsRoot: runtime.studioAssetsRoot,
+        host: options.host,
+        hostConfigPath,
+        expectedHostConfig: studioAgentHostConfig(options.host, runtime.mcpEntryPath, mcpRoot),
+        ...(runtime.sourcePaths ? { sourcePaths: runtime.sourcePaths } : {}),
+      });
+      print(diagnosis, options.json);
+      if (!diagnosis.ready) process.exitCode = 4;
+      return;
+    }
+    const diagnosis = await runDoctor(userPath(options.target));
+    print(diagnosis, options.json);
     if (!diagnosis.ready) process.exitCode = 4;
   });
 
@@ -577,6 +688,15 @@ function userPath(path: string): string {
   return resolve(invocationRoot, path);
 }
 
+function containedUserPath(workspace: string, path: string, label: string): string {
+  const candidate = userPath(path);
+  const relation = relative(workspace, candidate);
+  if (relation.startsWith('..') || isAbsolute(relation)) {
+    throw new SmartUiError('POLICY_VIOLATION', `${label} must stay inside the declared workspace.`);
+  }
+  return candidate;
+}
+
 async function writeJsonOutput(path: string | undefined, value: unknown): Promise<void> {
   if (path) await writeFile(userPath(path), `${JSON.stringify(value, null, 2)}\n`, { flag: 'wx' });
 }
@@ -647,6 +767,84 @@ function parseStudioRetentionHours(value: string): number {
     );
   }
   return hours;
+}
+
+function studioAgentRuntime(): {
+  mcpEntryPath: string;
+  studioAssetsRoot: string;
+  sourcePaths?: string[];
+} {
+  const modulePath = fileURLToPath(import.meta.url);
+  const repositoryRoot = resolve(dirname(modulePath), '..', '..', '..');
+  if (
+    modulePath.includes(`${join('apps', 'cli')}${process.platform === 'win32' ? '\\' : '/'}`) &&
+    existsSync(join(repositoryRoot, 'apps', 'mcp-server', 'src', 'server.ts'))
+  ) {
+    return {
+      mcpEntryPath: join(repositoryRoot, 'apps', 'mcp-server', 'dist', 'index.js'),
+      studioAssetsRoot: join(repositoryRoot, 'apps', 'studio', 'dist', 'public'),
+      sourcePaths: [
+        join(repositoryRoot, 'apps', 'mcp-server', 'src'),
+        join(repositoryRoot, 'apps', 'studio', 'src'),
+        join(repositoryRoot, 'packages', 'core', 'src'),
+        join(repositoryRoot, 'package.json'),
+        join(repositoryRoot, 'pnpm-lock.yaml'),
+      ],
+    };
+  }
+  const serverModule = fileURLToPath(import.meta.resolve('smart-ui-validator-mcp'));
+  return {
+    mcpEntryPath: join(dirname(serverModule), 'index.js'),
+    studioAssetsRoot: join(dirname(modulePath), 'studio', 'public'),
+  };
+}
+
+function studioAgentHostConfigPath(host: StudioAgentHost): string {
+  if (host === 'codex') return resolve(invocationRoot, '.codex', 'config.toml');
+  if (host === 'claude') return resolve(invocationRoot, '.mcp.json');
+  return resolve(invocationRoot, '.vscode', 'mcp.json');
+}
+
+function studioAgentHostConfig(
+  host: StudioAgentHost,
+  mcpEntryPath: string,
+  mcpRoot: string,
+): string {
+  if (host === 'codex') {
+    return `[mcp_servers.smart_ui]\ncommand = "node"\nargs = [${JSON.stringify(mcpEntryPath)}]\ncwd = ${JSON.stringify(mcpRoot)}\nenv = { SMART_UI_MCP_ROOT = ${JSON.stringify(mcpRoot)} }\nstartup_timeout_sec = 20\ntool_timeout_sec = 120\nrequired = true\nenabled = true\ndefault_tools_approval_mode = "writes"\n`;
+  }
+  const server = {
+    type: 'stdio',
+    command: 'node',
+    args: [mcpEntryPath],
+    env: { SMART_UI_MCP_ROOT: mcpRoot },
+  };
+  return `${JSON.stringify(
+    host === 'claude'
+      ? { mcpServers: { 'smart-ui': server } }
+      : { servers: { 'smart-ui': { ...server, sandboxEnabled: true } } },
+    null,
+    2,
+  )}\n`;
+}
+
+function studioAgentRestartAction(host: StudioAgentHost): string {
+  if (host === 'codex')
+    return 'Restart the Codex app or CLI session so it reloads .codex/config.toml.';
+  if (host === 'claude') return 'Restart Claude Code so it reloads .mcp.json.';
+  return 'Run “MCP: Reset Cached Tools” in VS Code, then restart the Copilot agent session.';
+}
+
+async function runExplicitProcess(executable: string, args: string[], cwd: string): Promise<void> {
+  await new Promise<void>((accept, reject) => {
+    const child = spawn(executable, args, { cwd, shell: false, stdio: 'inherit' });
+    child.once('error', reject);
+    child.once('close', (code) =>
+      code === 0
+        ? accept()
+        : reject(new Error(`${executable} ${args.join(' ')} exited with code ${code ?? -1}.`)),
+    );
+  });
 }
 
 function openBrowser(url: string): void {
@@ -794,6 +992,10 @@ interface GenerateCliOptions {
   layout: 'fixed' | 'responsive' | 'component';
   name?: string;
   instructions?: string;
+  designContext?: string;
+  presentation?: string;
+  structuredDesignContext?: StructuredDesignContext;
+  presentationSpec?: PresentationSpec;
   viewport?: { width: number; height: number; deviceScaleFactor: number };
   timeout?: number;
   maxPasses?: number;
@@ -809,6 +1011,19 @@ interface StudioCliOptions {
   port: number;
   retentionHours: number;
   healthCheck?: boolean;
+  agent?: boolean;
+  host: StudioAgentHost;
+  checkOnly?: boolean;
+  dryRun?: boolean;
+  ensureEngine?: boolean;
+  json?: boolean;
+}
+
+interface DoctorCliOptions {
+  target: string;
+  studioAgent?: boolean;
+  workspace: string;
+  host: StudioAgentHost;
   json?: boolean;
 }
 

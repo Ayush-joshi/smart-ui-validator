@@ -52,6 +52,9 @@ importers:
       smart-ui-validator-core:
         specifier: workspace:*
         version: link:../../packages/core
+      smart-ui-validator-mcp:
+        specifier: workspace:*
+        version: link:../mcp-server
     devDependencies:
       '@smart-ui/studio':
         specifier: workspace:*

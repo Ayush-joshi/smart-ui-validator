@@ -1,9 +1,228 @@
 import { z } from 'zod';
+import { createHash } from 'node:crypto';
 import { isAbsolute } from 'node:path';
 import { artifactRefSchema, validationFindingSchema } from './schemas.js';
 
 export const generationModeSchema = z.enum(['exact', 'hybrid', 'semantic']);
 export const generationLayoutSchema = z.enum(['fixed', 'responsive', 'component']);
+
+export const MAX_PRESENTATION_VIEWPORTS = 8;
+export const MAX_PRESENTATION_TOTAL_PIXELS = 50_000_000;
+export const MAX_STRUCTURED_CONTEXT_CHARACTERS = 20_000;
+const MAX_CONTEXT_ITEMS = 100;
+const MAX_CONTEXT_FIELD_CHARACTERS = 4_000;
+const boundedContextText = z.string().min(1).max(MAX_CONTEXT_FIELD_CHARACTERS);
+const sourceNodeIdsSchema = z.array(z.string().min(1).max(200)).max(100).default([]);
+const stableIdSchema = z
+  .string()
+  .min(1)
+  .max(100)
+  .regex(/^[A-Za-z0-9][A-Za-z0-9._-]*$/u);
+
+export const structuredDesignContextSchema = z
+  .object({
+    schemaVersion: z.literal('1.0'),
+    exactCopy: z
+      .array(
+        z
+          .object({
+            id: stableIdSchema,
+            label: z.string().min(1).max(200),
+            text: boundedContextText,
+            locale: z.string().min(1).max(100).optional(),
+            sourceNodeIds: sourceNodeIdsSchema,
+            provenance: z.string().min(1).max(500),
+          })
+          .strict(),
+      )
+      .max(MAX_CONTEXT_ITEMS)
+      .default([]),
+    designTokens: z
+      .array(
+        z
+          .object({
+            name: stableIdSchema,
+            kind: z.enum(['color', 'typography', 'spacing', 'radius', 'border', 'shadow', 'other']),
+            value: boundedContextText,
+            usage: z.string().max(1_000).optional(),
+            provenance: z.string().min(1).max(500),
+          })
+          .strict(),
+      )
+      .max(MAX_CONTEXT_ITEMS)
+      .default([]),
+    componentSemantics: z
+      .array(
+        z
+          .object({
+            id: stableIdSchema,
+            name: z.string().min(1).max(200),
+            role: z.string().min(1).max(200),
+            stateOrVariant: z.string().max(500).optional(),
+            sourceNodeIds: sourceNodeIdsSchema,
+            provenance: z.string().min(1).max(500),
+          })
+          .strict(),
+      )
+      .max(MAX_CONTEXT_ITEMS)
+      .default([]),
+    interactions: z
+      .array(
+        z
+          .object({
+            id: stableIdSchema,
+            trigger: z.string().min(1).max(500),
+            target: z.string().min(1).max(500),
+            resultingBehavior: boundedContextText,
+            keyboardNotes: z.string().max(1_000).optional(),
+            sourceNodeIds: sourceNodeIdsSchema,
+            provenance: z.string().min(1).max(500),
+          })
+          .strict(),
+      )
+      .max(MAX_CONTEXT_ITEMS)
+      .default([]),
+    generalNotes: z.string().max(4_000).optional(),
+  })
+  .strict()
+  .superRefine((context, refinement) => {
+    for (const [key, items] of [
+      ['exactCopy', context.exactCopy],
+      ['designTokens', context.designTokens],
+      ['componentSemantics', context.componentSemantics],
+      ['interactions', context.interactions],
+    ] as const) {
+      const ids = items.map((item) => ('id' in item ? item.id : item.name));
+      if (new Set(ids).size !== ids.length) {
+        refinement.addIssue({
+          code: 'custom',
+          path: [key],
+          message: `${key} identifiers must be unique.`,
+        });
+      }
+    }
+    if (structuredContextCharacterCount(context) > MAX_STRUCTURED_CONTEXT_CHARACTERS) {
+      refinement.addIssue({
+        code: 'custom',
+        message: `Structured design context exceeds ${MAX_STRUCTURED_CONTEXT_CHARACTERS} total characters.`,
+      });
+    }
+  });
+
+const presentationViewportSchema = z
+  .object({
+    id: stableIdSchema,
+    width: z.number().int().positive().max(10_000),
+    height: z.number().int().positive().max(10_000),
+    deviceScaleFactor: z.number().positive().max(4).default(1),
+  })
+  .strict();
+
+export const presentationSpecSchema = z
+  .object({
+    schemaVersion: z.literal('1.0'),
+    primaryCanvas: presentationViewportSchema,
+    fit: z.enum(['intrinsic', 'contain', 'cover', 'stretch']),
+    horizontalAlignment: z.enum(['start', 'center', 'end']),
+    verticalAlignment: z.enum(['start', 'center', 'end']),
+    viewports: z
+      .array(
+        presentationViewportSchema.extend({
+          requirement: z.enum(['required', 'advisory']),
+          reference: z
+            .object({
+              path: z.string().min(1).max(4_096),
+              mediaType: z.enum(['image/svg+xml', 'image/png', 'image/jpeg', 'image/webp']),
+            })
+            .strict()
+            .optional(),
+        }),
+      )
+      .max(MAX_PRESENTATION_VIEWPORTS)
+      .default([]),
+  })
+  .strict()
+  .superRefine((spec, refinement) => {
+    const ids = [spec.primaryCanvas.id, ...spec.viewports.map((viewport) => viewport.id)];
+    if (new Set(ids).size !== ids.length) {
+      refinement.addIssue({
+        code: 'custom',
+        path: ['viewports'],
+        message: 'Presentation viewport identifiers must be unique.',
+      });
+    }
+    const totalPixels = [spec.primaryCanvas, ...spec.viewports].reduce(
+      (total, viewport) =>
+        total + viewport.width * viewport.height * viewport.deviceScaleFactor ** 2,
+      0,
+    );
+    if (totalPixels > MAX_PRESENTATION_TOTAL_PIXELS) {
+      refinement.addIssue({
+        code: 'custom',
+        path: ['viewports'],
+        message: `Presentation viewports exceed the ${MAX_PRESENTATION_TOTAL_PIXELS} total rendered-pixel budget.`,
+      });
+    }
+  });
+
+export function intrinsicPresentationSpec(viewport: {
+  width: number;
+  height: number;
+  deviceScaleFactor: number;
+}): PresentationSpec {
+  return presentationSpecSchema.parse({
+    schemaVersion: '1.0',
+    primaryCanvas: { id: 'source', ...viewport },
+    fit: 'intrinsic',
+    horizontalAlignment: 'start',
+    verticalAlignment: 'start',
+    viewports: [],
+  });
+}
+
+export function emptyStructuredDesignContext(generalNotes?: string): StructuredDesignContext {
+  return structuredDesignContextSchema.parse({
+    schemaVersion: '1.0',
+    exactCopy: [],
+    designTokens: [],
+    componentSemantics: [],
+    interactions: [],
+    ...(generalNotes ? { generalNotes } : {}),
+  });
+}
+
+export function structuredContextCharacterCount(context: unknown): number {
+  if (typeof context === 'string') return context.length;
+  if (Array.isArray(context))
+    return context.reduce((total, item) => total + structuredContextCharacterCount(item), 0);
+  if (!context || typeof context !== 'object') return 0;
+  return Object.values(context).reduce<number>(
+    (total, item) => total + structuredContextCharacterCount(item),
+    0,
+  );
+}
+
+export function hashStructuredContext(context: StructuredDesignContext): string {
+  const validated = structuredDesignContextSchema.parse(context);
+  return `sha256:${createHash('sha256').update(JSON.stringify(validated), 'utf8').digest('hex')}`;
+}
+
+export function resolveStructuredDesignContext(
+  input: Pick<SvgGenerationInput, 'structuredDesignContext' | 'instructions'>,
+): StructuredDesignContext {
+  if (input.structuredDesignContext)
+    return structuredDesignContextSchema.parse(input.structuredDesignContext);
+  return emptyStructuredDesignContext(input.instructions);
+}
+
+export function resolvePresentationSpec(
+  input: Pick<SvgGenerationInput, 'presentationSpec'>,
+  sourceViewport: { width: number; height: number; deviceScaleFactor: number },
+): PresentationSpec {
+  return input.presentationSpec
+    ? presentationSpecSchema.parse(input.presentationSpec)
+    : intrinsicPresentationSpec(sourceViewport);
+}
 
 export const svgGenerationInputSchema = z
   .object({
@@ -19,6 +238,8 @@ export const svgGenerationInputSchema = z
     mode: generationModeSchema.default('hybrid'),
     layout: generationLayoutSchema.default('responsive'),
     instructions: z.string().max(4_000).optional(),
+    structuredDesignContext: structuredDesignContextSchema.optional(),
+    presentationSpec: presentationSpecSchema.optional(),
     viewport: z
       .object({
         width: z.number().int().positive().max(10_000),
@@ -51,6 +272,15 @@ export const svgGenerationInputSchema = z
           code: 'custom',
           path: [field],
           message: `${field} must be an absolute path.`,
+        });
+      }
+    }
+    for (const [index, viewport] of (input.presentationSpec?.viewports ?? []).entries()) {
+      if (viewport.reference && !isAbsolute(viewport.reference.path)) {
+        context.addIssue({
+          code: 'custom',
+          path: ['presentationSpec', 'viewports', index, 'reference', 'path'],
+          message: 'Presentation reference paths must be absolute.',
         });
       }
     }
@@ -118,7 +348,7 @@ const sanitizationSummarySchema = z
   })
   .strict();
 
-export const designBundleSchema = z
+export const designBundleV1Schema = z
   .object({
     schemaVersion: z.literal('1.0'),
     id: z.string().min(1),
@@ -153,6 +383,38 @@ export const designBundleSchema = z
       .strict(),
   })
   .strict();
+
+export const designBundleV2Schema = designBundleV1Schema
+  .omit({ schemaVersion: true, instructions: true })
+  .extend({
+    schemaVersion: z.literal('2.0'),
+    structuredDesignContext: structuredDesignContextSchema,
+    structuredContextHash: z.string().regex(/^sha256:[a-f0-9]{64}$/),
+    presentationSpec: presentationSpecSchema,
+  })
+  .strict();
+
+const designBundleReaderSchema = z.discriminatedUnion('schemaVersion', [
+  designBundleV1Schema,
+  designBundleV2Schema,
+]);
+
+/** Compatibility reader that deterministically upgrades supported 1.0 bundles to the 2.0 model. */
+export const designBundleSchema = designBundleReaderSchema.transform((bundle) =>
+  bundle.schemaVersion === '2.0' ? bundle : upgradeDesignBundleV1(bundle),
+);
+
+function upgradeDesignBundleV1(bundle: z.infer<typeof designBundleV1Schema>) {
+  const { instructions, ...legacy } = bundle;
+  const structuredDesignContext = emptyStructuredDesignContext(instructions);
+  return designBundleV2Schema.parse({
+    ...legacy,
+    schemaVersion: '2.0',
+    structuredDesignContext,
+    structuredContextHash: hashStructuredContext(structuredDesignContext),
+    presentationSpec: intrinsicPresentationSpec(bundle.viewport),
+  });
+}
 
 export interface GeneratedHtmlFile {
   relativePath: string;
@@ -240,7 +502,7 @@ export const generationStopReasonSchema = z.enum([
   'provider-failure',
 ]);
 
-export const generationRecordSchema = z
+export const generationRecordV1Schema = z
   .object({
     schemaVersion: z.literal('1.0'),
     generatorVersion: z.string().min(1),
@@ -312,13 +574,59 @@ export const generationRecordSchema = z
   })
   .strict();
 
+export const generationRecordV2Schema = generationRecordV1Schema
+  .omit({ schemaVersion: true, input: true })
+  .extend({
+    schemaVersion: z.literal('2.0'),
+    input: generationRecordV1Schema.shape.input
+      .extend({
+        presentationSpec: presentationSpecSchema,
+        structuredContextHash: z.string().regex(/^sha256:[a-f0-9]{64}$/),
+      })
+      .strict(),
+  })
+  .strict();
+
+export const generationRecordSchema = z.discriminatedUnion('schemaVersion', [
+  generationRecordV1Schema,
+  generationRecordV2Schema,
+]);
+
+/** Upgrades a supported record only when its source viewport makes presentation intent unambiguous. */
+export function upgradeGenerationRecord(value: unknown): GenerationRecordV2 {
+  const record = generationRecordSchema.parse(value);
+  if (record.schemaVersion === '2.0') return record;
+  const viewport =
+    record.input.viewport ??
+    record.viewports.find((item) => item.classification === 'source-fidelity')?.viewport;
+  if (!viewport) {
+    throw new Error(
+      'Generation record 1.0 has no source viewport and cannot be upgraded safely. Re-run inspection to recover explicit presentation intent.',
+    );
+  }
+  return generationRecordV2Schema.parse({
+    ...record,
+    schemaVersion: '2.0',
+    input: {
+      ...record.input,
+      presentationSpec: intrinsicPresentationSpec(viewport),
+      structuredContextHash: hashStructuredContext(emptyStructuredDesignContext()),
+    },
+  });
+}
+
 export type SvgGenerationInput = z.infer<typeof svgGenerationInputSchema>;
 export type DesignBundleNode = z.infer<typeof designBundleNodeSchema>;
 export type DesignBundle = z.infer<typeof designBundleSchema>;
+export type DesignBundleV1 = z.infer<typeof designBundleV1Schema>;
+export type DesignBundleV2 = z.infer<typeof designBundleV2Schema>;
 export type GenerationDecision = z.infer<typeof generationDecisionSchema>;
 export type GenerationUncertainty = z.infer<typeof generationUncertaintySchema>;
 export type SanitizationSummary = z.infer<typeof sanitizationSummarySchema>;
 export type GenerationMode = z.infer<typeof generationModeSchema>;
 export type GenerationLayout = z.infer<typeof generationLayoutSchema>;
 export type GenerationRecord = z.infer<typeof generationRecordSchema>;
+export type GenerationRecordV2 = z.infer<typeof generationRecordV2Schema>;
 export type GenerationStopReason = z.infer<typeof generationStopReasonSchema>;
+export type StructuredDesignContext = z.infer<typeof structuredDesignContextSchema>;
+export type PresentationSpec = z.infer<typeof presentationSpecSchema>;

@@ -2,12 +2,20 @@ import { createHash, randomUUID } from 'node:crypto';
 import { mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { z } from 'zod';
-import type { SvgGenerationInput } from './generation-contracts.js';
+import {
+  emptyStructuredDesignContext,
+  hashStructuredContext,
+  intrinsicPresentationSpec,
+  presentationSpecSchema,
+  structuredDesignContextSchema,
+  type SvgGenerationInput,
+} from './generation-contracts.js';
 import type { SvgInspectionResult } from './generation-providers.js';
 import type { HostProposedGenerationFile } from './host-proposed-generation.js';
 import type { Config } from './config.js';
 import { validateGeneratedBundle } from './generated-output.js';
 import { SmartUiError } from './errors.js';
+import { redactSensitiveValue } from './security.js';
 
 /**
  * File-based request/response queue that lets the MCP-connected chat agent author HTML for a Studio
@@ -108,7 +116,7 @@ export const authoringVisualEvidenceSchema = z
 
 export type AuthoringVisualEvidence = z.infer<typeof authoringVisualEvidenceSchema>;
 
-export const authoringRequestSchema = z
+export const authoringRequestV1Schema = z
   .object({
     schemaVersion: z.literal('1.0'),
     runId: z.string().regex(AUTHORING_RUN_ID),
@@ -161,7 +169,35 @@ export const authoringRequestSchema = z
     }
   });
 
-export type StudioAuthoringRequest = z.infer<typeof authoringRequestSchema>;
+export const authoringRequestV2Schema = authoringRequestV1Schema
+  .omit({ schemaVersion: true })
+  .extend({
+    schemaVersion: z.literal('2.0'),
+    structuredDesignContext: structuredDesignContextSchema,
+    structuredContextHash: z.string().regex(/^sha256:[a-f0-9]{64}$/u),
+    contextRedacted: z.boolean(),
+    presentationSpec: presentationSpecSchema,
+  })
+  .superRefine((request, ctx) => {
+    if (request.round === 1 && (request.feedback || request.priorEvidence)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'The first authoring round cannot carry revision feedback or prior evidence.',
+      });
+    }
+    if (request.round > 1 && !request.priorEvidence) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'A revision round must carry deterministic prior evidence.',
+      });
+    }
+  });
+
+/** Supported persisted queue reader. New writes are always upgraded to 2.0. */
+export const authoringRequestSchema = z.union([authoringRequestV1Schema, authoringRequestV2Schema]);
+
+export type StudioAuthoringRequestV1 = z.infer<typeof authoringRequestV1Schema>;
+export type StudioAuthoringRequest = z.infer<typeof authoringRequestV2Schema>;
 
 export const authoringResponseSchema = z
   .object({
@@ -239,8 +275,12 @@ export function buildAuthoringRequest(options: {
     .map((node) => node.text!.trim().slice(0, MAX_READABLE_TEXT_CHARACTERS))
     .slice(0, MAX_READABLE_TEXT_NODES);
   const svgTruncated = inspection.sanitizedXml.length > MAX_SANITIZED_SVG_CHARACTERS;
-  return authoringRequestSchema.parse({
-    schemaVersion: '1.0',
+  const originalContext = bundle.structuredDesignContext;
+  const structuredDesignContext = structuredDesignContextSchema.parse(
+    redactSensitiveValue(originalContext),
+  );
+  return authoringRequestV2Schema.parse({
+    schemaVersion: '2.0',
     runId: options.runId,
     round,
     designName: bundle.name.slice(0, 200) || 'design',
@@ -254,6 +294,10 @@ export function buildAuthoringRequest(options: {
       .slice(0, 200)
       .map((font) => font.slice(0, 200)),
     readableText,
+    structuredDesignContext,
+    structuredContextHash: bundle.structuredContextHash,
+    contextRedacted: JSON.stringify(structuredDesignContext) !== JSON.stringify(originalContext),
+    presentationSpec: bundle.presentationSpec,
     ...(input.instructions
       ? { instructions: input.instructions.slice(0, MAX_INSTRUCTION_CHARACTERS) }
       : {}),
@@ -277,10 +321,11 @@ export function buildAuthoringRequest(options: {
  * pipeline renders and compares against, so the result matches the design's size and scale.
  */
 export function authoringCanvasGuidance(request: StudioAuthoringRequest): string {
-  const { width, height } = request.viewport;
+  const { width, height, deviceScaleFactor } = request.presentationSpec.primaryCanvas;
+  const spec = request.presentationSpec;
   const base =
-    `The design is rendered and compared at exactly ${width}x${height} device-independent pixels. ` +
-    `Match that canvas: preserve the design's size, aspect ratio, and scale, and do not assume a larger page.`;
+    `The design is rendered and compared on target canvas '${spec.primaryCanvas.id}' at exactly ${width}x${height} device-independent pixels and DPR ${deviceScaleFactor}. ` +
+    `The source uses fit=${spec.fit}, horizontal alignment=${spec.horizontalAlignment}, and vertical alignment=${spec.verticalAlignment}. Match that presentation canvas and do not infer a device label.`;
   const layout =
     request.layout === 'responsive'
       ? ` Author a responsive layout anchored to a ${width}px-wide viewport (design from there); the root must fill ${width}x${height} with no clipping or scrollbars.`
@@ -288,6 +333,25 @@ export function authoringCanvasGuidance(request: StudioAuthoringRequest): string
         ? ` Author a self-contained component whose root box is exactly ${width}x${height} pixels.`
         : ` Author a fixed page whose root and body are exactly ${width}x${height} pixels with no overflow.`;
   return base + layout;
+}
+
+/** Deterministically upgrades the supported 1.0 queue request without changing its old meaning. */
+export function upgradeAuthoringRequest(
+  request: StudioAuthoringRequest | StudioAuthoringRequestV1,
+): StudioAuthoringRequest {
+  if (request.schemaVersion === '2.0') return authoringRequestV2Schema.parse(request);
+  const structuredDesignContext = emptyStructuredDesignContext(request.instructions);
+  return authoringRequestV2Schema.parse({
+    ...request,
+    schemaVersion: '2.0',
+    structuredDesignContext,
+    structuredContextHash: hashStructuredContext(structuredDesignContext),
+    contextRedacted: false,
+    presentationSpec: intrinsicPresentationSpec({
+      ...request.viewport,
+      deviceScaleFactor: 1,
+    }),
+  });
 }
 
 /**
@@ -353,9 +417,9 @@ export async function highestIssuedAuthoringRound(
  */
 export async function writeAuthoringRequest(
   queueRoot: string,
-  request: StudioAuthoringRequest,
+  request: StudioAuthoringRequest | StudioAuthoringRequestV1,
 ): Promise<string> {
-  const validated = authoringRequestSchema.parse(request);
+  const validated = upgradeAuthoringRequest(authoringRequestSchema.parse(request));
   const directory = join(queueRoot, REQUESTS_DIRNAME, validated.runId);
   await mkdir(directory, { recursive: true, mode: 0o700 });
   const latest = await highestIssued(directory);
@@ -388,7 +452,7 @@ export async function readAuthoringRequest(
   if (target === undefined) return undefined;
   const raw = await readOptional(join(directory, roundFileName(assertRound(target))));
   if (raw === undefined) return undefined;
-  return authoringRequestSchema.parse(parseJson(raw, 'authoring request'));
+  return upgradeAuthoringRequest(authoringRequestSchema.parse(parseJson(raw, 'authoring request')));
 }
 
 /**
@@ -410,9 +474,10 @@ export async function listPendingAuthoringRequests(
     if (raw === undefined) continue;
     const parsed = authoringRequestSchema.safeParse(safeParseJson(raw));
     if (!parsed.success) continue;
-    if (Date.parse(parsed.data.expiresAt) <= now.getTime()) continue;
+    const request = upgradeAuthoringRequest(parsed.data);
+    if (Date.parse(request.expiresAt) <= now.getTime()) continue;
     if (await readOptional(responsePath(queueRoot, runId, round))) continue;
-    pending.push(parsed.data);
+    pending.push(request);
   }
   return pending;
 }

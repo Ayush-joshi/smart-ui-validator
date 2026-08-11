@@ -5,6 +5,7 @@ coverage/
 .smart-ui/
 .smart-ui-mcp-runs/
 .studio-workspace/
+/.codex/
 playwright-report/
 test-results/
 *.log

@@ -119,11 +119,18 @@ describe('Studio real-browser workflow', () => {
 
     const pointer = JSON.parse(
       await readFile(join(context.workspace, 'runs', uploaded.runId, 'studio-run.json'), 'utf8'),
-    ) as { recordArtifactPath: string };
+    ) as { selectedRound: number; recordArtifactPath: string };
     const studioRecord = generationRecordSchema.parse(
       JSON.parse(
         await readFile(
-          join(context.workspace, 'runs', uploaded.runId, 'artifacts', pointer.recordArtifactPath),
+          join(
+            context.workspace,
+            'runs',
+            uploaded.runId,
+            'artifacts',
+            `round-${pointer.selectedRound}`,
+            pointer.recordArtifactPath,
+          ),
           'utf8',
         ),
       ),

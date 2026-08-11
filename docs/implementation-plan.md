@@ -26,6 +26,17 @@ compatibility invariants and acceptance criteria
 extend this completed roadmap; they do not change or reduce the existing validation, repair, React,
 Angular, browser, memory, security, or distribution requirements.
 
+Deferred-large-improvements follow-up: Phase 1 of
+[`deferred-large-improvements-plan.md`](./deferred-large-improvements-plan.md) was implemented on
+2026-08-11 and verified on the same date. It adds versioned structured design context and
+presentation intent, strict compatibility readers, shared primary-canvas rendering, Studio editors,
+CLI/MCP transport, and the host-neutral `studio --agent`/`doctor --studio-agent` setup path. All
+required product, browser, evaluation, security, privacy, package, clean-consumer, publish, and SBOM
+gates passed. The repository-root `.codex/` machine-local bootstrap output is ignored so local
+absolute paths and identities do not enter source scans or commits; tracked host examples remain
+included. Named viewport evaluation, convergence/decision coordination, and durable multi-process
+storage remain Phases 2 and 3.
+
 ## 1. Product definition
 
 Smart UI Validator is a persistent UI engineering agent. A developer can use it

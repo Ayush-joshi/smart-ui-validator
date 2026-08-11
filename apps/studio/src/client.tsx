@@ -51,6 +51,10 @@ interface RunSummary {
     uncertaintyCount: number;
     recommendedModes: Mode[];
   };
+  preferences: null | {
+    presentationSpec: PresentationSpec;
+    structuredDesignContext: StructuredDesignContext;
+  };
   generation: null | {
     generationId: string;
     status: string;
@@ -59,6 +63,8 @@ interface RunSummary {
     agent: null | { host: string; accepted: boolean };
     requestedMode: Mode;
     finalMode?: Mode;
+    presentationSpec: PresentationSpec | null;
+    structuredContextHash: string | null;
     manifestHash?: string;
     files: Array<{
       index: number;
@@ -92,6 +98,66 @@ type Mode = 'exact' | 'hybrid' | 'semantic';
 type Layout = 'fixed' | 'responsive' | 'component';
 type Engine = 'agent' | 'deterministic';
 type Step = 'input' | 'preferences' | 'generate' | 'review';
+type Fit = 'intrinsic' | 'contain' | 'cover' | 'stretch';
+type Alignment = 'start' | 'center' | 'end';
+interface PresentationViewport {
+  id: string;
+  width: number;
+  height: number;
+  deviceScaleFactor: number;
+}
+interface PresentationSpec {
+  schemaVersion: '1.0';
+  primaryCanvas: PresentationViewport;
+  fit: Fit;
+  horizontalAlignment: Alignment;
+  verticalAlignment: Alignment;
+  viewports: Array<PresentationViewport & { requirement: 'required' | 'advisory' }>;
+}
+interface StructuredDesignContext {
+  schemaVersion: '1.0';
+  exactCopy: Array<{
+    id: string;
+    label: string;
+    text: string;
+    locale?: string;
+    sourceNodeIds: string[];
+    provenance: string;
+  }>;
+  designTokens: Array<{
+    name: string;
+    kind: 'color' | 'typography' | 'spacing' | 'radius' | 'border' | 'shadow' | 'other';
+    value: string;
+    usage?: string;
+    provenance: string;
+  }>;
+  componentSemantics: Array<{
+    id: string;
+    name: string;
+    role: string;
+    stateOrVariant?: string;
+    sourceNodeIds: string[];
+    provenance: string;
+  }>;
+  interactions: Array<{
+    id: string;
+    trigger: string;
+    target: string;
+    resultingBehavior: string;
+    keyboardNotes?: string;
+    sourceNodeIds: string[];
+    provenance: string;
+  }>;
+  generalNotes?: string;
+}
+
+const emptyContext = (): StructuredDesignContext => ({
+  schemaVersion: '1.0',
+  exactCopy: [],
+  designTokens: [],
+  componentSemantics: [],
+  interactions: [],
+});
 
 interface SessionResponse {
   csrfToken: string;
@@ -115,6 +181,15 @@ export function StudioApp(): ReactNode {
   const [mode, setMode] = useState<Mode>('hybrid');
   const [layout, setLayout] = useState<Layout>('responsive');
   const [instructions, setInstructions] = useState('');
+  const [structuredContext, setStructuredContext] = useState<StructuredDesignContext>(emptyContext);
+  const [customCanvas, setCustomCanvas] = useState(false);
+  const [canvasWidth, setCanvasWidth] = useState(1);
+  const [canvasHeight, setCanvasHeight] = useState(1);
+  const [canvasDpr, setCanvasDpr] = useState(1);
+  const [fit, setFit] = useState<Fit>('intrinsic');
+  const [horizontalAlignment, setHorizontalAlignment] = useState<Alignment>('start');
+  const [verticalAlignment, setVerticalAlignment] = useState<Alignment>('start');
+  const [validationViewports, setValidationViewports] = useState<PresentationSpec['viewports']>([]);
   const [improve, setImprove] = useState(true);
   const [feedback, setFeedback] = useState('');
   const [busy, setBusy] = useState(false);
@@ -174,6 +249,8 @@ export function StudioApp(): ReactNode {
       setRuns((current) => [...current, run]);
       setActiveId(run.runId);
       setMode(engine === 'agent' ? 'semantic' : (run.inspection?.recommendedModes[0] ?? 'hybrid'));
+      setCanvasWidth(run.inspection?.width ?? 1);
+      setCanvasHeight(run.inspection?.height ?? 1);
       setStep('preferences');
     } catch (value) {
       showFailure(setError)(value);
@@ -187,6 +264,21 @@ export function StudioApp(): ReactNode {
     setBusy(true);
     setError(undefined);
     try {
+      const sourceWidth = active.inspection?.width ?? canvasWidth;
+      const sourceHeight = active.inspection?.height ?? canvasHeight;
+      const presentationSpec: PresentationSpec = {
+        schemaVersion: '1.0',
+        primaryCanvas: {
+          id: customCanvas ? 'primary' : 'source',
+          width: customCanvas ? canvasWidth : sourceWidth,
+          height: customCanvas ? canvasHeight : sourceHeight,
+          deviceScaleFactor: canvasDpr,
+        },
+        fit: customCanvas ? fit : 'intrinsic',
+        horizontalAlignment: customCanvas ? horizontalAlignment : 'start',
+        verticalAlignment: customCanvas ? verticalAlignment : 'start',
+        viewports: validationViewports,
+      };
       const run = await api<RunSummary>(`/api/runs/${active.runId}/generate`, session.csrfToken, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -196,6 +288,11 @@ export function StudioApp(): ReactNode {
           layout,
           improve,
           ...(instructions.trim() ? { instructions } : {}),
+          structuredDesignContext: {
+            ...structuredContext,
+            ...(instructions.trim() ? { generalNotes: instructions } : {}),
+          },
+          presentationSpec,
         }),
       });
       setRuns((current) => replaceRun(current, run));
@@ -268,6 +365,15 @@ export function StudioApp(): ReactNode {
     setMode('hybrid');
     setLayout('responsive');
     setInstructions('');
+    setStructuredContext(emptyContext());
+    setCustomCanvas(false);
+    setCanvasWidth(1);
+    setCanvasHeight(1);
+    setCanvasDpr(1);
+    setFit('intrinsic');
+    setHorizontalAlignment('start');
+    setVerticalAlignment('start');
+    setValidationViewports([]);
     setImprove(true);
     setFeedback('');
     setSource(undefined);
@@ -494,6 +600,27 @@ export function StudioApp(): ReactNode {
                 ))}
               </div>
             </fieldset>
+            <CanvasEditor
+              sourceWidth={active.inspection?.width ?? 1}
+              sourceHeight={active.inspection?.height ?? 1}
+              custom={customCanvas}
+              width={canvasWidth}
+              height={canvasHeight}
+              dpr={canvasDpr}
+              fit={fit}
+              horizontalAlignment={horizontalAlignment}
+              verticalAlignment={verticalAlignment}
+              viewports={validationViewports}
+              onCustom={setCustomCanvas}
+              onWidth={setCanvasWidth}
+              onHeight={setCanvasHeight}
+              onDpr={setCanvasDpr}
+              onFit={setFit}
+              onHorizontalAlignment={setHorizontalAlignment}
+              onVerticalAlignment={setVerticalAlignment}
+              onViewports={setValidationViewports}
+            />
+            <StructuredContextEditor value={structuredContext} onChange={setStructuredContext} />
             <label className="note">
               <span>
                 {engine === 'agent' ? 'Context for the AI agent' : 'Implementation note'}{' '}
@@ -616,6 +743,670 @@ export function StudioApp(): ReactNode {
       </footer>
     </div>
   );
+}
+
+export function CanvasEditor({
+  sourceWidth,
+  sourceHeight,
+  custom,
+  width,
+  height,
+  dpr,
+  fit,
+  horizontalAlignment,
+  verticalAlignment,
+  viewports,
+  onCustom,
+  onWidth,
+  onHeight,
+  onDpr,
+  onFit,
+  onHorizontalAlignment,
+  onVerticalAlignment,
+  onViewports,
+}: {
+  sourceWidth: number;
+  sourceHeight: number;
+  custom: boolean;
+  width: number;
+  height: number;
+  dpr: number;
+  fit: Fit;
+  horizontalAlignment: Alignment;
+  verticalAlignment: Alignment;
+  viewports: PresentationSpec['viewports'];
+  onCustom(value: boolean): void;
+  onWidth(value: number): void;
+  onHeight(value: number): void;
+  onDpr(value: number): void;
+  onFit(value: Fit): void;
+  onHorizontalAlignment(value: Alignment): void;
+  onVerticalAlignment(value: Alignment): void;
+  onViewports(value: PresentationSpec['viewports']): void;
+}): ReactNode {
+  const changeViewport = (index: number, patch: Partial<PresentationSpec['viewports'][number]>) =>
+    onViewports(
+      viewports.map((viewport, itemIndex) =>
+        itemIndex === index ? { ...viewport, ...patch } : viewport,
+      ),
+    );
+  return (
+    <fieldset className="editor-section">
+      <legend>Presentation canvas</legend>
+      <p className="field-help">
+        Source dimensions remain {sourceWidth} × {sourceHeight}. Choose the exact CSS-pixel canvas
+        used for reference and output evidence.
+      </p>
+      <div className="choice-grid compact">
+        <label className={!custom ? 'choice selected' : 'choice'}>
+          <input
+            type="radio"
+            name="canvas-mode"
+            checked={!custom}
+            onChange={() => onCustom(false)}
+          />
+          <strong>Intrinsic</strong>
+          <span>Use the source canvas without scaling.</span>
+        </label>
+        <label className={custom ? 'choice selected' : 'choice'}>
+          <input type="radio" name="canvas-mode" checked={custom} onChange={() => onCustom(true)} />
+          <strong>Custom</strong>
+          <span>Set explicit size, DPR, fit, and alignment.</span>
+        </label>
+      </div>
+      <div className="field-grid">
+        <LabeledNumber
+          label="Primary canvas width"
+          value={custom ? width : sourceWidth}
+          disabled={!custom}
+          min={1}
+          max={10000}
+          onChange={onWidth}
+        />
+        <LabeledNumber
+          label="Primary canvas height"
+          value={custom ? height : sourceHeight}
+          disabled={!custom}
+          min={1}
+          max={10000}
+          onChange={onHeight}
+        />
+        <LabeledNumber
+          label="Device pixel ratio"
+          value={dpr}
+          min={0.25}
+          max={4}
+          step={0.25}
+          onChange={onDpr}
+        />
+        <label>
+          <span>Fit</span>
+          <select
+            value={custom ? fit : 'intrinsic'}
+            disabled={!custom}
+            onChange={(event) => onFit(event.target.value as Fit)}
+          >
+            {(['intrinsic', 'contain', 'cover', 'stretch'] as Fit[]).map((item) => (
+              <option key={item}>{item}</option>
+            ))}
+          </select>
+        </label>
+        <label>
+          <span>Horizontal alignment</span>
+          <select
+            value={custom ? horizontalAlignment : 'start'}
+            disabled={!custom}
+            onChange={(event) => onHorizontalAlignment(event.target.value as Alignment)}
+          >
+            {(['start', 'center', 'end'] as Alignment[]).map((item) => (
+              <option key={item}>{item}</option>
+            ))}
+          </select>
+        </label>
+        <label>
+          <span>Vertical alignment</span>
+          <select
+            value={custom ? verticalAlignment : 'start'}
+            disabled={!custom}
+            onChange={(event) => onVerticalAlignment(event.target.value as Alignment)}
+          >
+            {(['start', 'center', 'end'] as Alignment[]).map((item) => (
+              <option key={item}>{item}</option>
+            ))}
+          </select>
+        </label>
+      </div>
+      <div className="editor-heading">
+        <strong>Named validation viewports</strong>
+        <button
+          type="button"
+          disabled={viewports.length >= 8}
+          onClick={() =>
+            onViewports([
+              ...viewports,
+              {
+                id: `viewport-${viewports.length + 1}`,
+                width: 375,
+                height: 667,
+                deviceScaleFactor: 1,
+                requirement: 'advisory',
+              },
+            ])
+          }
+        >
+          Add viewport
+        </button>
+      </div>
+      {viewports.map((viewport, index) => (
+        <div className="editor-row" key={`${viewport.id}-${index}`}>
+          <label>
+            <span>Viewport ID</span>
+            <input
+              maxLength={100}
+              value={viewport.id}
+              onChange={(event) => changeViewport(index, { id: event.target.value })}
+            />
+          </label>
+          <LabeledNumber
+            label="Width"
+            value={viewport.width}
+            min={1}
+            max={10000}
+            onChange={(value) => changeViewport(index, { width: value })}
+          />
+          <LabeledNumber
+            label="Height"
+            value={viewport.height}
+            min={1}
+            max={10000}
+            onChange={(value) => changeViewport(index, { height: value })}
+          />
+          <LabeledNumber
+            label="DPR"
+            value={viewport.deviceScaleFactor}
+            min={0.25}
+            max={4}
+            step={0.25}
+            onChange={(value) => changeViewport(index, { deviceScaleFactor: value })}
+          />
+          <label>
+            <span>Acceptance</span>
+            <select
+              value={viewport.requirement}
+              onChange={(event) =>
+                changeViewport(index, {
+                  requirement: event.target.value as 'required' | 'advisory',
+                })
+              }
+            >
+              <option value="required">required</option>
+              <option value="advisory">advisory</option>
+            </select>
+          </label>
+          <button
+            type="button"
+            onClick={() => onViewports(viewports.filter((_, itemIndex) => itemIndex !== index))}
+          >
+            Remove
+          </button>
+        </div>
+      ))}
+    </fieldset>
+  );
+}
+
+export function StructuredContextEditor({
+  value,
+  onChange,
+}: {
+  value: StructuredDesignContext;
+  onChange(value: StructuredDesignContext): void;
+}): ReactNode {
+  return (
+    <fieldset className="editor-section">
+      <legend>Structured design context</legend>
+      <p className="field-help">
+        Typed evidence is bounded, persisted with provenance, and treated as untrusted content.
+      </p>
+      <ContextGroup
+        title="Exact copy"
+        addLabel="Add copy"
+        onAdd={() =>
+          onChange({
+            ...value,
+            exactCopy: [
+              ...value.exactCopy,
+              {
+                id: `copy-${value.exactCopy.length + 1}`,
+                label: '',
+                text: '',
+                sourceNodeIds: [],
+                provenance: 'studio:user',
+              },
+            ],
+          })
+        }
+      >
+        {value.exactCopy.map((item, index) => (
+          <div className="editor-row" key={`${item.id}-${index}`}>
+            <TextField
+              label="Copy ID"
+              value={item.id}
+              onChange={(text) =>
+                onChange({ ...value, exactCopy: updateAt(value.exactCopy, index, { id: text }) })
+              }
+            />
+            <TextField
+              label="Label"
+              value={item.label}
+              onChange={(text) =>
+                onChange({ ...value, exactCopy: updateAt(value.exactCopy, index, { label: text }) })
+              }
+            />
+            <TextField
+              label="Exact text"
+              value={item.text}
+              onChange={(text) =>
+                onChange({ ...value, exactCopy: updateAt(value.exactCopy, index, { text }) })
+              }
+            />
+            <TextField
+              label="Locale"
+              value={item.locale ?? ''}
+              onChange={(text) => {
+                const withoutLocale = { ...item };
+                delete withoutLocale.locale;
+                onChange({
+                  ...value,
+                  exactCopy: value.exactCopy.map((entry, itemIndex) =>
+                    itemIndex === index
+                      ? text
+                        ? { ...withoutLocale, locale: text }
+                        : withoutLocale
+                      : entry,
+                  ),
+                });
+              }}
+            />
+            <TextField
+              label="Source node IDs (comma separated)"
+              value={item.sourceNodeIds.join(', ')}
+              onChange={(text) =>
+                onChange({
+                  ...value,
+                  exactCopy: updateAt(value.exactCopy, index, {
+                    sourceNodeIds: parseSourceNodeIds(text),
+                  }),
+                })
+              }
+            />
+            <RemoveButton
+              onClick={() => onChange({ ...value, exactCopy: removeAt(value.exactCopy, index) })}
+            />
+          </div>
+        ))}
+      </ContextGroup>
+      <ContextGroup
+        title="Design tokens"
+        addLabel="Add token"
+        onAdd={() =>
+          onChange({
+            ...value,
+            designTokens: [
+              ...value.designTokens,
+              {
+                name: `token-${value.designTokens.length + 1}`,
+                kind: 'color',
+                value: '',
+                provenance: 'studio:user',
+              },
+            ],
+          })
+        }
+      >
+        {value.designTokens.map((item, index) => (
+          <div className="editor-row" key={`${item.name}-${index}`}>
+            <TextField
+              label="Token name"
+              value={item.name}
+              onChange={(text) =>
+                onChange({
+                  ...value,
+                  designTokens: updateAt(value.designTokens, index, { name: text }),
+                })
+              }
+            />
+            <label>
+              <span>Token kind</span>
+              <select
+                value={item.kind}
+                onChange={(event) =>
+                  onChange({
+                    ...value,
+                    designTokens: updateAt(value.designTokens, index, {
+                      kind: event.target.value as typeof item.kind,
+                    }),
+                  })
+                }
+              >
+                {['color', 'typography', 'spacing', 'radius', 'border', 'shadow', 'other'].map(
+                  (kind) => (
+                    <option key={kind}>{kind}</option>
+                  ),
+                )}
+              </select>
+            </label>
+            <TextField
+              label="Token value"
+              value={item.value}
+              onChange={(text) =>
+                onChange({
+                  ...value,
+                  designTokens: updateAt(value.designTokens, index, { value: text }),
+                })
+              }
+            />
+            <TextField
+              label="Usage"
+              value={item.usage ?? ''}
+              onChange={(text) =>
+                onChange({
+                  ...value,
+                  designTokens: updateAt(value.designTokens, index, { usage: text }),
+                })
+              }
+            />
+            <RemoveButton
+              onClick={() =>
+                onChange({ ...value, designTokens: removeAt(value.designTokens, index) })
+              }
+            />
+          </div>
+        ))}
+      </ContextGroup>
+      <ContextGroup
+        title="Component semantics"
+        addLabel="Add component"
+        onAdd={() =>
+          onChange({
+            ...value,
+            componentSemantics: [
+              ...value.componentSemantics,
+              {
+                id: `component-${value.componentSemantics.length + 1}`,
+                name: '',
+                role: '',
+                sourceNodeIds: [],
+                provenance: 'studio:user',
+              },
+            ],
+          })
+        }
+      >
+        {value.componentSemantics.map((item, index) => (
+          <div className="editor-row" key={`${item.id}-${index}`}>
+            <TextField
+              label="Component ID"
+              value={item.id}
+              onChange={(text) =>
+                onChange({
+                  ...value,
+                  componentSemantics: updateAt(value.componentSemantics, index, { id: text }),
+                })
+              }
+            />
+            <TextField
+              label="Component name"
+              value={item.name}
+              onChange={(text) =>
+                onChange({
+                  ...value,
+                  componentSemantics: updateAt(value.componentSemantics, index, { name: text }),
+                })
+              }
+            />
+            <TextField
+              label="ARIA or semantic role"
+              value={item.role}
+              onChange={(text) =>
+                onChange({
+                  ...value,
+                  componentSemantics: updateAt(value.componentSemantics, index, { role: text }),
+                })
+              }
+            />
+            <TextField
+              label="State or variant"
+              value={item.stateOrVariant ?? ''}
+              onChange={(text) =>
+                onChange({
+                  ...value,
+                  componentSemantics: updateAt(value.componentSemantics, index, {
+                    stateOrVariant: text,
+                  }),
+                })
+              }
+            />
+            <TextField
+              label="Source node IDs (comma separated)"
+              value={item.sourceNodeIds.join(', ')}
+              onChange={(text) =>
+                onChange({
+                  ...value,
+                  componentSemantics: updateAt(value.componentSemantics, index, {
+                    sourceNodeIds: parseSourceNodeIds(text),
+                  }),
+                })
+              }
+            />
+            <RemoveButton
+              onClick={() =>
+                onChange({
+                  ...value,
+                  componentSemantics: removeAt(value.componentSemantics, index),
+                })
+              }
+            />
+          </div>
+        ))}
+      </ContextGroup>
+      <ContextGroup
+        title="Interactions"
+        addLabel="Add interaction"
+        onAdd={() =>
+          onChange({
+            ...value,
+            interactions: [
+              ...value.interactions,
+              {
+                id: `interaction-${value.interactions.length + 1}`,
+                trigger: '',
+                target: '',
+                resultingBehavior: '',
+                sourceNodeIds: [],
+                provenance: 'studio:user',
+              },
+            ],
+          })
+        }
+      >
+        {value.interactions.map((item, index) => (
+          <div className="editor-row" key={`${item.id}-${index}`}>
+            <TextField
+              label="Interaction ID"
+              value={item.id}
+              onChange={(text) =>
+                onChange({
+                  ...value,
+                  interactions: updateAt(value.interactions, index, { id: text }),
+                })
+              }
+            />
+            <TextField
+              label="Trigger"
+              value={item.trigger}
+              onChange={(text) =>
+                onChange({
+                  ...value,
+                  interactions: updateAt(value.interactions, index, { trigger: text }),
+                })
+              }
+            />
+            <TextField
+              label="Target"
+              value={item.target}
+              onChange={(text) =>
+                onChange({
+                  ...value,
+                  interactions: updateAt(value.interactions, index, { target: text }),
+                })
+              }
+            />
+            <TextField
+              label="Resulting behavior or state"
+              value={item.resultingBehavior}
+              onChange={(text) =>
+                onChange({
+                  ...value,
+                  interactions: updateAt(value.interactions, index, { resultingBehavior: text }),
+                })
+              }
+            />
+            <TextField
+              label="Keyboard notes"
+              value={item.keyboardNotes ?? ''}
+              onChange={(text) =>
+                onChange({
+                  ...value,
+                  interactions: updateAt(value.interactions, index, {
+                    keyboardNotes: text,
+                  }),
+                })
+              }
+            />
+            <TextField
+              label="Source node IDs (comma separated)"
+              value={item.sourceNodeIds.join(', ')}
+              onChange={(text) =>
+                onChange({
+                  ...value,
+                  interactions: updateAt(value.interactions, index, {
+                    sourceNodeIds: parseSourceNodeIds(text),
+                  }),
+                })
+              }
+            />
+            <RemoveButton
+              onClick={() =>
+                onChange({ ...value, interactions: removeAt(value.interactions, index) })
+              }
+            />
+          </div>
+        ))}
+      </ContextGroup>
+    </fieldset>
+  );
+}
+
+function ContextGroup({
+  title: groupTitle,
+  addLabel,
+  onAdd,
+  children,
+}: {
+  title: string;
+  addLabel: string;
+  onAdd(): void;
+  children: ReactNode;
+}): ReactNode {
+  return (
+    <section className="context-group" aria-label={groupTitle}>
+      <div className="editor-heading">
+        <strong>{groupTitle}</strong>
+        <button type="button" onClick={onAdd}>
+          {addLabel}
+        </button>
+      </div>
+      {children}
+    </section>
+  );
+}
+
+function TextField({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  onChange(value: string): void;
+}): ReactNode {
+  return (
+    <label>
+      <span>{label}</span>
+      <input value={value} maxLength={4000} onChange={(event) => onChange(event.target.value)} />
+    </label>
+  );
+}
+
+function LabeledNumber({
+  label,
+  value,
+  min,
+  max,
+  step = 1,
+  disabled = false,
+  onChange,
+}: {
+  label: string;
+  value: number;
+  min: number;
+  max: number;
+  step?: number;
+  disabled?: boolean;
+  onChange(value: number): void;
+}): ReactNode {
+  return (
+    <label>
+      <span>{label}</span>
+      <input
+        type="number"
+        value={value}
+        min={min}
+        max={max}
+        step={step}
+        disabled={disabled}
+        onChange={(event) => onChange(Number(event.target.value))}
+      />
+    </label>
+  );
+}
+
+function RemoveButton({ onClick }: { onClick(): void }): ReactNode {
+  return (
+    <button type="button" onClick={onClick}>
+      Remove
+    </button>
+  );
+}
+
+function parseSourceNodeIds(value: string): string[] {
+  return [
+    ...new Set(
+      value
+        .split(',')
+        .map((item) => item.trim())
+        .filter(Boolean),
+    ),
+  ].slice(0, 100);
+}
+
+function updateAt<T>(items: T[], index: number, patch: Partial<T>): T[] {
+  return items.map((item, itemIndex) => (itemIndex === index ? { ...item, ...patch } : item));
+}
+
+function removeAt<T>(items: T[], index: number): T[] {
+  return items.filter((_, itemIndex) => itemIndex !== index);
 }
 
 export function Review({

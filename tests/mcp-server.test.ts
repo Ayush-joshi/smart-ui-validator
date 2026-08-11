@@ -451,6 +451,12 @@ describe('stable host-neutral MCP contract', () => {
           round: 1,
           readableText: ['Semantic title'],
           instructions: 'Keep the heading copy.',
+          presentationSpec: {
+            fit: 'intrinsic',
+            primaryCanvas: { width: 320, height: 180 },
+          },
+          structuredDesignContext: { generalNotes: 'Keep the heading copy.' },
+          structuredContextHash: expect.stringMatching(/^sha256:/),
         },
       ],
     });

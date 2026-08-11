@@ -253,10 +253,43 @@ describe('local Studio server security and lifecycle', () => {
       }),
     );
     const queueRoot = agentQueueRoot(context.workspace);
+    const structuredDesignContext = {
+      schemaVersion: '1.0' as const,
+      exactCopy: [
+        {
+          id: 'card-copy',
+          label: 'Card label',
+          text: 'Hello',
+          sourceNodeIds: ['text'],
+          provenance: 'Studio user input',
+        },
+      ],
+      designTokens: [],
+      componentSemantics: [],
+      interactions: [],
+      generalNotes: 'Keep the card copy exact.',
+    };
+    const presentationSpec = {
+      schemaVersion: '1.0' as const,
+      primaryCanvas: {
+        id: 'preview',
+        width: 240,
+        height: 160,
+        deviceScaleFactor: 1,
+      },
+      fit: 'contain' as const,
+      horizontalAlignment: 'center' as const,
+      verticalAlignment: 'center' as const,
+      viewports: [],
+    };
     const answerRound = async (round: number, background: string) => {
       for (let attempt = 0; attempt < 400; attempt += 1) {
         const pending = await listPendingAuthoringRequests(queueRoot);
-        if (pending.some((item) => item.round === round)) {
+        const request = pending.find((item) => item.round === round);
+        if (request) {
+          expect(request.structuredDesignContext).toEqual(structuredDesignContext);
+          expect(request.presentationSpec).toEqual(presentationSpec);
+          expect(request.structuredContextHash).toMatch(/^sha256:/u);
           await writeAuthoringResponse(queueRoot, {
             schemaVersion: '1.0',
             runId: run.runId,
@@ -290,6 +323,8 @@ describe('local Studio server security and lifecycle', () => {
         mode: 'semantic',
         layout: 'responsive',
         improve: true,
+        structuredDesignContext,
+        presentationSpec,
       }),
     });
     await answerRound(1, '#4f7cff');

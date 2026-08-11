@@ -62,8 +62,10 @@ deterministic raster mask list. Accessibility violations and contrast remain cod
 
 `GenerationOrchestrator` is additive to `SmartUiOrchestrator`; it does not fabricate a repository or
 overload `DesignContract`, `RunRecord`, or repository repair permissions. `SvgStructureProvider`
-accepts one contained regular SVG, rejects unsafe XML, and emits a hierarchical `DesignBundle` plus
-a content-addressed sanitized source. An `HtmlGenerationProvider` creates a bounded exact file
+accepts one contained regular SVG, rejects unsafe XML, and emits a hierarchical `DesignBundle` 2.0
+plus a content-addressed sanitized source. The bundle carries bounded typed design evidence and a
+`PresentationSpec` that separates source dimensions from the exact target canvas. An
+`HtmlGenerationProvider` creates a bounded exact file
 manifest. The core serves only that manifest on an ephemeral loopback origin, captures it with the
 existing isolated browser, and measures it with the existing comparator.
 
@@ -71,7 +73,10 @@ Exact mode prioritizes source-viewport fidelity and preserves more SVG-native re
 Hybrid mode projects stable readable/semantic nodes while retaining complex visual subtrees.
 Semantic mode creates the strongest bounded HTML projection. Narrow captures without a matching
 reference are classified as responsive robustness and have no source-fidelity score.
-`GenerationRecord`, report, and ZIP remain separate from repository validation records.
+Source, fallback, authored output, preview, diff, and overlay share the same primary-canvas fit,
+alignment, and DPR rules. `GenerationRecord` 2.0, report, and ZIP remain separate from repository
+validation records; supported 1.0 bundles, records, and authoring requests have explicit
+compatibility readers.
 
 The stdio MCP adapter exposes only inspection, complete generation, retrieval, reporting, and
 separately approved export. Normalized scene nodes are paged in groups of 50; raw XML, full generated

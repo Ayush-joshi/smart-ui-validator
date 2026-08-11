@@ -7,8 +7,20 @@ on the workflow:
 - For repository-free SVG generation, bind it to one dedicated workspace containing the SVG and
   generation artifacts.
 
-Never bind `SMART_UI_MCP_ROOT` to a home directory or another broad shared root. Studio users do not
-need an MCP host; `smart-ui studio` is a separate local human interface to SVG generation.
+Never bind `SMART_UI_MCP_ROOT` to a home directory or another broad shared root. Studio can use its
+deterministic engine without a host; its AI-agent engine uses the same MCP server as other clients.
+
+For the Studio agent workflow, the shortest supported setup is:
+
+```bash
+smart-ui studio --agent --host codex
+```
+
+Replace `codex` with `claude` or `copilot` as needed. Add `--dry-run --json` to preview without writes,
+or use `smart-ui doctor --studio-agent --host <host> --json` for the same redacted read-only checks.
+Use `--ensure-engine` only when explicitly authorizing the pinned Chromium installation and a stale
+source-checkout rebuild. The command creates an absent host config atomically and never overwrites a
+differing file; follow the returned host restart action before sending the first request.
 
 For the shortest first-run path, use the one-command setup in
 [`docs/agent-workflow.md`](./agent-workflow.md). It generates target-contained design evidence, a

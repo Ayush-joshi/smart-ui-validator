@@ -37,6 +37,7 @@
   },
   "dependencies": {
     "smart-ui-validator-core": "workspace:*",
+    "smart-ui-validator-mcp": "workspace:*",
     "commander": "14.0.0"
   },
   "devDependencies": {

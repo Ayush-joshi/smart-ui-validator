@@ -257,8 +257,9 @@ generation records and deterministic evidence.
    are contained and safe.
 2. It streams and sanitizes the SVG under strict size, depth, node, attribute, path, filter,
    gradient, and embedded-image limits. Active or external content fails closed.
-3. It creates a hierarchical `DesignBundle` with scene structure, repeated values, layout and
-   semantic candidates, unsupported constructs, provenance, and explicit uncertainties.
+3. It creates a hierarchical `DesignBundle` 2.0 with scene structure, repeated values, layout and
+   semantic candidates, typed design context, explicit presentation intent, provenance, and
+   uncertainties. Supported 1.0 bundles are upgraded to intrinsic presentation deterministically.
 4. A deterministic provider generates bounded local HTML/CSS according to the selected mode and
    layout.
 5. Smart UI serves the output on a short-lived contained loopback preview with browser networking
@@ -279,6 +280,17 @@ Layout choices are `fixed`, `responsive`, and `component`. A source SVG normally
 only at its source viewport. A narrow rendering without a corresponding narrow source is reported
 as **responsive robustness**, not as visual fidelity to an unprovided design.
 
+An optional `PresentationSpec` separates source dimensions from the target canvas. It records a
+stable canvas ID, exact CSS-pixel width and height, DPR, `intrinsic`/`contain`/`cover`/`stretch` fit,
+alignment, and up to eight named validation viewports. The source reference, generated output,
+preview, screenshot, diff, and overlay use the same primary-canvas rules. Without this spec, the
+legacy intrinsic behavior is preserved.
+
+An optional `StructuredDesignContext` carries bounded exact copy, design tokens, component
+semantics, interactions, provenance, and general notes through CLI, MCP, Studio, authoring rounds,
+the design bundle, and reports. All fields are validated as untrusted evidence and each authoring
+round records the validated original context hash plus whether credential-like text was redacted.
+
 ### Generate from the CLI
 
 The SVG must be inside the exact workspace. `--output` is optional; when supplied, it must name a new
@@ -297,6 +309,8 @@ npx smart-ui generate \
 Useful options:
 
 - `--instructions <text>` adds one bounded implementation note.
+- `--design-context <path>` reads a contained `StructuredDesignContext` 1.0 JSON file.
+- `--presentation <path>` reads a contained `PresentationSpec` 1.0 JSON file.
 - `--viewport <width>x<height>` overrides the source viewport when the SVG does not provide the
   intended dimensions.
 - `--max-passes 0|1` controls the bounded revision count.
@@ -306,7 +320,9 @@ Useful options:
 
 ### Generate through MCP
 
-Connected hosts use the same engine and do not receive a generic browser, shell, or file-writer tool:
+Connected hosts use the same engine and do not receive a generic browser, shell, or file-writer tool.
+`inspect_svg` and `generate_html_from_svg` accept the same structured design context and presentation
+specification as the CLI:
 
 - `inspect_svg` returns compact capabilities and a paged normalized context handle.
 - `generate_html_from_svg` generates deterministically and can consider one optional, explicitly
@@ -377,11 +393,18 @@ the MCP root. Running Studio from this repository checkout satisfies this by def
 
 Studio initializes a dedicated workspace automatically. From this repository checkout, the default
 workspace is `<cwd>/.studio-workspace`, which is already inside the MCP root, so the agent engine
-works with no extra flags:
+works with no extra flags. To verify the local engine, create an absent host configuration safely,
+initialize the dedicated workspace, and start Studio in one command, use `--agent`:
 
 ```bash
-npx smart-ui studio
+npx smart-ui studio --agent --host codex
 ```
+
+Use `--host claude` or `--host copilot` for their project configuration formats. `--dry-run` previews
+without writes, `--check-only` diagnoses only, and `--ensure-engine` explicitly installs the pinned
+Chromium revision and rebuilds stale source-checkout assets. A differing existing `.codex/config.toml`,
+`.mcp.json`, or `.vscode/mcp.json` is never overwritten. The equivalent read-only diagnosis is
+`smart-ui doctor --studio-agent --host <host> --workspace <path> --json`.
 
 Studio refuses filesystem roots, your home directory, symlink roots, and non-empty directories that
 it did not initialize. To use an explicit dedicated directory, or to initialize/verify without
@@ -407,9 +430,9 @@ the operating system chooses an available ephemeral port.
 
 1. **Input:** drag, drop, or choose one `.svg`. Studio sanitizes it and shows dimensions, hashes,
    scene size, readable text, decisions, uncertainties, and recommended modes.
-2. **Preferences:** choose the AI-agent or deterministic engine; choose exact, hybrid, or semantic
-   mode; choose fixed, responsive, or component layout; and optionally provide one bounded context
-   note for the agent.
+2. **Preferences:** choose the engine, generation mode, and layout; choose intrinsic or custom canvas,
+   DPR, fit, alignment, and bounded named viewports; and enter structured exact copy, tokens,
+   component semantics, interactions, and an optional compatibility note.
 3. **Generate:** follow sanitization, inspection, generation, preview, comparison, packaging, and
    reporting progress. With the AI-agent engine, the run pauses on an `awaiting-agent` step that shows
    the prompt to paste into the MCP-connected chat. You can cancel an in-flight run.

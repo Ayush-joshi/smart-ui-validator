@@ -5,7 +5,10 @@ import type { Config } from './config.js';
 import { SmartUiComparator } from './comparator.js';
 import { parseColor } from './color.js';
 import {
-  generationRecordSchema,
+  generationRecordV2Schema,
+  hashStructuredContext,
+  resolvePresentationSpec,
+  resolveStructuredDesignContext,
   svgGenerationInputSchema,
   type DesignBundleNode,
   type GeneratedHtmlBundle,
@@ -99,6 +102,15 @@ export class GenerationOrchestrator {
     const started = performance.now();
     await assertWorkspace(input.workspaceRoot);
     await assertRunPath(input.workspaceRoot, input.artifactRoot, 'Artifact root');
+    for (const viewport of input.presentationSpec?.viewports ?? []) {
+      if (viewport.reference) {
+        await assertContainedPath(
+          input.workspaceRoot,
+          viewport.reference.path,
+          `Reference for presentation viewport '${viewport.id}'`,
+        );
+      }
+    }
     if (input.exportRoot) {
       await assertContainedPath(input.workspaceRoot, input.exportRoot, 'Export root');
       await assertEmptyDirectory(input.exportRoot, 'Export root');
@@ -144,8 +156,8 @@ export class GenerationOrchestrator {
     const baseArtifacts: ArtifactRef[] = [inspection.bundle.sanitizedSvg, designBundle];
     const generationId = input.generationId ?? `generation-${randomUUID()}`;
     if (input.dryRun) {
-      const preliminary = generationRecordSchema.parse({
-        schemaVersion: '1.0',
+      const preliminary = generationRecordV2Schema.parse({
+        schemaVersion: '2.0',
         generatorVersion: this.dependencies.generator.version,
         id: generationId,
         status: 'dry-run',
@@ -198,7 +210,8 @@ export class GenerationOrchestrator {
     const generateMs = performance.now() - generationStarted;
     const artifacts = [...baseArtifacts];
 
-    const viewport = inspection.bundle.viewport;
+    const presentationSpec = inspection.bundle.presentationSpec;
+    const viewport = captureViewport(presentationSpec.primaryCanvas);
     const browserOptions = {
       viewport,
       timeoutMs: Math.min(this.dependencies.config.generation.timeoutMs, 60_000),
@@ -340,8 +353,8 @@ export class GenerationOrchestrator {
           passRecord(proposedEvaluation, 1, proposalAccepted, !proposalAccepted),
         ]
       : [passRecord(proposedEvaluation, 0, true, false)];
-    const preliminary = generationRecordSchema.parse({
-      schemaVersion: '1.0',
+    const preliminary = generationRecordV2Schema.parse({
+      schemaVersion: '2.0',
       generatorVersion: acceptedProvider.version,
       id: generationId,
       status: warnings.length > 0 ? 'completed-with-warnings' : 'succeeded',
@@ -353,7 +366,12 @@ export class GenerationOrchestrator {
       sanitizedSource: inspection.bundle.sanitizedSvg,
       designBundle,
       sanitization: inspection.bundle.sanitization,
-      input: recordInput(input, inspection.bundle.name, viewport, acceptedBundle.finalMode),
+      input: recordInput(
+        input,
+        inspection.bundle.name,
+        inspection.bundle.viewport,
+        acceptedBundle.finalMode,
+      ),
       provider: {
         name: acceptedProvider.name,
         version: acceptedProvider.version,
@@ -437,7 +455,8 @@ export class GenerationOrchestrator {
       });
       if (
         input.layout === 'responsive' &&
-        this.dependencies.config.generation.narrowViewportWidth < inspection.bundle.viewport.width
+        this.dependencies.config.generation.narrowViewportWidth <
+          inspection.bundle.presentationSpec.primaryCanvas.width
       ) {
         const width = this.dependencies.config.generation.narrowViewportWidth;
         const narrowViewport = {
@@ -445,10 +464,11 @@ export class GenerationOrchestrator {
           height: Math.max(
             1,
             Math.ceil(
-              (inspection.bundle.viewport.height * width) / inspection.bundle.viewport.width,
+              (inspection.bundle.presentationSpec.primaryCanvas.height * width) /
+                inspection.bundle.presentationSpec.primaryCanvas.width,
             ),
           ),
-          deviceScaleFactor: inspection.bundle.viewport.deviceScaleFactor,
+          deviceScaleFactor: inspection.bundle.presentationSpec.primaryCanvas.deviceScaleFactor,
         };
         const narrow = await this.dependencies.browser.capture({
           ...browserOptions,
@@ -511,8 +531,8 @@ export class GenerationOrchestrator {
     );
     artifacts.push(screenshot, diff, overlay);
     viewports.unshift({
-      name: 'source',
-      viewport: inspection.bundle.viewport,
+      name: inspection.bundle.presentationSpec.primaryCanvas.id,
+      viewport: captureViewport(inspection.bundle.presentationSpec.primaryCanvas),
       classification: 'source-fidelity',
       screenshot,
       similarity: Math.max(0, 100 - comparison.diffPercent),
@@ -561,8 +581,8 @@ export class GenerationOrchestrator {
     const stoppedReason = failureReason(error, canceled, details?.['stoppedReason']);
     const message =
       error instanceof Error ? error.message.slice(0, 1_000) : String(error).slice(0, 1_000);
-    const preliminary = generationRecordSchema.parse({
-      schemaVersion: '1.0',
+    const preliminary = generationRecordV2Schema.parse({
+      schemaVersion: '2.0',
       generatorVersion: this.dependencies.generator.version,
       id: input.generationId ?? `generation-${randomUUID()}`,
       status: 'failed',
@@ -616,7 +636,7 @@ export class GenerationOrchestrator {
   ): Promise<GenerationResult> {
     await this.progress('report', 0.92, 'Writing the offline generation report.');
     const report = await this.dependencies.reporter.write(preliminary, signal);
-    const record = generationRecordSchema.parse({
+    const record = generationRecordV2Schema.parse({
       ...preliminary,
       report,
       artifacts: [...preliminary.artifacts, report],
@@ -641,7 +661,7 @@ function generationContract(
   generated: GeneratedHtmlBundle,
   referenceRaster: ArtifactRef,
 ) {
-  const viewport = inspection.bundle.viewport;
+  const viewport = captureViewport(inspection.bundle.presentationSpec.primaryCanvas);
   return designContractSchema.parse({
     schemaVersion: '1.0',
     id: inspection.bundle.id,
@@ -660,7 +680,7 @@ function generationContract(
     },
     ambiguities: inspection.bundle.uncertainties.map((item) => item.message),
     elements:
-      generated.finalMode === 'exact'
+      generated.finalMode === 'exact' || input.presentationSpec
         ? []
         : inspection.bundle.scene.nodes.flatMap((node) =>
             projectSemanticNode(node, inspection.bundle.scene.nodes, viewport),
@@ -670,6 +690,18 @@ function generationContract(
       uncertainties: inspection.bundle.uncertainties.map((item) => item.message),
     },
   });
+}
+
+function captureViewport(viewport: { width: number; height: number; deviceScaleFactor: number }): {
+  width: number;
+  height: number;
+  deviceScaleFactor: number;
+} {
+  return {
+    width: viewport.width,
+    height: viewport.height,
+    deviceScaleFactor: viewport.deviceScaleFactor,
+  };
 }
 
 function passRecord(
@@ -866,6 +898,11 @@ function recordInput(
     ...(input.instructions
       ? { instructionsHash: hash(new TextEncoder().encode(input.instructions)) }
       : {}),
+    presentationSpec: resolvePresentationSpec(
+      input,
+      viewport ?? { width: 1, height: 1, deviceScaleFactor: 1 },
+    ),
+    structuredContextHash: hashStructuredContext(resolveStructuredDesignContext(input)),
   };
 }
 

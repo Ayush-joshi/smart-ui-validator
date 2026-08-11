@@ -122,4 +122,82 @@ describe('SVG generation real-browser vertical slice', () => {
       '<!doctype html>',
     );
   }, 30_000);
+
+  it('compares a small intrinsic component on a larger explicit canvas without scale drift', async () => {
+    const workspace = await mkdtemp(join(tmpdir(), 'smart-ui-generation-canvas-e2e-'));
+    const svgPath = join(workspace, 'component.svg');
+    await writeFile(
+      svgPath,
+      '<svg xmlns="http://www.w3.org/2000/svg" width="100" height="50"><rect width="100" height="50" rx="8" fill="#2457ff"/></svg>',
+    );
+    const artifactRoot = join(workspace, '.smart-ui', 'generations', 'custom-canvas');
+    const config = configSchema.parse({});
+    const store = new LocalArtifactStore(artifactRoot);
+    const result = await new GenerationOrchestrator({
+      structure: new LocalSvgStructureProvider(store, config.generation.limits),
+      generator: new DeterministicHtmlGenerationProvider(),
+      preview: new LoopbackGeneratedPreviewProvider(),
+      browser: new PlaywrightBrowserProvider(),
+      artifacts: store,
+      reporter: new HtmlGenerationReporter(store),
+      exporter: new ReproducibleGenerationExporter(workspace),
+      config,
+    }).run({
+      workspaceRoot: workspace,
+      svgPath,
+      artifactRoot,
+      mode: 'exact',
+      layout: 'component',
+      presentationSpec: {
+        schemaVersion: '1.0',
+        primaryCanvas: { id: 'component-demo', width: 400, height: 300, deviceScaleFactor: 2 },
+        fit: 'contain',
+        horizontalAlignment: 'center',
+        verticalAlignment: 'center',
+        viewports: [],
+      },
+      structuredDesignContext: {
+        schemaVersion: '1.0',
+        exactCopy: [
+          {
+            id: 'component-name',
+            label: 'Component name',
+            text: 'Blue component',
+            sourceNodeIds: [],
+            provenance: 'owned e2e fixture',
+          },
+        ],
+        designTokens: [],
+        componentSemantics: [],
+        interactions: [],
+      },
+      rendering: { background: { kind: 'transparent' }, locale: 'en-US', theme: 'light' },
+      dryRun: false,
+    });
+    expect(result.record.schemaVersion).toBe('2.0');
+    expect(result.record.passes[0]?.diffPercent).toBe(0);
+    expect(result.record.viewports[0]).toMatchObject({
+      name: 'component-demo',
+      viewport: { width: 400, height: 300, deviceScaleFactor: 2 },
+      similarity: 100,
+    });
+    if (result.record.schemaVersion === '2.0') {
+      expect(result.record.input.presentationSpec).toMatchObject({
+        fit: 'contain',
+        horizontalAlignment: 'center',
+        verticalAlignment: 'center',
+      });
+      expect(result.record.input.structuredContextHash).toMatch(/^sha256:/u);
+      const report = await readFile(join(artifactRoot, result.record.report!.relativePath), 'utf8');
+      expect(report).toContain(result.record.input.structuredContextHash);
+      expect(report).toContain('full validated typed evidence');
+      const bundle = JSON.parse(
+        await readFile(join(artifactRoot, result.record.designBundle!.relativePath), 'utf8'),
+      );
+      expect(bundle.structuredDesignContext.exactCopy[0]).toMatchObject({
+        text: 'Blue component',
+        provenance: 'owned e2e fixture',
+      });
+    }
+  }, 30_000);
 });

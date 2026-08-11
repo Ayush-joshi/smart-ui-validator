@@ -58,6 +58,32 @@ try {
     [cli, 'studio', '--workspace', studioWorkspace, '--health-check', '--json'],
     { cwd: directory, stdio: 'inherit' },
   );
+  for (const host of ['codex', 'claude', 'copilot']) {
+    const agentWorkspace = join(directory, `studio-agent-${host}`);
+    execFileSync(
+      process.execPath,
+      [
+        cli,
+        'studio',
+        '--agent',
+        '--host',
+        host,
+        '--workspace',
+        agentWorkspace,
+        '--health-check',
+        '--json',
+      ],
+      {
+        cwd: directory,
+        env: {
+          ...process.env,
+          INIT_CWD: directory,
+          SMART_UI_MCP_ROOT: directory,
+        },
+        stdio: 'inherit',
+      },
+    );
+  }
   execFileSync(
     process.execPath,
     [

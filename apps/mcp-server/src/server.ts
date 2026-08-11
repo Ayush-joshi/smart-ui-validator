@@ -37,10 +37,12 @@ import {
   memoryLayerSchema,
   memoryScopeSchema,
   memorySensitivitySchema,
+  presentationSpecSchema,
   readAuthoringRequest,
   runRecordSchema,
   redactSensitiveText,
   redactSensitiveValue,
+  structuredDesignContextSchema,
   resolveMemoryPath,
   validateAuthoredResponse,
   writeAuthoringResponse,
@@ -50,7 +52,9 @@ import {
   type GenerationRecord,
   type MemoryProvider,
   type ProposedChange,
+  type PresentationSpec,
   type RunRecord,
+  type StructuredDesignContext,
 } from 'smart-ui-validator-core';
 
 export const MCP_PROTOCOL_VERSION = '1.0';
@@ -198,6 +202,8 @@ const generationInputShape = {
   locale: z.string().min(1).max(100).default('en-US'),
   theme: z.enum(['light', 'dark']).default('light'),
   instructions: z.string().max(4_000).optional(),
+  structuredDesignContext: structuredDesignContextSchema.optional(),
+  presentationSpec: presentationSpecSchema.optional(),
   maxPasses: z.number().int().min(0).max(1).optional(),
   timeoutMs: z.number().int().positive().max(300_000).optional(),
   responseDetail: z.enum(['compact', 'full']).default('compact'),
@@ -688,6 +694,8 @@ export function createSmartUiMcpServer(): McpServer {
         },
         capabilities: {
           dimensions: bundle.viewport,
+          presentationSpec: bundle.presentationSpec,
+          structuredContextHash: bundle.structuredContextHash,
           readableTextNodes: bundle.scene.nodes.filter((node) => node.type === 'text' && node.text)
             .length,
           outlinedText: bundle.uncertainties.some((item) => item.code === 'TEXT_MAY_BE_OUTLINED'),
@@ -925,6 +933,10 @@ export function createSmartUiMcpServer(): McpServer {
           fallbackStack: request.fallbackStack,
           unavailableFonts: request.unavailableFonts,
           readableText: request.readableText,
+          structuredDesignContext: request.structuredDesignContext,
+          structuredContextHash: request.structuredContextHash,
+          contextRedacted: request.contextRedacted,
+          presentationSpec: request.presentationSpec,
           ...(request.instructions ? { instructions: request.instructions } : {}),
           ...(request.feedback ? { feedback: request.feedback } : {}),
           ...(request.priorEvidence ? { priorEvidence: request.priorEvidence } : {}),
@@ -1284,6 +1296,8 @@ interface McpGenerationInput {
   locale: string;
   theme: 'light' | 'dark';
   instructions?: string | undefined;
+  structuredDesignContext?: StructuredDesignContext | undefined;
+  presentationSpec?: PresentationSpec | undefined;
   maxPasses?: number | undefined;
   timeoutMs?: number | undefined;
   responseDetail: 'compact' | 'full';
@@ -1361,6 +1375,10 @@ async function executeSvgGeneration(
       mode: input.mode,
       layout: input.layout,
       ...(input.instructions ? { instructions: input.instructions } : {}),
+      ...(input.structuredDesignContext
+        ? { structuredDesignContext: input.structuredDesignContext }
+        : {}),
+      ...(input.presentationSpec ? { presentationSpec: input.presentationSpec } : {}),
       ...(input.viewport ? { viewport: input.viewport } : {}),
       rendering: {
         background: { kind: 'transparent' },
@@ -1460,6 +1478,9 @@ function compactGenerationResponse(
     stoppedReason: record.stoppedReason,
     requestedMode: record.input.requestedMode,
     finalMode: record.input.finalMode ?? null,
+    presentationSpec: record.schemaVersion === '2.0' ? record.input.presentationSpec : null,
+    structuredContextHash:
+      record.schemaVersion === '2.0' ? record.input.structuredContextHash : null,
     manifestHash: record.manifestHash ?? null,
     files: record.generatedFiles.map((file) => ({
       relativePath: file.relativePath,

@@ -4,7 +4,10 @@ import { basename, extname, isAbsolute, relative, resolve } from 'node:path';
 import { SaxesParser, type SaxesTagPlain } from 'saxes';
 import type { Config } from './config.js';
 import {
-  designBundleSchema,
+  designBundleV2Schema,
+  hashStructuredContext,
+  resolvePresentationSpec,
+  resolveStructuredDesignContext,
   svgGenerationInputSchema,
   type DesignBundleNode,
   type SanitizationSummary,
@@ -378,8 +381,13 @@ export class LocalSvgStructureProvider implements SvgStructureProvider {
     const typography = repeatedValues(flatNodes, ['font-size', 'font-weight']);
     const layoutCandidates = detectLayouts(root);
     const semanticCandidates = detectSemantics(flatNodes, layoutCandidates, dimensions);
-    const bundle = designBundleSchema.parse({
-      schemaVersion: '1.0',
+    const structuredDesignContext = resolveStructuredDesignContext(input);
+    const presentationSpec = resolvePresentationSpec(input, {
+      ...dimensions,
+      deviceScaleFactor: input.viewport?.deviceScaleFactor ?? 1,
+    });
+    const bundle = designBundleV2Schema.parse({
+      schemaVersion: '2.0',
       id: `svg-${sanitizedHash.slice(7, 31)}`,
       name: input.name ?? basename(input.svgPath, extname(input.svgPath)),
       originalInputHash: originalHash,
@@ -399,7 +407,9 @@ export class LocalSvgStructureProvider implements SvgStructureProvider {
       uncertainties,
       unsupportedConstructs: [...unsupported].sort(),
       fontPolicy: { fallbackStack: FALLBACK_FONTS, unavailableFonts: [...unavailableFonts].sort() },
-      ...(input.instructions ? { instructions: input.instructions } : {}),
+      structuredDesignContext,
+      structuredContextHash: hashStructuredContext(structuredDesignContext),
+      presentationSpec,
       provenance: { provider: this.name, version: this.version, source: svgPath },
     });
     if (pathCount > 20 && pathCount > textNodes.length * 5) {
