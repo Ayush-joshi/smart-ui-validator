@@ -84,6 +84,27 @@ describe('SVG generation Phase 1 core', () => {
     });
   });
 
+  it('removes external hyperlink targets while preserving visible linked content', async () => {
+    const workspace = await mkdtemp(join(tmpdir(), 'smart-ui-svg-link-cleanup-'));
+    const path = join(workspace, 'linked.svg');
+    await writeFile(
+      path,
+      '<svg xmlns="http://www.w3.org/2000/svg" width="120" height="40"><a href="https://example.test"><text x="4" y="24">Visible label</text></a></svg>',
+    );
+    const config = configSchema.parse({});
+    const result = await new LocalSvgStructureProvider(
+      new LocalArtifactStore(join(workspace, 'artifacts')),
+      config.generation.limits,
+    ).inspect(input(workspace, path));
+
+    expect(result.sanitizedXml).toContain('<a>');
+    expect(result.sanitizedXml).toContain('Visible label');
+    expect(result.sanitizedXml).not.toContain('https://example.test');
+    expect(result.bundle.sanitization.decisions).toContain(
+      'Removed an external hyperlink target from <a>; its visible SVG contents were preserved.',
+    );
+  });
+
   it('enforces decoded and structural budgets before rendering', async () => {
     const workspace = await mkdtemp(join(tmpdir(), 'smart-ui-svg-budget-'));
     const path = join(workspace, 'large.svg');

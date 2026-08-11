@@ -122,6 +122,10 @@ export function StudioApp(): ReactNode {
   const [source, setSource] = useState<SourceFile>();
   const inputRef = useRef<HTMLInputElement>(null);
   const active = runs.find((run) => run.runId === activeId);
+  const cleanupDecisions =
+    active?.inspection?.sanitization.decisions.filter((decision) =>
+      decision.startsWith('Removed '),
+    ) ?? [];
 
   useEffect(() => {
     void fetch('/api/session', { credentials: 'same-origin' })
@@ -381,6 +385,16 @@ export function StudioApp(): ReactNode {
                 <strong className="good">Accepted</strong>
               </div>
             </div>
+            {cleanupDecisions.length > 0 && (
+              <div className="alert" role="status">
+                <strong>Studio safely cleaned the uploaded SVG.</strong>
+                <ul>
+                  {cleanupDecisions.map((decision) => (
+                    <li key={decision}>{decision}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
             <details>
               <summary>Inspection evidence</summary>
               <dl className="hashes">
@@ -634,8 +648,19 @@ export function Review({
       </section>
     );
   }
+  const evaluationFailure =
+    run.error?.message ??
+    result.failures[0]?.message ??
+    (run.phase === 'failed' ? run.progress.message : undefined);
   return (
     <section className="review" aria-labelledby="review-title">
+      {evaluationFailure && (
+        <div className="alert" role="alert">
+          <strong>This round could not be scored.</strong>
+          <p>{evaluationFailure}</p>
+          {run.error?.recovery && <p>{run.error.recovery}</p>}
+        </div>
+      )}
       <div className="review-header">
         <div>
           <p className="eyebrow">Step 4</p>
@@ -678,7 +703,9 @@ export function Review({
           label="Source visual similarity"
           value={
             result.visualSimilarity === null
-              ? 'Not scored'
+              ? run.phase === 'failed'
+                ? 'Unavailable — generation failed'
+                : 'Not scored'
               : `${result.visualSimilarity.toFixed(3)}%`
           }
         />
@@ -686,7 +713,9 @@ export function Review({
           label="Visual mismatch"
           value={
             result.visualMismatchPercent === null
-              ? 'Not scored'
+              ? run.phase === 'failed'
+                ? 'Unavailable — generation failed'
+                : 'Not scored'
               : `${result.visualMismatchPercent.toFixed(3)}%`
           }
         />
@@ -707,7 +736,9 @@ export function Review({
               </strong>
               <span>
                 {item.visualSimilarity === null
-                  ? 'Not scored'
+                  ? item.round === run.selectedRound && run.phase === 'failed'
+                    ? 'Scoring failed'
+                    : 'Not scored'
                   : `${item.visualSimilarity.toFixed(3)}% similarity`}
               </span>
               <small>

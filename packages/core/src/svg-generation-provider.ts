@@ -49,6 +49,7 @@ const SUPPORTED_ELEMENTS = new Set([
   'mask',
   'title',
   'desc',
+  'a',
   'style',
   'filter',
   'fegaussianblur',
@@ -182,8 +183,15 @@ export class LocalSvgStructureProvider implements SvgStructureProvider {
           parseError = budget('ATTRIBUTE_COUNT', this.limits.maxAttributes);
           return;
         }
-        validateAttribute(name, attributeName, value, summary, this.limits, referencedIds);
-        attributes[attributeName] = value;
+        const retainAttribute = validateAttribute(
+          name,
+          attributeName,
+          value,
+          summary,
+          this.limits,
+          referencedIds,
+        );
+        if (retainAttribute) attributes[attributeName] = value;
         if (localName(attributeName) === 'id') declaredIds.add(value);
       }
       if (name === 'path') {
@@ -448,7 +456,7 @@ function validateAttribute(
   summary: SanitizationSummary,
   limits: Config['generation']['limits'],
   referencedIds: Set<string>,
-): void {
+): boolean {
   const name = localName(rawName);
   const lowered = value.trim().toLowerCase();
   if (name.startsWith('on'))
@@ -461,10 +469,16 @@ function validateAttribute(
       throw unsafe('EXTERNAL_RESOURCE', `External resource in '${rawName}' is not allowed.`);
     referencedIds.add(reference.slice(1));
   }
-  if (!['href', 'src'].includes(name)) return;
+  if (!['href', 'src'].includes(name)) return true;
   if (value.startsWith('#')) {
     referencedIds.add(value.slice(1));
-    return;
+    return true;
+  }
+  if (element === 'a' && name === 'href') {
+    const decision =
+      'Removed an external hyperlink target from <a>; its visible SVG contents were preserved.';
+    if (!summary.decisions.includes(decision)) summary.decisions.push(decision);
+    return false;
   }
   if (element !== 'image' || !lowered.startsWith('data:'))
     throw unsafe('EXTERNAL_RESOURCE', `External '${rawName}' resource is not allowed.`);
@@ -475,6 +489,7 @@ function validateAttribute(
     throw budget('EMBEDDED_IMAGE_COUNT', limits.maxEmbeddedImages);
   if (summary.embeddedImageBytes > limits.maxEmbeddedImageBytes)
     throw budget('EMBEDDED_IMAGE_BYTES', limits.maxEmbeddedImageBytes);
+  return true;
 }
 
 function validateCssText(value: string, referencedIds: Set<string>): void {

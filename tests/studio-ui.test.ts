@@ -169,4 +169,55 @@ describe('Studio frontend components', () => {
     expect(html).toContain('91.250% similarity');
     expect(html).toContain('4 improvement round(s) remain.');
   });
+
+  it('explains failed scoring instead of presenting a blank metric', () => {
+    const run = {
+      runId: 'run-33333333-3333-4333-8333-333333333333',
+      filename: 'broken.svg',
+      createdAt: new Date(0).toISOString(),
+      updatedAt: new Date(0).toISOString(),
+      phase: 'failed' as const,
+      progress: { stage: 'failed', value: 1, message: 'Generation failed.' },
+      rounds: [],
+      selectedRound: 1,
+      acceptedRound: null,
+      decision: null,
+      pendingAuthoring: null,
+      generation: {
+        generationId: 'generation-33333333-3333-4333-8333-333333333333',
+        status: 'failed',
+        stoppedReason: 'failed',
+        engine: 'agent' as const,
+        agent: { host: 'studio-agent:chat-agent', accepted: false },
+        requestedMode: 'semantic' as const,
+        files: [],
+        visualSimilarity: null,
+        visualMismatchPercent: null,
+        uncertaintyCount: 0,
+        uncertainties: [],
+        findings: [],
+        viewports: [],
+        warnings: [],
+        failures: [{ code: 'POLICY_VIOLATION', message: 'Generated CSS is invalid.' }],
+        previewUrl: null,
+        downloads: { archive: null, report: null },
+        evidence: null,
+      },
+    };
+    const html = renderToStaticMarkup(
+      createElement(Review, {
+        run,
+        source: undefined,
+        feedback: '',
+        busy: false,
+        onFeedback: vi.fn(),
+        onDecide: vi.fn(),
+        onSource: vi.fn(),
+        onDelete: vi.fn(),
+      }),
+    );
+    expect(html).toContain('This round could not be scored.');
+    expect(html).toContain('Generated CSS is invalid.');
+    expect(html).toContain('Unavailable — generation failed');
+  });
 });

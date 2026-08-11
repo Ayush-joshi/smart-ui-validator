@@ -5,6 +5,8 @@ import { z } from 'zod';
 import type { SvgGenerationInput } from './generation-contracts.js';
 import type { SvgInspectionResult } from './generation-providers.js';
 import type { HostProposedGenerationFile } from './host-proposed-generation.js';
+import type { Config } from './config.js';
+import { validateGeneratedBundle } from './generated-output.js';
 import { SmartUiError } from './errors.js';
 
 /**
@@ -548,6 +550,33 @@ export function authoredHostFiles(response: StudioAuthoringResponse): HostPropos
     content: file.content,
     rationale: `Authored by ${response.authoringAgent} from the sanitized SVG design evidence.`,
   }));
+}
+
+/**
+ * Applies the complete generated-output boundary before Studio consumes an authored response.
+ * This keeps syntax and offline-policy failures in the MCP submission flow, where the author can
+ * correct them, instead of creating an unscored failed Studio round.
+ */
+export function validateAuthoredResponse(
+  response: StudioAuthoringResponse,
+  limits: Config['generation']['limits'],
+): void {
+  const files = authoredHostFiles(response).map((file) => ({
+    relativePath: file.relativePath,
+    mediaType: file.mediaType,
+    bytes: new TextEncoder().encode(file.content),
+    rationale: file.rationale,
+    sourceNodeIds: [...(file.sourceNodeIds ?? [])],
+  }));
+  validateGeneratedBundle(
+    {
+      files,
+      finalMode: 'semantic',
+      decisions: [],
+      uncertainties: [],
+    },
+    limits,
+  );
 }
 
 function authoredMediaType(path: string): HostProposedGenerationFile['mediaType'] {

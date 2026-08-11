@@ -42,6 +42,7 @@ import {
   redactSensitiveText,
   redactSensitiveValue,
   resolveMemoryPath,
+  validateAuthoredResponse,
   writeAuthoringResponse,
   type AuthoringVisualEvidence,
   type BrowserInteractionState,
@@ -999,14 +1000,17 @@ export function createSmartUiMcpServer(): McpServer {
       assertHostGenerationProposalBudget(
         files.map((file) => ({ relativePath: file.path, content: file.content })),
       );
-      await writeAuthoringResponse(queueRoot, {
+      const response = {
         schemaVersion: '1.0',
         runId,
         round: request.round,
         authoringAgent,
         createdAt: new Date().toISOString(),
         files,
-      });
+      } as const;
+      const config = await loadConfig(workspace);
+      validateAuthoredResponse(response, config.generation.limits);
+      await writeAuthoringResponse(queueRoot, response);
       return result({ runId, round: request.round, accepted: true, fileCount: files.length });
     },
   );

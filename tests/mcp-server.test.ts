@@ -513,6 +513,45 @@ describe('stable host-neutral MCP contract', () => {
     );
     expect(written).toMatchObject({ runId, round: 1, authoringAgent: 'contract-test-agent' });
 
+    const firstRequest = JSON.parse(
+      await readFile(join(requestsDir, 'round-1.json'), 'utf8'),
+    ) as Record<string, unknown>;
+    await writeFile(
+      join(requestsDir, 'round-2.json'),
+      JSON.stringify({
+        ...firstRequest,
+        round: 2,
+        priorEvidence: {
+          round: 1,
+          visualSimilarityPercent: 90,
+          visualMismatchPercent: 10,
+          findings: [],
+          warnings: [],
+        },
+        createdAt: new Date(now + 1).toISOString(),
+        expiresAt: new Date(now + 600_001).toISOString(),
+      }),
+    );
+    const invalidCss = await client.callTool({
+      name: 'submit_studio_authored_html',
+      arguments: {
+        studioWorkspace,
+        runId,
+        round: 2,
+        approved: true,
+        authoringAgent: 'contract-test-agent',
+        files: [
+          { path: 'index.html', content: '<!doctype html><html lang="en"></html>' },
+          { path: 'styles.css', content: 'body{margin:0}}' },
+        ],
+      },
+    });
+    expect(invalidCss.isError).toBe(true);
+    expect(JSON.stringify(invalidCss.content)).toContain('Generated CSS is invalid');
+    await expect(
+      readFile(join(studioWorkspace, 'agent-queue', 'responses', runId, 'round-2.json'), 'utf8'),
+    ).rejects.toMatchObject({ code: 'ENOENT' });
+
     const missing = await client.callTool({
       name: 'submit_studio_authored_html',
       arguments: {
