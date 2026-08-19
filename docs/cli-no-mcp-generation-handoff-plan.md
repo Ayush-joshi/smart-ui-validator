@@ -1,6 +1,6 @@
 # CLI and Studio Agent Handoff Plan
 
-Status: Proposed — revised 2026-08-20
+Status: Implemented and verified — 2026-08-20
 
 ## 1. Goal
 

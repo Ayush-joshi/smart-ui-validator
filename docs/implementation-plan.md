@@ -34,18 +34,26 @@ CLI/MCP transport, and the host-neutral `studio --agent`/`doctor --studio-agent`
 required product, browser, evaluation, security, privacy, package, clean-consumer, publish, and SBOM
 gates passed. The repository-root `.codex/` machine-local bootstrap output is ignored so local
 absolute paths and identities do not enter source scans or commits; tracked host examples remain
-included. Named viewport evaluation, convergence/decision coordination, and durable multi-process
-storage remain Phases 2 and 3.
+included. That phase left named viewport evaluation, convergence/decision coordination, and durable
+multi-process storage for later work; the persistent handoff follow-up below now implements ordered
+viewport/state review while preserving the remaining limitations.
+
+Persistent handoff follow-up: the CLI/Studio agent handoff plan was implemented on 2026-08-20. The
+host-neutral core now owns hash-verified generation and existing-UI implementation tasks, exact write
+boundaries, atomic revisioned state, immutable review attempts, and explicit acceptance. CLI, MCP,
+Studio, external agents, and humans use the same task contracts. Studio exposes Generate UI and
+Validate UI through one shared Handoff and Review experience, and implementation review records
+ordered viewport/state evidence without assigning fidelity scores to unreferenced robustness
+viewports. The release verification record is maintained in `AGENTS.md` and `CHANGELOG.md`.
 
 ## 1. Product definition
 
-Smart UI Validator is a persistent UI engineering agent. A developer can use it
-from a terminal or connect it to Codex, Claude Code, VS Code/GitHub Copilot, and
-optionally OpenClaw. It accepts a Figma design, another supported design source,
-or reference images; implements the design in an existing React or Angular
-project; renders it in an isolated Chrome session; measures visual and
-structural differences; repairs the implementation in bounded passes; and asks
-the developer for feedback.
+Smart UI Validator is a persistent UI engineering engine and agent workflow. A developer can use it
+from a terminal or local Studio, or connect it to Codex, Claude Code, VS Code/GitHub Copilot, and
+optionally OpenClaw. It accepts Figma evidence or local SVG/PNG references, generates standalone
+HTML/CSS or guides exact-file implementation in an existing React or Angular project, renders the
+result in isolated Chromium, measures visual and structural differences, supports bounded repair and
+immutable review attempts, and asks the developer for explicit decisions and feedback.
 
 The long-term objective is not simply screenshot-to-code generation. The agent
 should learn confirmed user, team, repository, project, and component-level

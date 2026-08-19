@@ -13,6 +13,7 @@ enabled_tools = [
   "plan_component",
   "validate_component",
   "repair_component",
+  "get_findings",
   "get_run",
   "get_report",
   "answer_question",
@@ -24,6 +25,16 @@ enabled_tools = [
   "confirm_memory",
   "reject_memory",
   "forget_memory",
+  "inspect_svg",
+  "generate_html_from_svg",
+  "export_generation",
+  "get_generation",
+  "get_generation_report",
+  "list_handoff_tasks",
+  "get_handoff_task",
+  "read_handoff_evidence",
+  "submit_handoff_generation",
+  "submit_handoff_implementation",
 ]
 default_tools_approval_mode = "writes"
 
@@ -34,4 +45,13 @@ approval_mode = "prompt"
 approval_mode = "prompt"
 
 [mcp_servers.smart_ui.tools.forget_memory]
+approval_mode = "prompt"
+
+[mcp_servers.smart_ui.tools.export_generation]
+approval_mode = "prompt"
+
+[mcp_servers.smart_ui.tools.submit_handoff_generation]
+approval_mode = "prompt"
+
+[mcp_servers.smart_ui.tools.submit_handoff_implementation]
 approval_mode = "prompt"

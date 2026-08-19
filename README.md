@@ -50,7 +50,7 @@ host agent and require approval for the exact files involved.
 Install the CLI in a project or tooling workspace:
 
 ```bash
-npm install --save-dev smart-ui-validator@0.4.2
+npm install --save-dev smart-ui-validator@0.5.0
 npx smart-ui --help
 ```
 
@@ -58,7 +58,7 @@ The package has no browser-downloading `postinstall` hook. For the SVG CLI or St
 directory, you can invoke the published package explicitly:
 
 ```bash
-npx --package smart-ui-validator@0.4.2 smart-ui --help
+npx --package smart-ui-validator@0.5.0 smart-ui --help
 ```
 
 From this repository checkout, use `pnpm smart-ui` after `pnpm install --frozen-lockfile` and
@@ -102,7 +102,7 @@ Run first-time setup from the target repository. Add `--agent-memory` only if yo
 optional embedded-SQLite memory backend.
 
 ```bash
-npm install --save-dev smart-ui-validator@0.4.2
+npm install --save-dev smart-ui-validator@0.5.0
 npx smart-ui setup --target .
 npx smart-ui doctor --target .
 npx smart-ui inspect --target . --json
@@ -179,6 +179,26 @@ headline score: configured repository checks must pass, structural evidence must
 the visual result must improve within the configured thresholds. Existing and newly created files
 are rolled back when a proposal is rejected or a pass fails.
 
+For a substantial agent- or human-authored implementation, use the persistent handoff flow instead
+of the narrow built-in repair provider. `prepare` pins the design, repository inspection, route,
+policy, and exact writable files; `review` snapshots only those files and captures deterministic
+viewport/state evidence. Acceptance is always a separate metadata decision:
+
+```bash
+npx smart-ui validate-ui prepare \
+  --target /absolute/path/to/project \
+  --design /absolute/path/to/project/design/reference.png \
+  --route http://127.0.0.1:4173/pricing \
+  --allow-write src/components/PricingCard.tsx \
+  --allow-write src/components/PricingCard.css
+
+npx smart-ui validate-ui review --task /absolute/path/to/task.json
+npx smart-ui task accept --task /absolute/path/to/task.json --attempt 1
+```
+
+The generated `AGENT_INSTRUCTIONS.md` and task JSON let an external agent or human work without MCP.
+A connected MCP agent can read and submit the same task through the handoff tools described below.
+
 ### Using an MCP host
 
 The MCP server exposes the same core through compact, approval-aware tools. A host agent is the
@@ -191,7 +211,7 @@ Example `.mcp.json` for Claude Code:
   "mcpServers": {
     "smart-ui": {
       "command": "npx",
-      "args": ["-y", "smart-ui-validator-mcp@0.4.2"],
+      "args": ["-y", "smart-ui-validator-mcp@0.5.0"],
       "cwd": "/absolute/path/to/project",
       "env": {
         "SMART_UI_MCP_ROOT": "/absolute/path/to/project"
@@ -314,7 +334,7 @@ npx smart-ui generation prepare \
   --layout responsive
 ```
 
-Useful options:
+Task and compatibility details:
 
 - `smart-ui generation prepare` creates a persistent task, exact proposal directory, pinned
   evidence, and `AGENT_INSTRUCTIONS.md` without invoking or waiting for an agent.
@@ -333,12 +353,11 @@ Useful options:
 - `--structured-context <path>` explicitly reads a contained `StructuredDesignContext` 1.0 JSON
   file and can be used together with the free-form source context.
 - `--presentation <path>` reads a contained `PresentationSpec` 1.0 JSON file.
-- `--viewport <width>x<height>` overrides the source viewport when the SVG does not provide the
-  intended dimensions.
-- `--max-passes 0|1` controls the bounded revision count.
-- `--dry-run --json` performs safety and capability inspection without producing a deliverable.
-- Omitting `--output` retains the immutable artifact run, report, and ZIP without materializing a
-  separate export directory.
+- `generation prepare --dry-run --json` performs safety and capability inspection without creating
+  a task or deliverable.
+- The deterministic one-shot `smart-ui generate` command additionally supports
+  `--viewport <width>x<height>`, `--max-passes 0|1`, and an optional new empty `--output` directory.
+  Without `--output`, it retains only the immutable artifact run, report, and ZIP.
 
 ### Generate through MCP
 
@@ -411,20 +430,22 @@ immutable task evidence is created. The browser can declare only an already-runn
 target-relative presentation file, and exact target-relative writable files; no globs, arbitrary
 commands, dependency installation, or directory-wide writes are accepted.
 
-### Generation engines
+### Authoring paths
 
-Studio offers two engines on the Preferences step:
+Studio offers three bounded continuations from the Handoff step:
 
-- **AI agent (default):** the chat agent connected to this repository's `smart-ui` MCP server authors
-  the HTML and CSS. Studio writes a bounded authoring request into its workspace, the agent picks it
-  up with `list_studio_authoring_requests`, authors offline files sized to the design's exact canvas,
-  and returns them with `submit_studio_authored_html`. Studio then renders and measures the result
-  through the same deterministic pipeline. While a run waits, Studio shows a ready-to-paste prompt —
-  containing the workspace path and run ID — to hand to the MCP-connected chat.
-- **Deterministic:** the built-in bounded generator; no model is involved.
+- **Connected MCP agent (default):** Studio creates a persistent hash-verified handoff task and shows
+  a ready-to-paste prompt containing its exact path. The agent reads the task and bounded evidence,
+  then submits complete approved files through `submit_handoff_generation` or
+  `submit_handoff_implementation`. Smart UI performs the deterministic review and records an
+  immutable attempt.
+- **External agent or human:** the same task contains `AGENT_INSTRUCTIONS.md`, exact evidence and
+  writable locations, and the exact CLI review command. No MCP connection is required.
+- **Deterministic generator:** for standalone generation only, the built-in bounded generator creates
+  a result directly; no model is involved.
 
-Because the agent reaches the queue through `SMART_UI_MCP_ROOT`, the Studio workspace must live inside
-the MCP root. Running Studio from this repository checkout satisfies this by default (see below).
+For a connected agent, the task and its evidence must live inside `SMART_UI_MCP_ROOT`. Running Studio
+from this repository checkout satisfies that containment requirement by default (see below).
 
 ### Start Studio
 
@@ -477,8 +498,10 @@ the operating system chooses an available ephemeral port.
    pinned reference exists, explicit `Not scored` robustness cells, and changed allowlisted files;
    then Accept, Revise, Cancel, or remove the task from Studio without deleting repository files.
 
-The review screen can delete exactly one verified run. Expiry and deletion close its preview, cancel
-in-flight work, remove only that run directory, and verify that it is gone.
+The review screen can delete exactly one verified Studio-owned run. Expiry and deletion close its
+preview, cancel in-flight work, remove only that run directory, and verify that it is gone. Removing
+an imported task from Studio only unregisters the association; it does not delete the task or any
+repository file.
 
 ### What to expect from Studio
 

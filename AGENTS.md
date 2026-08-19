@@ -13,13 +13,14 @@ Treat that document as the authoritative roadmap. Do not reduce its acceptance c
 
 ## Product
 
-Smart UI Validator is a persistent, host-neutral UI engineering agent. It will accept Figma designs,
-other supported design sources, or reference images; implement them in existing React and Angular
-projects; render them in isolated Chrome; measure deterministic visual and structural differences;
-repair implementations in bounded passes; and learn only confirmed, scoped preferences.
+Smart UI Validator is a persistent, host-neutral UI engineering engine and toolchain. It accepts
+Figma evidence, local SVG/PNG references, and structured or source context; generates standalone
+HTML/CSS or guides exact-file implementations in existing React and Angular projects; renders them
+in isolated Chromium; measures deterministic visual and structural differences; supports bounded
+repair and immutable review attempts; and learns only confirmed, scoped preferences.
 
-The core product is a CLI and reusable engine, not the React fixture website. The fixture is controlled
-test infrastructure.
+The product is a reusable core exposed through the CLI, local Studio, and stdio MCP server—not the
+React fixture website. The React and Angular fixtures are controlled test infrastructure.
 
 ## Product principles
 
@@ -201,8 +202,35 @@ clean-consumer bootstraps for all three hosts, publish readiness, and a 774-comp
 The 12-scenario SVG corpus retained 100% safe completion/repeatability/compatibility and 97.548%
 minimum source similarity. The privacy check passed for 222 source files after the repository-root
 `.codex/` machine-local bootstrap output was narrowly ignored; tracked host examples remain included.
-No live external Codex/Claude/Copilot session was exercised. Ordered named-viewport evaluation
-remains Phase 2 work.
+No live external Codex/Claude/Copilot session was exercised. Full named alternate-reference fidelity,
+cross-attempt convergence coordination, and durable multi-process authoring storage remain follow-up
+work.
+
+### Persistent handoff and shared Studio workflow
+
+Status: Implemented and verified on 2026-08-20.
+
+The repository now provides persistent, hash-verified `GenerationTask` and `ImplementationTask`
+contracts shared by CLI, MCP, Studio, external agents, and humans. `smart-ui generation
+prepare/review`, `smart-ui validate-ui prepare/review`, and `smart-ui task status/accept/cancel`
+separate authoring from deterministic review and explicit acceptance. The five task-backed MCP tools
+enforce task hash/revision checks and exact approved files before creating immutable review attempts.
+
+Studio now begins with Generate UI and Validate UI work types and uses one Inputs, Preferences and
+boundaries, Handoff, and Review flow. Validate UI requires an explicit startup target, exact
+target-relative writable files, and an already-running route. Its review index records ordered
+viewport/state evidence and distinguishes reference fidelity from unscored robustness. Removing an
+imported task from Studio never deletes its task or repository files. The former Studio authoring
+queue tools remain compatibility adapters for recoverable older runs; new handoffs use persistent
+tasks.
+
+Release verification passed Prettier, ESLint, TypeScript, production build, 189 unit/integration
+tests, 27 focused Studio tests, 7 real-Chromium end-to-end scenarios, the built 30-tool stdio MCP
+handshake, both owned evaluation gates, 238-file secret and privacy scans, package inspection (125
+core, 30 CLI, 7 MCP files), clean-consumer installation and Studio health checks for all three host
+bootstrap formats, publish readiness, and a production audit with no known vulnerabilities. The
+CycloneDX SBOM contains 774 components. Live external hosts/models and Windows remain unverified;
+local stores remain plaintext and single-writer by default.
 
 ## Working rules
 

@@ -1,7 +1,7 @@
 # MCP server
 
 `smart-ui-validator-mcp` exposes both host-neutral workflows over MCP stdio. Stdio is the only
-enabled transport in 0.4.2. Streamable HTTP remains disabled; a deployment must supply authenticated
+enabled transport in 0.5.0. Streamable HTTP remains disabled; a deployment must supply authenticated
 tenant/user identity, authorization, TLS, request limits, audit correlation, and secure token
 handling before enabling it.
 
@@ -29,13 +29,13 @@ artifact references. `get_findings` pages complete structured findings without r
 evidence. `repair_component` accepts an explicitly approved `proposedChanges` batch from the host
 agent and runs it through exact-write policy, repository checks, Chromium revalidation, convergence
 analysis, and rollback. Omitting the batch selects the documented narrow background-color fallback.
-`answer_question` and `continue_run` provide process-local answer handoff only; durable queues and automatic
-cross-process run resumption remain host/deployment responsibilities and capability discovery says
-so explicitly.
+`answer_question` and `continue_run` provide process-local question/answer handoff only. Persistent
+authoring tasks are a separate, durable contract; automatic resumption of arbitrary orchestration
+runs remains a host/deployment responsibility and capability discovery says so explicitly.
 
-## SVG generation tools
+## SVG generation and persistent handoff tools
 
-The repository-free surface is intentionally small and separate from repository repair:
+The MCP surface keeps direct generation and persistent handoff separate from legacy repair:
 
 | Tool                             | Contract                                                                                                                                                                                                                          |
 | -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -72,23 +72,21 @@ archive, and export checks. Calls with a progress token receive bounded stage no
 SVG or generated-code bodies. `generate`, `generation:export`, and `generation:delete` are additive
 authorization actions; repository `repair` permission does not imply any of them.
 
-Smart UI Studio is a local browser host for the same `GenerationOrchestrator`. Its required design
-reference may be SVG or PNG. SVG is sanitized structurally; PNG receives bounded signature and
-dimension validation and is attached unchanged as visual evidence. Its default AI-agent
-engine is powered by the connected MCP chat agent through a contained file-queue bridge: Studio writes
-a bounded schema-3.0 authoring request into `<studio-workspace>/agent-queue/requests/`, the agent picks
-it up with `list_studio_authoring_requests`, receives typed context, an optional JSX/TSX or other
-UTF-8 design-context file, SVG/PNG reference metadata, original hashes, documented redaction status, and exact presentation
-guidance, then authors offline HTML/CSS sized to the returned `canvasGuidance`, and
-returns it with `submit_studio_authored_html`. The authored files pass through the same host-proposal
-validation, isolated rendering, and deterministic comparison as any other proposal. Both tools
-resolve the declared workspace against `SMART_UI_MCP_ROOT`, so it must live inside the MCP root. The
-tool argument remains named `studioWorkspace` for protocol compatibility. CLI handoff uses the task
-tools above; it never creates or waits on this queue.
-Running `smart-ui studio` from this repository checkout uses `<cwd>/.studio-workspace` by default and
-initializes it automatically, so no flags are required. While a run waits, Studio surfaces a
-ready-to-paste prompt containing the workspace path and run ID. Human users who prefer the
-deterministic engine can still use the SVG tools above or select the deterministic engine in Studio.
+Smart UI Studio is a local browser host for the same core generation, implementation-review, and
+handoff APIs. Its required design reference may be SVG or PNG. SVG is sanitized structurally; PNG
+receives bounded signature and dimension validation and is attached unchanged as visual evidence.
+Studio creates a persistent `GenerationTask` or `ImplementationTask` before connected or external
+authoring. A connected agent reads the task through `get_handoff_task`, pages declared evidence only
+as needed, and submits exact approved files through one of the two handoff submission tools. The core
+then creates the same immutable deterministic review attempt used by CLI review. External agents and
+humans use the task's generated instructions and exact review command without MCP.
+
+`list_studio_authoring_requests` and `submit_studio_authored_html` remain narrow compatibility
+adapters for recoverable pre-task Studio runs; new Studio and CLI handoffs use the persistent task
+tools. All task and compatibility paths resolve inside `SMART_UI_MCP_ROOT`. Running `smart-ui studio`
+from this repository checkout uses `<cwd>/.studio-workspace` by default and initializes it
+automatically. Users who prefer model-free standalone generation can select the deterministic
+generator in Studio or call the direct SVG generation tools.
 
 `smart-ui studio --agent --host codex|claude|copilot` provides the supported bootstrap path. It checks
 Node, MCP-root containment, build freshness, packaged Studio assets, workspace writability, loopback,

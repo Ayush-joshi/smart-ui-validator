@@ -22,7 +22,7 @@ embedded SQLite support and remains optional.
 ## Installation
 
 ```bash
-npm install --save-dev smart-ui-validator@0.4.2
+npm install --save-dev smart-ui-validator@0.5.0
 npx smart-ui --help
 ```
 
@@ -63,6 +63,10 @@ writes are limited to exact target-relative paths from configuration or `--allow
 commands require an exact executable/argument allowlist. Smart UI retains deterministic screenshots,
 diffs, overlays, findings, a `RunRecord`, and an offline report, and rolls back rejected proposals.
 
+For a substantial implementation authored by an agent or human, use `validate-ui prepare` and
+`validate-ui review`. The persistent task pins the route, evidence, repository inspection, and exact
+writable files; review creates an immutable attempt, and `task accept` records the explicit decision.
+
 ## SVG-to-HTML generation
 
 This workflow does not inspect or modify an application repository and does not require Figma, MCP,
@@ -82,6 +86,10 @@ immutable artifact run, offline report, and reproducible ZIP are retained. An ex
 a new empty directory inside the workspace. `--dry-run --json` sanitizes and inspects without
 producing a deliverable.
 
+For agent- or human-authored standalone output, use `generation prepare`, author only the task's exact
+proposal manifest, then run `generation review` and `task accept`. This persistent flow does not
+invoke a model or require MCP; a connected MCP agent can submit to the same task contract.
+
 Modes are `exact`, `hybrid`, and `semantic`; layouts are `fixed`, `responsive`, and `component`.
 Source-viewport fidelity is measured separately from narrow responsive robustness. The result
 contains `index.html`, `styles.css`, deterministic evidence, uncertainties, findings, hashes,
@@ -94,8 +102,8 @@ explicitly configured React/Angular target. It is not a hosted backend, model ho
 collaboration service.
 
 Studio initializes a dedicated workspace automatically. From a repository checkout it defaults to
-`<cwd>/.studio-workspace` (inside the MCP root), so its default AI-agent engine — powered by the
-connected `smart-ui` MCP chat agent — works with no flags:
+`<cwd>/.studio-workspace` (inside the MCP root), so its default connected-agent handoff — powered by
+the `smart-ui` MCP server — works with no flags:
 
 ```bash
 npx smart-ui studio

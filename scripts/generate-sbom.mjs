@@ -56,7 +56,7 @@ const document = {
   metadata: {
     timestamp: new Date().toISOString(),
     tools: { components: [{ type: 'application', name: 'smart-ui-local-sbom-generator' }] },
-    component: { type: 'application', name: 'smart-ui-validator', version: '0.4.2' },
+    component: { type: 'application', name: 'smart-ui-validator', version: '0.5.0' },
   },
   components: componentList,
 };

@@ -159,7 +159,7 @@ describe('stable host-neutral MCP contract', () => {
         timingsMs: { total: 1 },
         warnings: [],
         failures: [],
-        provenance: { tool: 'smart-ui', version: '0.4.2' },
+        provenance: { tool: 'smart-ui', version: '0.5.0' },
         score: 50,
         stoppedReason: 'validation-only',
         passes: [

@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+## 0.5.0 - 2026-08-20
+
+- Added host-neutral persistent `GenerationTask` and `ImplementationTask` workflows shared by CLI,
+  MCP, Studio, external agents, and humans. Tasks pin bounded evidence, exact writable locations,
+  hashes, revisions, generated instructions, and explicit lifecycle state.
+- Added `smart-ui generation prepare/review`, `smart-ui validate-ui prepare/review`, and shared
+  `smart-ui task status/accept/cancel` commands. CLI handoff no longer invokes or waits for a model;
+  the removed `smart-ui generate --engine agent` path returns migration guidance.
+- Added five task-backed MCP tools for listing and reading handoffs and submitting exact approved
+  generation or React/Angular implementation files. CLI, MCP, and Studio submissions converge on
+  immutable deterministic review attempts and explicit acceptance.
+- Reworked Studio around Generate UI and Validate UI work types with a shared Inputs, Preferences and
+  boundaries, Handoff, and Review flow. Connected MCP and external agent/human continuations use the
+  same persistent task, while imported task removal never deletes task or repository files.
+- Added validate-UI review indexes with ordered viewport/state evidence, explicit source-fidelity,
+  alternate-reference, and unscored robustness classifications, plus exact allowlisted UTF-8 file
+  snapshots and tamper/concurrency/containment controls.
+- Added structured design context, presentation/canvas intent, PNG plus source-context intake,
+  generated agent instructions, Studio setup diagnostics, and task recovery across the CLI, MCP,
+  Studio, records, reports, and content-addressed artifacts.
 - Attached hash-verified rendered PNG evidence to Studio authoring requests. Each request now
   carries the rendered design image, and revision rounds also carry the previous round's render,
   pixel difference, and overlay; `list_studio_authoring_requests` returns them as MCP image content

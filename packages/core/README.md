@@ -4,11 +4,12 @@ Host-neutral Smart UI Validator engine for repository inspection, design normali
 deterministic Playwright evidence, visual and structural comparison, bounded repair, reporting,
 policy enforcement, and governed memory.
 
-The core also exports the repository-free SVG generation engine: strict bounded SVG intake,
-hierarchical `DesignBundle`, deterministic exact/hybrid HTML generation, manifest-only loopback
-preview, existing comparator integration, immutable `GenerationRecord`, offline reporting, and
-reproducible ZIP/export providers. CLI, future MCP, and future local-interface hosts share these
-boundaries rather than implementing their own parsers or scores.
+The core also exports the repository-free SVG/PNG generation engine: strict bounded intake,
+hierarchical `DesignBundle`, deterministic exact/hybrid/semantic HTML generation, manifest-only
+loopback preview, existing comparator integration, immutable `GenerationRecord`, offline reporting,
+and reproducible ZIP/export providers. Persistent generation and existing-UI handoff tasks let the
+CLI, MCP server, Studio, external agents, and humans share the same evidence, write boundaries,
+immutable review attempts, and explicit acceptance lifecycle.
 
 This is a library package. Most users should install `smart-ui-validator` for terminal use or
 `smart-ui-validator-mcp` for Codex, Claude Code, VS Code, and other MCP hosts.

@@ -16,7 +16,7 @@ An MCP host can start the published server with:
 
 ```text
 command: npx
-args: -y smart-ui-validator-mcp@0.4.2
+args: -y smart-ui-validator-mcp@0.5.0
 cwd: <absolute-target-project>
 ```
 
@@ -41,6 +41,11 @@ proposal is parsed and policy-checked, rendered with network blocked, measured b
 only when it does not regress the deterministic fallback. Export is never implied by generation;
 it requires the accepted manifest hash, the exact complete path list, an exact new empty destination,
 and a separate approval.
+
+Persistent generation and existing-UI implementation handoffs use `list_handoff_tasks`,
+`get_handoff_task`, `read_handoff_evidence`, `submit_handoff_generation`, and
+`submit_handoff_implementation`. Submissions require the exact task hash and revision plus explicit
+approval, and create the same immutable deterministic review attempts as the CLI and Studio.
 
 After `pnpm build`, `pnpm test:mcp:stdio` performs a real SDK stdio handshake against the built
 server and verifies all five generation tools, the guide, the paged context resource, and the prompt.

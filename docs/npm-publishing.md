@@ -7,13 +7,16 @@ release completed on 2026-08-09 from source tag `v0.4.1`.
 
 Current release status:
 
-- Patch release `0.4.2` was published on 2026-08-10. It adds targeted/paged MCP findings, approved
-  host-proposed bounded repairs, and score-plus-raster convergence without changing the v1 schemas'
-  required fields.
+- Feature release `0.5.0` was prepared and fully verified on 2026-08-20. It adds persistent
+  generation and existing-UI implementation handoff tasks across CLI, MCP, and Studio; immutable
+  deterministic review attempts; explicit accept/cancel lifecycle commands; and the shared Generate
+  UI/Validate UI Studio workflow. Registry publication remains pending until the npm publisher
+  session is authenticated.
 - The Smart UI repository and Agent Memory package are public.
 - The previous clean-consumer advisory blocker was resolved by `dev-agent-memory@0.4.1`.
 - `smart-ui-validator-core`, `smart-ui-validator`, and `smart-ui-validator-mcp` are public at
-  `0.4.2`, and each `latest` tag resolves to `0.4.2`.
+  `0.4.2`, and each `latest` tag resolves to `0.4.2` until the reviewed `0.5.0` candidates are
+  published.
 - Public metadata, a clean registry installation, Chromium launch, and Agent Memory persistence were
   verified on macOS. Existing-project and Windows verification remain scheduled.
 - Repository metadata and provenance-based trusted publishing remain deferred until the source has
@@ -75,6 +78,7 @@ The public packages use unscoped product names. All three were published on 2026
 - `smart-ui-validator-mcp@0.4.1`
 
 Patch release `0.4.2` was published for all three packages on 2026-08-10.
+Feature release `0.5.0` is the next synchronized release candidate for all three packages.
 
 ## License decision — completed
 
@@ -281,6 +285,24 @@ and keep its URL exactly aligned with GitHub.
 Do not add the live publish workflow until the scope and license are final, Agent Memory is consumed
 from npm, clean-consumer tests pass, and the GitHub environment and npm trusted-publisher records
 exist.
+
+## 0.5.0 release-candidate evidence
+
+The 2026-08-20 candidate passed the frozen workspace install check, formatting, lint, typecheck,
+production build, 189 unit/integration tests, 27 focused Studio tests, 7 real-browser end-to-end
+tests, the 30-tool stdio MCP handshake, both evaluation gates, 238-file secret and privacy scans,
+package inspection, clean-consumer installation and Studio health checks, the production advisory
+audit, publish readiness, and SBOM generation. npm publication is pending an authenticated publisher
+session.
+
+| Package                   | Candidate SHA-256                                                  |
+| ------------------------- | ------------------------------------------------------------------ |
+| `smart-ui-validator-core` | `9d7693d0b87d4dc23407d93fe5a7959ff9afa2d6d1399d40965344bc7be642e7` |
+| `smart-ui-validator`      | `249a2f359c6534abd9d1eff0645e621adba5dbb91cedadf7eaaa004e9aa79c06` |
+| `smart-ui-validator-mcp`  | `f12a8bae43aaa903ab3dcbe9667f6907115f26297a80c1fa09bd494e12665bbd` |
+
+CycloneDX 1.5 SBOM: 774 components,
+`sha256:450503fc90a227026bb1c1706f88f2f1322def589c5c79980e3b79f0c2fb1d84`.
 
 ## Published 0.4.1 evidence
 

@@ -2,7 +2,7 @@
 
 ## Pilot deployment
 
-1. Pin a reviewed `v0.4.x` source/tag and verify lockfile provenance.
+1. Pin a reviewed `v0.5.x` source/tag and verify lockfile provenance.
 2. Use Node 22.16+ and pnpm 10.15.0 in an isolated build environment.
 3. Run every documented gate and retain the scorecard, SBOM inventory, audit result, and package
    manifests.

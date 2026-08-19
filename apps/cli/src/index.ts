@@ -54,8 +54,10 @@ import { loadStudioModule } from './studio-loader.js';
 
 const program = new Command()
   .name('smart-ui')
-  .description('Normalize, validate, and repair UI implementations with deterministic evidence')
-  .version('0.4.2')
+  .description(
+    'Generate, implement, validate, and repair UIs through bounded deterministic evidence',
+  )
+  .version('0.5.0')
   .showSuggestionAfterError();
 
 const invocationRoot = process.env['INIT_CWD'] ?? process.cwd();
@@ -83,7 +85,7 @@ registerHandoffCommands(program, {
 
 program
   .command('studio')
-  .description('Launch the local-only SVG generation Studio on an isolated loopback origin')
+  .description('Launch local-only generation and existing-UI validation Studio')
   .option(
     '--workspace <path>',
     'dedicated Studio workspace (defaults to <cwd>/.studio-workspace, kept inside the MCP root)',

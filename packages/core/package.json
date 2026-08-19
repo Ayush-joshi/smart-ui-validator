@@ -1,8 +1,8 @@
 {
   "name": "smart-ui-validator-core",
-  "version": "0.4.2",
+  "version": "0.5.0",
   "license": "MIT",
-  "description": "Host-neutral deterministic UI validation, browser evidence, bounded repair, policy, and governed-memory engine.",
+  "description": "Host-neutral engine for deterministic UI generation, validation, bounded implementation handoff, policy, and governed memory.",
   "keywords": [
     "ui-validation",
     "visual-regression",

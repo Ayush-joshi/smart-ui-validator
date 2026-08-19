@@ -31,9 +31,9 @@ stable workflow manifest, exact agent instructions, and a host-specific configur
 Copy `examples/hosts/codex/.codex/config.toml` into a trusted target repository and replace both
 absolute paths. Build Smart UI first. The ChatGPT desktop app, Codex CLI, and Codex IDE extension
 share MCP configuration. Restart the client, run `codex mcp list` or open `/mcp`, and verify that
-`prepare_workflow`, validation, repair, reporting, SVG generation, export, and governed-memory tools
-are present. Keep the default approval mode at `writes` and explicit prompts for repair, generation
-export, and memory mutation.
+`prepare_workflow`, validation, repair, reporting, SVG generation, persistent handoff, export, and
+governed-memory tools are present. Keep the default approval mode at `writes` and explicit prompts
+for repair, handoff submissions, generation export, and memory mutation.
 
 Copy the relevant content from `AGENTS.example.md` into the target's existing `AGENTS.md`; merge it
 with repository instructions rather than replacing them.
@@ -64,9 +64,10 @@ OS/container controls.
 The bundled `.vscode/mcp.json` runs the built server from `apps/mcp-server/dist/index.js` with
 `SMART_UI_MCP_ROOT` set to the workspace folder. After rebuilding the server, restart it (**MCP: List
 Servers → smart-ui → Restart**) so new tools and evidence load. This connection also powers Studio's
-default AI-agent engine: run `smart-ui studio` (default workspace `<cwd>/.studio-workspace`, inside the
-MCP root), and when a run is `awaiting-agent`, paste the prompt Studio shows into the Copilot chat so
-the agent calls `list_studio_authoring_requests` and `submit_studio_authored_html`.
+default connected-agent path: run `smart-ui studio` (default workspace `<cwd>/.studio-workspace`,
+inside the MCP root), create a generation or Validate UI task, then paste the Handoff prompt into
+Copilot chat. The agent reads the hash-verified task and evidence and submits the exact approved
+generation or implementation files through the persistent handoff tools.
 
 If `smart-ui` is absent from **MCP: List Servers**, verify that the active VS Code workspace root
 contains `.vscode/mcp.json`, that the file uses the `servers` object, and that the configured Node and
