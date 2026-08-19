@@ -173,17 +173,32 @@ h3 {
   color: var(--muted);
   max-width: 700px;
 }
+.input-file-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+  margin: 28px 0;
+}
 .dropzone {
   display: grid;
   place-items: center;
   min-height: 280px;
-  margin: 28px 0;
+  margin: 0;
   border: 1px dashed #3d6479;
   border-radius: 13px;
   background: #0b1822;
   cursor: pointer;
   text-align: center;
   padding: 30px;
+}
+.dropzone small {
+  color: var(--accent-2);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.context-dropzone {
+  border-color: #574b77;
+  background: #121524;
 }
 .dropzone:hover {
   border-color: var(--accent);
@@ -192,6 +207,11 @@ h3 {
   position: absolute;
   opacity: 0;
   pointer-events: none;
+}
+@media (max-width: 720px) {
+  .input-file-grid {
+    grid-template-columns: 1fr;
+  }
 }
 .dropzone strong {
   font-size: 22px;
@@ -572,6 +592,19 @@ textarea {
 .finding span {
   color: var(--accent-2);
   font-size: 12px;
+}
+.context-file-summary {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel-2);
+}
+.context-file-summary span {
+  color: var(--muted);
 }
 .source pre {
   max-height: 620px;

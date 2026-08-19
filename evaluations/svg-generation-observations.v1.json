@@ -31,8 +31,8 @@
     "generatedFiles": 2,
     "generatedBytes": 2370,
     "timingsMs": {
-      "inspect": 41.88870799999995,
-      "total": 2525.6331250000003
+      "inspect": 26.765041999999994,
+      "total": 1724.0139579999998
     },
     "peakEvidenceBytes": 22314,
     "repeatabilityHash": "sha256:c7503873d885914244beefbdc918e774db5afc748ec925dedb2dabbb91d0e89c",
@@ -75,8 +75,8 @@
     "generatedFiles": 2,
     "generatedBytes": 4036,
     "timingsMs": {
-      "inspect": 6.395709000000352,
-      "total": 2083.867958
+      "inspect": 6.635250000000269,
+      "total": 1704.8457919999992
     },
     "peakEvidenceBytes": 41662,
     "repeatabilityHash": "sha256:22e92392c0459ecde68853a2a22a7b99b0336673c9df7741d7b35b32e606280d",
@@ -119,8 +119,8 @@
     "generatedFiles": 2,
     "generatedBytes": 5491,
     "timingsMs": {
-      "inspect": 5.588708999999653,
-      "total": 1744.0318750000006
+      "inspect": 5.454082999999628,
+      "total": 1685.8322909999997
     },
     "peakEvidenceBytes": 62560,
     "repeatabilityHash": "sha256:ac08bd3d36e2b6121b10e7981030a01778cfeba8ea1876c1f51598d3eeaf8731",
@@ -163,8 +163,8 @@
     "generatedFiles": 2,
     "generatedBytes": 3549,
     "timingsMs": {
-      "inspect": 4.204499999999825,
-      "total": 2005.2515840000015
+      "inspect": 5.1009589999994205,
+      "total": 2155.9609579999997
     },
     "peakEvidenceBytes": 680044,
     "repeatabilityHash": "sha256:f3b4b1a59a3fc41fdc454ae08385b66e8dad404606df4bf39f704d64a46068e5",
@@ -207,8 +207,8 @@
     "generatedFiles": 2,
     "generatedBytes": 2715,
     "timingsMs": {
-      "inspect": 2.8959169999980077,
-      "total": 1512.5186250000006
+      "inspect": 5.855874999999287,
+      "total": 1587.8671670000003
     },
     "peakEvidenceBytes": 43243,
     "repeatabilityHash": "sha256:30c3a03d6cc6f3b03b1633c018e92115926e44bee9a24b75229fee9a5405a7a7",
@@ -246,10 +246,10 @@
     "generatedFiles": 2,
     "generatedBytes": 1828,
     "timingsMs": {
-      "inspect": 3.239166999999725,
-      "total": 1077.63825
+      "inspect": 3.0651250000009895,
+      "total": 1052.883249999999
     },
-    "peakEvidenceBytes": 4293,
+    "peakEvidenceBytes": 4730,
     "repeatabilityHash": "sha256:636d959dc33e65458911eb3aa8bdebb09df8df15a85134d5178af7fd106da10d",
     "repeatable": true,
     "compatibility": {
@@ -290,8 +290,8 @@
     "generatedFiles": 2,
     "generatedBytes": 2735,
     "timingsMs": {
-      "inspect": 4.113707999997132,
-      "total": 2148.817082999998
+      "inspect": 3.606540999997378,
+      "total": 1414.6578329999975
     },
     "peakEvidenceBytes": 17628,
     "repeatabilityHash": "sha256:405dea219f2b4094598ead383467a05ec4e73cf966119aba1b8e2fe0becd64ad",
@@ -329,10 +329,10 @@
     "generatedFiles": 2,
     "generatedBytes": 1828,
     "timingsMs": {
-      "inspect": 2.798417000001791,
-      "total": 1205.7789999999986
+      "inspect": 2.8036670000001322,
+      "total": 1192.715709
     },
-    "peakEvidenceBytes": 4119,
+    "peakEvidenceBytes": 4556,
     "repeatabilityHash": "sha256:636d959dc33e65458911eb3aa8bdebb09df8df15a85134d5178af7fd106da10d",
     "repeatable": true,
     "compatibility": {
@@ -373,8 +373,8 @@
     "generatedFiles": 2,
     "generatedBytes": 3160,
     "timingsMs": {
-      "inspect": 3.6300000000010186,
-      "total": 2375.4814170000027
+      "inspect": 3.6867919999967853,
+      "total": 1495.5317079999986
     },
     "peakEvidenceBytes": 38365,
     "repeatabilityHash": "sha256:0bab2f6a0e48e884be003f377a81a83132efbb0ba44522ba0f27f908b4cafedb",
@@ -417,8 +417,8 @@
     "generatedFiles": 2,
     "generatedBytes": 3389,
     "timingsMs": {
-      "inspect": 2.6182499999995343,
-      "total": 1586.6960839999956
+      "inspect": 4.101249999999709,
+      "total": 1572.776582999999
     },
     "peakEvidenceBytes": 34130,
     "repeatabilityHash": "sha256:587d5e2710941c14f02ffbb8a3b0b1780387539d61f0c42182a4acf3118ae5ee",
@@ -451,9 +451,9 @@
     "generatedBytes": 0,
     "timingsMs": {
       "inspect": 0,
-      "total": 1.740458000000217
+      "total": 1.5127919999977166
     },
-    "peakEvidenceBytes": 2652,
+    "peakEvidenceBytes": 2920,
     "repeatabilityHash": null,
     "repeatable": false,
     "compatibility": {
@@ -484,9 +484,9 @@
     "generatedBytes": 0,
     "timingsMs": {
       "inspect": 0,
-      "total": 1.4895419999957085
+      "total": 2.091458999999304
     },
-    "peakEvidenceBytes": 2652,
+    "peakEvidenceBytes": 2920,
     "repeatabilityHash": null,
     "repeatable": false,
     "compatibility": {

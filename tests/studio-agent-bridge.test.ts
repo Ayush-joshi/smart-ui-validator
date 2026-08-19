@@ -22,6 +22,7 @@ import {
   waitForAuthoringResponse,
   writeAuthoringRequest,
   writeAuthoringResponse,
+  type AuthoringDesignReference,
   type AuthoringPriorEvidence,
   type StructuredDesignContext,
   type StudioAuthoringResponse,
@@ -53,6 +54,15 @@ async function inspectedRequest(
     feedback?: string;
     priorEvidence?: AuthoringPriorEvidence;
     context?: StructuredDesignContext;
+    designContext?: {
+      filename: string;
+      mediaType: string;
+      content: string;
+      originalHash: string;
+      byteLength: number;
+      provenance: string;
+    };
+    designReference?: AuthoringDesignReference;
   } = {},
 ) {
   const svgPath = join(ws, 'design.svg');
@@ -130,7 +140,7 @@ describe('Studio agent authoring bridge', () => {
     };
     const request = await inspectedRequest(ws, undefined, { context });
     expect(request).toMatchObject({
-      schemaVersion: '2.0',
+      schemaVersion: '3.0',
       runId: RUN_ID,
       round: 1,
       mode: 'semantic',
@@ -149,6 +159,54 @@ describe('Studio agent authoring bridge', () => {
     expect(request.sanitizedSvg).toContain('<svg');
     expect(Date.parse(request.expiresAt)).toBeGreaterThan(Date.parse(request.createdAt));
     expect(() => authoringRequestSchema.parse(request)).not.toThrow();
+  });
+
+  it('carries a bounded source context file and redacts secrets before agent delivery', async () => {
+    const ws = await workspace('source-context');
+    const content =
+      'export function Card() { return <div>Price</div>; }\nauthorization: Bearer private-token';
+    const request = await inspectedRequest(ws, undefined, {
+      designContext: {
+        filename: 'Card.jsx',
+        mediaType: 'text/javascript',
+        content,
+        originalHash: `sha256:${'a'.repeat(64)}`,
+        byteLength: new TextEncoder().encode(content).byteLength,
+        provenance: 'studio:user-upload',
+      },
+    });
+    expect(request.designContext).toMatchObject({
+      filename: 'Card.jsx',
+      mediaType: 'text/javascript',
+      provenance: 'studio:user-upload',
+      contentRedacted: true,
+    });
+    expect(request.designContext?.content).toContain('export function Card');
+    expect(request.designContext?.content).toContain('[REDACTED]');
+    expect(request.designContext?.originalHash).toMatch(/^sha256:[a-f0-9]{64}$/u);
+    expect(() => authoringRequestSchema.parse(request)).not.toThrow();
+  });
+
+  it('identifies an uploaded PNG reference without embedding binary bytes in JSON', async () => {
+    const ws = await workspace('png-reference');
+    const designReference: AuthoringDesignReference = {
+      filename: 'checkout.png',
+      mediaType: 'image/png',
+      originalHash: `sha256:${'b'.repeat(64)}`,
+      byteLength: 12_345,
+      provenance: 'studio:user-upload',
+    };
+    const request = await inspectedRequest(ws, undefined, { designReference });
+    expect(request.designReference).toEqual(designReference);
+    expect(request.sanitizedSvg).toContain('data-smart-ui-reference="png"');
+    expect(JSON.stringify(request)).not.toContain('data:image/png;base64');
+    expect(() => authoringRequestSchema.parse(request)).not.toThrow();
+    expect(() =>
+      authoringRequestSchema.parse({
+        ...request,
+        designReference: { ...designReference, mediaType: 'image/jpeg' },
+      }),
+    ).toThrow();
   });
 
   it('documents redaction while hashing the validated original structured context', async () => {

@@ -40,8 +40,16 @@ interface RunSummary {
     maxImproveRounds: number;
   };
   pendingAuthoring: null | { round: number; feedback: string | null };
+  designContext: null | {
+    filename: string;
+    mediaType: string;
+    originalHash: string;
+    byteLength: number;
+  };
   inspection?: {
     filename: string;
+    mediaType?: 'image/svg+xml' | 'image/png';
+    byteLength?: number;
     width: number;
     height: number;
     readableTextNodes: number;
@@ -162,7 +170,7 @@ const emptyContext = (): StructuredDesignContext => ({
 interface SessionResponse {
   csrfToken: string;
   runs: RunSummary[];
-  limits: { maxUploadBytes: number };
+  limits: { maxUploadBytes: number; maxDesignContextBytes: number };
   agent: { configured: boolean; transport: 'mcp'; workspace: string; maxImproveRounds: number };
 }
 
@@ -195,6 +203,7 @@ export function StudioApp(): ReactNode {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<{ message: string; recovery?: string }>();
   const [source, setSource] = useState<SourceFile>();
+  const [pendingDesignContext, setPendingDesignContext] = useState<File>();
   const inputRef = useRef<HTMLInputElement>(null);
   const active = runs.find((run) => run.runId === activeId);
   const cleanupDecisions =
@@ -237,13 +246,19 @@ export function StudioApp(): ReactNode {
     setError(undefined);
     setSource(undefined);
     try {
-      if (!file.name.toLowerCase().endsWith('.svg')) throw new Error('Choose one .svg file.');
+      const lowerName = file.name.toLowerCase();
+      const mediaType = lowerName.endsWith('.png') ? 'image/png' : 'image/svg+xml';
+      if (!lowerName.endsWith('.svg') && !lowerName.endsWith('.png')) {
+        throw new Error('Choose one .svg or .png file.');
+      }
       if (file.size > session.limits.maxUploadBytes) {
-        throw new Error(`SVG exceeds the ${formatBytes(session.limits.maxUploadBytes)} limit.`);
+        throw new Error(
+          `Design reference exceeds the ${formatBytes(session.limits.maxUploadBytes)} limit.`,
+        );
       }
       const run = await api<RunSummary>('/api/runs', session.csrfToken, {
         method: 'POST',
-        headers: { 'Content-Type': 'image/svg+xml', 'X-Smart-UI-Filename': file.name },
+        headers: { 'Content-Type': mediaType, 'X-Smart-UI-Filename': file.name },
         body: file,
       });
       setRuns((current) => [...current, run]);
@@ -252,6 +267,28 @@ export function StudioApp(): ReactNode {
       setCanvasWidth(run.inspection?.width ?? 1);
       setCanvasHeight(run.inspection?.height ?? 1);
       setStep('preferences');
+      if (pendingDesignContext) {
+        if (pendingDesignContext.size > session.limits.maxDesignContextBytes) {
+          throw new Error(
+            `Design context exceeds the ${formatBytes(session.limits.maxDesignContextBytes)} limit.`,
+          );
+        }
+        const preparedRun = await api<RunSummary>(
+          `/api/runs/${run.runId}/design-context`,
+          session.csrfToken,
+          {
+            method: 'PUT',
+            headers: {
+              'Content-Type': 'application/octet-stream',
+              'X-Smart-UI-Filename': pendingDesignContext.name,
+              'X-Smart-UI-Context-Type': pendingDesignContext.type || 'text/plain',
+            },
+            body: pendingDesignContext,
+          },
+        );
+        setRuns((current) => replaceRun(current, preparedRun));
+        setPendingDesignContext(undefined);
+      }
     } catch (value) {
       showFailure(setError)(value);
     } finally {
@@ -297,6 +334,37 @@ export function StudioApp(): ReactNode {
       });
       setRuns((current) => replaceRun(current, run));
       setStep('generate');
+    } catch (value) {
+      showFailure(setError)(value);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function uploadDesignContext(file: File): Promise<void> {
+    if (!session || !active) return;
+    setBusy(true);
+    setError(undefined);
+    try {
+      if (file.size > session.limits.maxDesignContextBytes) {
+        throw new Error(
+          `Design context exceeds the ${formatBytes(session.limits.maxDesignContextBytes)} limit.`,
+        );
+      }
+      const run = await api<RunSummary>(
+        `/api/runs/${active.runId}/design-context`,
+        session.csrfToken,
+        {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/octet-stream',
+            'X-Smart-UI-Filename': file.name,
+            'X-Smart-UI-Context-Type': file.type || 'text/plain',
+          },
+          body: file,
+        },
+      );
+      setRuns((current) => replaceRun(current, run));
     } catch (value) {
       showFailure(setError)(value);
     } finally {
@@ -377,6 +445,7 @@ export function StudioApp(): ReactNode {
     setImprove(true);
     setFeedback('');
     setSource(undefined);
+    setPendingDesignContext(undefined);
     setError(undefined);
     if (inputRef.current) inputRef.current.value = '';
   }
@@ -385,7 +454,7 @@ export function StudioApp(): ReactNode {
     <div className="shell">
       <header className="topbar">
         <div>
-          <p className="eyebrow">Local-only SVG generation</p>
+          <p className="eyebrow">Local-only SVG / PNG generation</p>
           <h1>Smart UI Studio</h1>
         </div>
         <div className="top-actions">
@@ -419,36 +488,63 @@ export function StudioApp(): ReactNode {
         {step === 'input' && (
           <section className="panel input-panel" aria-labelledby="input-title">
             <p className="eyebrow">Step 1</p>
-            <h2 id="input-title">Choose one SVG</h2>
+            <h2 id="input-title">Choose design inputs</h2>
             <p className="lede">
-              The file is streamed into a new isolated run and sanitized before anything is shown or
-              rendered.
+              Add the required SVG or PNG reference and, when available, its accompanying design
+              context. With the agent engine, both are passed to the authoring agent.
             </p>
-            <label
-              className="dropzone"
-              onDragOver={(event) => event.preventDefault()}
-              onDrop={(event) => {
-                event.preventDefault();
-                const file = event.dataTransfer.files[0];
-                if (file) void upload(file);
-              }}
-            >
-              <input
-                ref={inputRef}
-                type="file"
-                accept="image/svg+xml,.svg"
-                disabled={busy || !session}
-                onChange={(event) => {
-                  const file = event.target.files?.[0];
+            <div className="input-file-grid">
+              <label
+                className="dropzone"
+                onDragOver={(event) => event.preventDefault()}
+                onDrop={(event) => {
+                  event.preventDefault();
+                  const file = event.dataTransfer.files[0];
                   if (file) void upload(file);
                 }}
-              />
-              <strong>{busy ? 'Inspecting safely…' : 'Choose or drop an SVG'}</strong>
-              <span>
-                Maximum {session ? formatBytes(session.limits.maxUploadBytes) : 'loading…'} · no
-                external resources
-              </span>
-            </label>
+              >
+                <input
+                  ref={inputRef}
+                  type="file"
+                  accept="image/svg+xml,image/png,.svg,.png"
+                  disabled={busy || !session}
+                  onChange={(event) => {
+                    const file = event.target.files?.[0];
+                    if (file) void upload(file);
+                  }}
+                />
+                <small>Required</small>
+                <strong>{busy ? 'Inspecting safely…' : 'Choose or drop an SVG or PNG'}</strong>
+                <span>
+                  Maximum {session ? formatBytes(session.limits.maxUploadBytes) : 'loading…'} · PNG
+                  is verified as bounded raster evidence
+                </span>
+              </label>
+              <label
+                className="dropzone context-dropzone"
+                onDragOver={(event) => event.preventDefault()}
+                onDrop={(event) => {
+                  event.preventDefault();
+                  const file = event.dataTransfer.files[0];
+                  if (file) setPendingDesignContext(file);
+                }}
+              >
+                <input
+                  type="file"
+                  disabled={busy || !session}
+                  onChange={(event) => {
+                    const file = event.target.files?.[0];
+                    if (file) setPendingDesignContext(file);
+                  }}
+                />
+                <small>Optional</small>
+                <strong>{pendingDesignContext?.name ?? 'Choose or drop design context'}</strong>
+                <span>
+                  JSX, TSX, HTML, CSS, JSON, Markdown, or other UTF-8 text · maximum{' '}
+                  {session ? formatBytes(session.limits.maxDesignContextBytes) : 'loading…'}
+                </span>
+              </label>
+            </div>
             {runs.length > 0 && (
               <div className="recent">
                 <h3>Previous local runs</h3>
@@ -487,8 +583,12 @@ export function StudioApp(): ReactNode {
                 <strong>{active.inspection.readableTextNodes}</strong>
               </div>
               <div>
-                <span>Sanitization</span>
-                <strong className="good">Accepted</strong>
+                <span>
+                  {active.inspection.mediaType === 'image/png' ? 'Reference' : 'Sanitization'}
+                </span>
+                <strong className="good">
+                  {active.inspection.mediaType === 'image/png' ? 'PNG verified' : 'Accepted'}
+                </strong>
               </div>
             </div>
             {cleanupDecisions.length > 0 && (
@@ -528,6 +628,12 @@ export function StudioApp(): ReactNode {
             </details>
             <p className="eyebrow">Step 2</p>
             <h2 id="preferences-title">Set implementation preferences</h2>
+            <DesignContextFileEditor
+              context={active.designContext}
+              maxBytes={session?.limits.maxDesignContextBytes}
+              disabled={busy || !session}
+              onFile={uploadDesignContext}
+            />
             <fieldset>
               <legend>Generation engine</legend>
               <div className="choice-grid compact">
@@ -742,6 +848,50 @@ export function StudioApp(): ReactNode {
         Runs remain plaintext in the dedicated local workspace until deleted or expired.
       </footer>
     </div>
+  );
+}
+
+export function DesignContextFileEditor({
+  context,
+  maxBytes,
+  disabled,
+  onFile,
+}: {
+  context: RunSummary['designContext'];
+  maxBytes?: number | undefined;
+  disabled: boolean;
+  onFile(file: File): void | Promise<void>;
+}): ReactNode {
+  return (
+    <fieldset className="editor-section">
+      <legend>
+        Design context file <small>optional</small>
+      </legend>
+      <p className="field-help">
+        Add the JSX, TSX, HTML, CSS, JSON, Markdown, or other UTF-8 text file supplied with the
+        design. The connected agent receives this file together with the SVG or PNG evidence.
+      </p>
+      <label>
+        <span>Choose design context</span>
+        <input
+          type="file"
+          disabled={disabled}
+          onChange={(event) => {
+            const file = event.target.files?.[0];
+            if (file) void onFile(file);
+          }}
+        />
+      </label>
+      <small>Maximum {maxBytes ? formatBytes(maxBytes) : 'loading…'} · UTF-8 text only</small>
+      {context && (
+        <div className="context-file-summary" role="status">
+          <strong>{context.filename}</strong>
+          <span>
+            {formatBytes(context.byteLength)} · {shortHash(context.originalHash)}
+          </span>
+        </div>
+      )}
+    </fieldset>
   );
 }
 

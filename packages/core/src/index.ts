@@ -2,6 +2,7 @@ export * from './artifacts.js';
 export * from './browser.js';
 export * from './errors.js';
 export * from './local-image-provider.js';
+export * from './image-dimensions.js';
 export * from './mock-coding-provider.js';
 export * from './orchestrator.js';
 export * from './policy.js';

@@ -224,6 +224,29 @@ export function resolvePresentationSpec(
     : intrinsicPresentationSpec(sourceViewport);
 }
 
+export const generationDesignContextSchema = z
+  .object({
+    filename: z.string().min(1).max(200),
+    mediaType: z.string().min(1).max(100),
+    content: z.string().min(1).max(256_000),
+    originalHash: z.string().regex(/^sha256:[a-f0-9]{64}$/u),
+    byteLength: z.number().int().positive().max(256_000),
+    provenance: z.string().min(1).max(200),
+    contentRedacted: z.boolean(),
+  })
+  .strict();
+
+export const generationDesignReferenceSchema = z
+  .object({
+    path: z.string().min(1),
+    filename: z.string().min(1).max(200),
+    mediaType: z.literal('image/png'),
+    originalHash: z.string().regex(/^sha256:[a-f0-9]{64}$/u),
+    byteLength: z.number().int().positive().max(50_000_000),
+    provenance: z.string().min(1).max(200),
+  })
+  .strict();
+
 export const svgGenerationInputSchema = z
   .object({
     workspaceRoot: z.string().min(1),
@@ -238,6 +261,8 @@ export const svgGenerationInputSchema = z
     mode: generationModeSchema.default('hybrid'),
     layout: generationLayoutSchema.default('responsive'),
     instructions: z.string().max(4_000).optional(),
+    designContext: generationDesignContextSchema.optional(),
+    designReference: generationDesignReferenceSchema.optional(),
     structuredDesignContext: structuredDesignContextSchema.optional(),
     presentationSpec: presentationSpecSchema.optional(),
     viewport: z
@@ -274,6 +299,13 @@ export const svgGenerationInputSchema = z
           message: `${field} must be an absolute path.`,
         });
       }
+    }
+    if (input.designReference && !isAbsolute(input.designReference.path)) {
+      context.addIssue({
+        code: 'custom',
+        path: ['designReference', 'path'],
+        message: 'designReference.path must be an absolute path.',
+      });
     }
     for (const [index, viewport] of (input.presentationSpec?.viewports ?? []).entries()) {
       if (viewport.reference && !isAbsolute(viewport.reference.path)) {
@@ -578,10 +610,22 @@ export const generationRecordV2Schema = generationRecordV1Schema
   .omit({ schemaVersion: true, input: true })
   .extend({
     schemaVersion: z.literal('2.0'),
+    designContext: artifactRefSchema.optional(),
+    designReference: artifactRefSchema.optional(),
     input: generationRecordV1Schema.shape.input
       .extend({
         presentationSpec: presentationSpecSchema,
         structuredContextHash: z.string().regex(/^sha256:[a-f0-9]{64}$/),
+        designContextOriginalHash: z
+          .string()
+          .regex(/^sha256:[a-f0-9]{64}$/u)
+          .optional(),
+        designContextContentRedacted: z.boolean().optional(),
+        designReferenceOriginalHash: z
+          .string()
+          .regex(/^sha256:[a-f0-9]{64}$/u)
+          .optional(),
+        designReferenceMediaType: z.literal('image/png').optional(),
       })
       .strict(),
   })

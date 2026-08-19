@@ -3,12 +3,12 @@
 Smart UI Validator is a host-neutral CLI and engine for two related but separate UI workflows:
 
 1. **Validate and repair an existing React or Angular implementation** against design evidence.
-2. **Generate standalone HTML and CSS from a local SVG** without requiring an application repository.
+2. **Generate standalone HTML and CSS from a local SVG or PNG** without requiring an application repository.
 
 Both workflows use the same safety, artifact, browser, comparison, and reporting foundations. They do
 not have the same inputs or outputs, and you can use either one independently.
 
-The package also includes **Smart UI Studio**, a local browser interface for the SVG-to-HTML
+The package also includes **Smart UI Studio**, a local browser interface for the SVG/PNG-to-HTML
 workflow. Studio is not a hosted service and is not a separate generation engine.
 
 > Smart UI Validator is currently intended for a controlled local or internal pilot. Review its
@@ -16,17 +16,17 @@ workflow. Studio is not a hosted service and is not a separate generation engine
 
 ## Choose the workflow you need
 
-|                            | Existing UI validation and repair                                      | SVG-to-HTML generation                                                   |
-| -------------------------- | ---------------------------------------------------------------------- | ------------------------------------------------------------------------ |
-| Use it when                | A UI already belongs in a React or Angular project                     | A local SVG should become a standalone HTML/CSS bundle                   |
-| Primary input              | Design evidence, target repository, and a running browser route        | One bounded local SVG                                                    |
-| Repository required        | Yes                                                                    | No                                                                       |
-| Running application        | Yes, for browser capture                                               | No; Smart UI creates a contained preview                                 |
-| Model or MCP host required | No for CLI validation; useful for substantial implementation proposals | No for deterministic CLI/Studio generation; MCP is an optional interface |
-| Main command               | `smart-ui validate`, `smart-ui validate-matrix`, or `smart-ui fix`     | `smart-ui generate`                                                      |
-| Visual interface           | No dedicated UI                                                        | `smart-ui studio`                                                        |
-| Main result                | Findings, screenshots, diffs, overlays, run records, and reports       | HTML/CSS, evidence, report, immutable record, and reproducible ZIP       |
-| Writes application source  | Only during an explicitly bounded repair                               | Never                                                                    |
+|                            | Existing UI validation and repair                                      | SVG/PNG-to-HTML generation                                            |
+| -------------------------- | ---------------------------------------------------------------------- | --------------------------------------------------------------------- |
+| Use it when                | A UI already belongs in a React or Angular project                     | A local SVG or PNG should become a standalone HTML/CSS bundle         |
+| Primary input              | Design evidence, target repository, and a running browser route        | One bounded SVG/PNG plus optional UTF-8 design context                |
+| Repository required        | Yes                                                                    | No                                                                    |
+| Running application        | Yes, for browser capture                                               | No; Smart UI creates a contained preview                              |
+| Model or MCP host required | No for CLI validation; useful for substantial implementation proposals | No for deterministic mode; required for CLI or Studio agent authoring |
+| Main command               | `smart-ui validate`, `smart-ui validate-matrix`, or `smart-ui fix`     | `smart-ui generate`                                                   |
+| Visual interface           | No dedicated UI                                                        | `smart-ui studio`                                                     |
+| Main result                | Findings, screenshots, diffs, overlays, run records, and reports       | HTML/CSS, evidence, report, immutable record, and reproducible ZIP    |
+| Writes application source  | Only during an explicitly bounded repair                               | Never                                                                 |
 
 ## What Smart UI does—and where AI fits
 
@@ -236,27 +236,30 @@ browser rendering, source evidence, and application state can all constrain the 
 
 ---
 
-## Functionality 2: generate standalone HTML and CSS from an SVG
+## Functionality 2: generate standalone HTML and CSS from an SVG or PNG
 
-Use this workflow when the input is a local SVG and the desired result is a self-contained web
+Use this workflow when the input is a local SVG or PNG and the desired result is a self-contained web
 bundle. It is repository-free: it does not inspect or modify a React or Angular project, start your
 application, require Figma, or require a model.
 
 You can access this functionality through:
 
-- the `smart-ui generate` CLI for scripts and repeatable local runs;
-- SVG generation tools in the stdio MCP server for an approval-aware agent workflow; or
-- Smart UI Studio for a visual four-step workflow.
+- the `smart-ui generate` CLI for repeatable SVG/PNG runs;
+- SVG generation tools in the stdio MCP server for an approval-aware direct-tool workflow; or
+- Smart UI Studio for a visual SVG/PNG workflow with optional connected-agent authoring.
+
+The direct `inspect_svg`/`generate_html_from_svg` MCP tools remain SVG-specific. PNG reaches the same
+core through CLI or Studio, where Studio attaches the original PNG to its authoring request.
 
 All three interfaces call the same public `GenerationOrchestrator` and produce the same versioned
 generation records and deterministic evidence.
 
 ### How generation works
 
-1. Smart UI verifies that the declared workspace, SVG, artifact root, and optional export directory
-   are contained and safe.
-2. It streams and sanitizes the SVG under strict size, depth, node, attribute, path, filter,
-   gradient, and embedded-image limits. Active or external content fails closed.
+1. Smart UI verifies that the declared workspace, SVG/PNG reference, optional source-context file,
+   artifact root, and optional export directory are contained and safe.
+2. It streams and sanitizes SVG under strict structural limits. PNG uses a lighter bounded signature
+   and dimension check, then remains immutable raster evidence; it contains no executable markup.
 3. It creates a hierarchical `DesignBundle` 2.0 with scene structure, repeated values, layout and
    semantic candidates, typed design context, explicit presentation intent, provenance, and
    uncertainties. Supported 1.0 bundles are upgraded to intrinsic presentation deterministically.
@@ -290,16 +293,25 @@ An optional `StructuredDesignContext` carries bounded exact copy, design tokens,
 semantics, interactions, provenance, and general notes through CLI, MCP, Studio, authoring rounds,
 the design bundle, and reports. All fields are validated as untrusted evidence and each authoring
 round records the validated original context hash plus whether credential-like text was redacted.
+An additional optional UTF-8 design-context file may contain JSX, TSX, HTML, CSS, JSON, Markdown, or
+plain text. Studio passes its redacted content to the connected authoring agent with the SVG/PNG
+evidence. The deterministic CLI records the same bounded, redacted source and original hash as an
+immutable provenance artifact; it does not claim to interpret source code without an agent. With
+`--engine agent`, it sends both inputs through the shared MCP authoring queue before deterministic
+verification.
 
 ### Generate from the CLI
 
-The SVG must be inside the exact workspace. `--output` is optional; when supplied, it must name a new
-empty directory inside that workspace.
+The SVG or PNG must be inside the exact workspace. `--output` is optional; when supplied, it must
+name a new empty directory inside that workspace.
 
 ```bash
 npx smart-ui generate \
   --workspace /absolute/path/to/svg-workspace \
-  --design /absolute/path/to/svg-workspace/design/pricing.svg \
+  --design /absolute/path/to/svg-workspace/design/pricing.png \
+  --design-context /absolute/path/to/svg-workspace/design/Pricing.jsx \
+  --structured-context /absolute/path/to/svg-workspace/design/context.json \
+  --engine agent \
   --output /absolute/path/to/svg-workspace/generated/pricing \
   --mode hybrid \
   --layout responsive \
@@ -308,13 +320,27 @@ npx smart-ui generate \
 
 Useful options:
 
+- `--engine deterministic|agent` selects the built-in generator or the MCP-connected authoring
+  queue. Agent mode prints an exact handoff prompt, waits for `list_studio_authoring_requests` and
+  `submit_studio_authored_html`, then renders and compares the returned files. Its workspace must be
+  inside the MCP server's `SMART_UI_MCP_ROOT`.
+- `--agent-timeout <milliseconds>` bounds that wait from 1 second to 1 hour. Timeout or cancellation
+  removes the queued request and temporary evidence. Agent mode requires `--max-passes 1` so its
+  proposal is evaluated; deterministic mode remains the default.
 - `--instructions <text>` adds one bounded implementation note.
-- `--design-context <path>` reads a contained `StructuredDesignContext` 1.0 JSON file.
+- `--design-context <path>` reads a contained, non-empty UTF-8 source-context file up to 250 KB.
+  JSX, TSX, HTML, CSS, JSON, Markdown, and plain text are supported; credential-like values are
+  redacted before retention. For compatibility, a valid `StructuredDesignContext` 1.0 JSON file
+  supplied here is still recognized as typed context.
+- `--structured-context <path>` explicitly reads a contained `StructuredDesignContext` 1.0 JSON
+  file and can be used together with the free-form source context.
 - `--presentation <path>` reads a contained `PresentationSpec` 1.0 JSON file.
 - `--viewport <width>x<height>` overrides the source viewport when the SVG does not provide the
   intended dimensions.
 - `--max-passes 0|1` controls the bounded revision count.
-- `--dry-run --json` performs safety and capability inspection without producing a deliverable.
+- `--dry-run --json` performs safety and capability inspection without producing a deliverable;
+  it never queues an agent request, even when `--engine agent` is supplied, and its compact result
+  includes retained design-reference and source-context artifact metadata.
 - Omitting `--output` retains the immutable artifact run, report, and ZIP without materializing a
   separate export directory.
 
@@ -348,15 +374,15 @@ visual regression; the host never scores its own output.
 
 Generation is deterministic and bounded, but it is not a full design-to-production application
 builder. It does not add application state, backend behavior, routing, design-system integration, or
-business logic that is not represented by the SVG and the bounded instructions.
+business logic that is not represented by the design evidence and bounded context.
 
 ---
 
 ## Smart UI Studio
 
-Smart UI Studio is the packaged local browser interface for SVG-to-HTML generation. It is designed
+Smart UI Studio is the packaged local browser interface for SVG/PNG-to-HTML generation. It is designed
 for teammates who want to upload, configure, review, and download a generation without composing CLI
-arguments or using an MCP host.
+arguments. Its deterministic engine needs no MCP host; agent authoring uses the connected MCP chat.
 
 Studio is not used to validate or repair an existing React or Angular repository. It has no hosted
 backend, account system, remote collaboration, Figma or model credential collection, or telemetry.
@@ -369,10 +395,17 @@ token. Studio checks the exact host, origin, method, and content type, exposes n
 never accepts a filesystem path from page JavaScript.
 
 Each upload receives an opaque run ID and separate server-owned inspection and generation artifact
-roots. The SVG is streamed under a size limit and re-sanitized before inspection. Generated source
+roots. SVG is streamed and structurally sanitized; PNG is size-bounded and checked for a valid
+signature and dimensions before being retained as immutable raster evidence. Generated source
 is displayed as escaped text, while the accepted page runs on a separate CSP-restricted preview
 origin with scripts and network access denied. Browser state is only a view of the persisted
 generation record, so completed runs can be recovered after Studio restarts.
+
+An inspected run may also receive one optional design-context source file, commonly JSX or TSX but
+not restricted by extension. Studio accepts only bounded UTF-8 text, stores it inside that run,
+records its filename, media type, byte size, hash, and provenance, and redacts credential-like text
+before including it in the MCP authoring request and generation record. Binary and oversized context
+files fail closed.
 
 ### Generation engines
 
@@ -428,11 +461,14 @@ the operating system chooses an available ephemeral port.
 
 ### The four Studio steps
 
-1. **Input:** drag, drop, or choose one `.svg`. Studio sanitizes it and shows dimensions, hashes,
-   scene size, readable text, decisions, uncertainties, and recommended modes.
-2. **Preferences:** choose the engine, generation mode, and layout; choose intrinsic or custom canvas,
-   DPR, fit, alignment, and bounded named viewports; and enter structured exact copy, tokens,
-   component semantics, interactions, and an optional compatibility note.
+1. **Input:** drag, drop, or choose one `.svg` or `.png`, plus optional UTF-8 design context. Studio
+   verifies it and shows dimensions, hashes, scene size, readable text, decisions, uncertainties,
+   and recommended modes.
+2. **Preferences:** optionally attach the JSX, TSX, HTML, CSS, JSON, Markdown, or other UTF-8 design
+   context supplied with the design reference; choose the engine, generation mode, and layout;
+   choose intrinsic or custom canvas, DPR, fit, alignment, and bounded named viewports; and enter
+   structured exact copy, tokens, component semantics, interactions, and an optional compatibility
+   note.
 3. **Generate:** follow sanitization, inspection, generation, preview, comparison, packaging, and
    reporting progress. With the AI-agent engine, the run pauses on an `awaiting-agent` step that shows
    the prompt to paste into the MCP-connected chat. You can cancel an in-flight run.

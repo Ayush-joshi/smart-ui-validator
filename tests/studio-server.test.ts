@@ -92,6 +92,78 @@ describe('local Studio server security and lifecycle', () => {
     expect(await statusWithHost(context.server.url, `localhost:${host.split(':')[1]}`)).toBe(421);
   });
 
+  it('accepts bounded PNG references, preserves their bytes, and recovers their dimensions', async () => {
+    const context = await studioFixture(4_000);
+    const response = await context.request('/api/runs', {
+      method: 'POST',
+      headers: { 'Content-Type': 'image/png', 'X-Smart-UI-Filename': 'reference.png' },
+      body: PNG_BYTES,
+    });
+    expect(response.status).toBe(201);
+    const created = await json<{
+      runId: string;
+      filename: string;
+      inspection: {
+        mediaType: string;
+        byteLength: number;
+        width: number;
+        height: number;
+        originalInputHash: string;
+        recommendedModes: string[];
+      };
+    }>(response);
+    expect(created).toMatchObject({
+      filename: 'reference.png',
+      inspection: {
+        mediaType: 'image/png',
+        byteLength: PNG_BYTES.byteLength,
+        width: 1,
+        height: 1,
+        recommendedModes: ['semantic', 'hybrid', 'exact'],
+      },
+    });
+    expect(created.inspection.originalInputHash).toMatch(/^sha256:[a-f0-9]{64}$/u);
+    const inputRoot = join(context.workspace, 'runs', created.runId, 'input');
+    expect(await readFile(join(inputRoot, 'upload.png'))).toEqual(PNG_BYTES);
+    expect(await readFile(join(inputRoot, 'normalized-reference.svg'), 'utf8')).toContain(
+      'data:image/png;base64,',
+    );
+
+    await context.server.close();
+    servers.splice(servers.indexOf(context.server), 1);
+    const recovered = await connect(context.workspace, context.staticRoot);
+    const listed = await json<Array<typeof created>>(await recovered.request('/api/runs'));
+    expect(listed).toHaveLength(1);
+    expect(listed[0]).toMatchObject({
+      runId: created.runId,
+      filename: 'reference.png',
+      inspection: { mediaType: 'image/png', width: 1, height: 1 },
+    });
+  });
+
+  it('rejects malformed or oversized PNG uploads before exposing a run', async () => {
+    const malformedContext = await studioFixture(4_000);
+    const malformed = await malformedContext.request('/api/runs', {
+      method: 'POST',
+      headers: { 'Content-Type': 'image/png', 'X-Smart-UI-Filename': 'broken.png' },
+      body: new TextEncoder().encode('not a png'),
+    });
+    expect(malformed.status).toBe(400);
+    expect(await json<{ message: string }>(malformed)).toMatchObject({
+      message: expect.stringMatching(/PNG signature/u),
+    });
+    expect(await readdir(join(malformedContext.workspace, 'runs'))).toEqual([]);
+
+    const oversizedContext = await studioFixture(PNG_BYTES.byteLength - 1);
+    const oversized = await oversizedContext.request('/api/runs', {
+      method: 'POST',
+      headers: { 'Content-Type': 'image/png', 'X-Smart-UI-Filename': 'large.png' },
+      body: PNG_BYTES,
+    });
+    expect(oversized.status).toBe(400);
+    expect(await readdir(join(oversizedContext.workspace, 'runs'))).toEqual([]);
+  });
+
   it('fails malicious SVG closed, supports concurrent isolated runs, recovery, and verified deletion', async () => {
     const context = await studioFixture(4_000);
     const malicious = await context.request('/api/runs', {
@@ -191,6 +263,24 @@ describe('local Studio server security and lifecycle', () => {
         body: cleanSvg,
       }),
     );
+    const jsx = 'export const Card = () => <article aria-label="Price">Hello</article>;';
+    const contextUpload = await context.request(`/api/runs/${run.runId}/design-context`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/octet-stream',
+        'X-Smart-UI-Filename': 'Card.jsx',
+        'X-Smart-UI-Context-Type': 'text/javascript',
+      },
+      body: jsx,
+    });
+    expect(contextUpload.status).toBe(200);
+    expect(await json(contextUpload)).toMatchObject({
+      designContext: {
+        filename: 'Card.jsx',
+        mediaType: 'text/javascript',
+        byteLength: new TextEncoder().encode(jsx).byteLength,
+      },
+    });
     await context.request(`/api/runs/${run.runId}/generate`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -208,8 +298,11 @@ describe('local Studio server security and lifecycle', () => {
       runId: string;
       round: number;
       visualEvidence?: Array<{ kind: string; workspaceRelativePath: string; byteLength: number }>;
+      designContext?: { filename: string; content: string; originalHash: string };
     };
     expect(request).toMatchObject({ runId: run.runId, round: 1 });
+    expect(request.designContext).toMatchObject({ filename: 'Card.jsx', content: jsx });
+    expect(request.designContext?.originalHash).toMatch(/^sha256:[a-f0-9]{64}$/u);
     const designRender = request.visualEvidence?.find((item) => item.kind === 'design-render');
     expect(designRender, 'the agent receives a rendered design image').toBeTruthy();
     await expect(
@@ -223,6 +316,161 @@ describe('local Studio server security and lifecycle', () => {
     });
     await waitForPhase(context, run.runId, 'canceled');
     await expect(stat(requestPath)).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it('passes the original PNG, metadata, and source context to the connected authoring agent', async () => {
+    const context = await studioFixture(4_000);
+    const run = await json<{ runId: string }>(
+      await context.request('/api/runs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'image/png', 'X-Smart-UI-Filename': 'agent-reference.png' },
+        body: PNG_BYTES,
+      }),
+    );
+    const sourceContext = 'export const Checkout = () => <main>Pay now</main>;';
+    const contextUpload = await context.request(`/api/runs/${run.runId}/design-context`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/octet-stream',
+        'X-Smart-UI-Filename': 'Checkout.jsx',
+        'X-Smart-UI-Context-Type': 'text/javascript',
+      },
+      body: sourceContext,
+    });
+    expect(contextUpload.status).toBe(200);
+    await context.request(`/api/runs/${run.runId}/generate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ engine: 'agent', mode: 'semantic', layout: 'responsive' }),
+    });
+    await waitForPhase(context, run.runId, 'awaiting-agent');
+    const requestPath = join(
+      context.workspace,
+      'agent-queue',
+      'requests',
+      run.runId,
+      'round-1.json',
+    );
+    const request = JSON.parse(await readFile(requestPath, 'utf8')) as {
+      sanitizedSvg: string;
+      designReference?: {
+        filename: string;
+        mediaType: string;
+        originalHash: string;
+        byteLength: number;
+        provenance: string;
+      };
+      designContext?: { filename: string; mediaType: string; content: string };
+      visualEvidence?: Array<{
+        kind: string;
+        mediaType: string;
+        workspaceRelativePath: string;
+        hash: string;
+        byteLength: number;
+      }>;
+    };
+    expect(request.designReference).toMatchObject({
+      filename: 'agent-reference.png',
+      mediaType: 'image/png',
+      byteLength: PNG_BYTES.byteLength,
+      provenance: 'studio:user-upload',
+    });
+    expect(request.designReference?.originalHash).toMatch(/^sha256:[a-f0-9]{64}$/u);
+    expect(request.sanitizedSvg).toContain('data-smart-ui-reference="png"');
+    expect(request.sanitizedSvg).not.toContain('data:image/png;base64');
+    expect(request.designContext).toMatchObject({
+      filename: 'Checkout.jsx',
+      mediaType: 'text/javascript',
+      content: sourceContext,
+    });
+    const evidence = request.visualEvidence?.find((item) => item.kind === 'design-render');
+    expect(evidence).toMatchObject({
+      mediaType: 'image/png',
+      byteLength: PNG_BYTES.byteLength,
+    });
+    expect(await readFile(join(context.workspace, evidence!.workspaceRelativePath))).toEqual(
+      PNG_BYTES,
+    );
+    expect(evidence?.hash).toBe(request.designReference?.originalHash);
+
+    await writeAuthoringResponse(agentQueueRoot(context.workspace), {
+      schemaVersion: '1.0',
+      runId: run.runId,
+      round: 1,
+      authoringAgent: 'png-context-test-agent',
+      createdAt: new Date().toISOString(),
+      files: [
+        {
+          path: 'index.html',
+          content:
+            '<!doctype html><html><head><link rel="stylesheet" href="styles.css"></head><body><main>Pay now</main></body></html>',
+        },
+        {
+          path: 'styles.css',
+          content:
+            'html,body{margin:0;width:1px;height:1px;overflow:hidden}main{width:1px;height:1px}',
+        },
+      ],
+    });
+    const reviewed = await waitForPhase(context, run.runId, 'awaiting-decision');
+    expect(reviewed.error).toBeUndefined();
+    expect(reviewed.rounds).toMatchObject([{ round: 1 }]);
+    const pointer = JSON.parse(
+      await readFile(join(context.workspace, 'runs', run.runId, 'studio-run.json'), 'utf8'),
+    ) as { recordArtifactPath: string };
+    const record = JSON.parse(
+      await readFile(
+        join(
+          context.workspace,
+          'runs',
+          run.runId,
+          'artifacts',
+          'round-1',
+          pointer.recordArtifactPath,
+        ),
+        'utf8',
+      ),
+    ) as Record<string, unknown>;
+    expect(record).toMatchObject({
+      originalInputHash: request.designReference?.originalHash,
+      designReference: { mediaType: 'image/png', byteLength: PNG_BYTES.byteLength },
+      designContext: { byteLength: new TextEncoder().encode(sourceContext).byteLength },
+      input: {
+        designReferenceMediaType: 'image/png',
+        designReferenceOriginalHash: request.designReference?.originalHash,
+        designContextContentRedacted: false,
+      },
+    });
+  }, 180_000);
+
+  it('rejects binary or oversized design context before generation', async () => {
+    const context = await studioFixture(4_000);
+    const run = await json<{ runId: string }>(
+      await context.request('/api/runs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'image/svg+xml', 'X-Smart-UI-Filename': 'context.svg' },
+        body: cleanSvg,
+      }),
+    );
+    const binary = await context.request(`/api/runs/${run.runId}/design-context`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/octet-stream',
+        'X-Smart-UI-Filename': 'context.bin',
+      },
+      body: new Uint8Array([0, 1, 2, 3]),
+    });
+    expect(binary.status).toBe(400);
+    expect(await json<{ message: string }>(binary)).toMatchObject({
+      message: expect.stringMatching(/must be text/u),
+    });
+
+    const oversized = await context.request(`/api/runs/${run.runId}/design-context`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/octet-stream' },
+      body: 'x'.repeat(256_001),
+    });
+    expect(oversized.status).toBe(400);
   });
 
   it('fails closed when no connected agent authors the design in time', async () => {
@@ -376,6 +624,11 @@ async function waitForPhase(
 
 const cleanSvg =
   '<svg xmlns="http://www.w3.org/2000/svg" width="120" height="80"><rect width="120" height="80" fill="#4f7cff"/><text x="12" y="42" fill="white" font-size="18">Hello</text></svg>';
+
+const PNG_BYTES = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+  'base64',
+);
 
 async function studioFixture(maxSvgBytes: number, agentTimeoutMs?: number) {
   const workspace = await realpath(await mkdtemp(join(tmpdir(), 'smart-ui-studio-workspace-')));

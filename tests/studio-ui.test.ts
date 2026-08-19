@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 import {
   CanvasEditor,
+  DesignContextFileEditor,
   Review,
   StructuredContextEditor,
   StudioApp,
@@ -13,9 +14,27 @@ describe('Studio frontend components', () => {
     const html = renderToStaticMarkup(createElement(StudioApp));
     expect(html).toContain('Smart UI Studio');
     expect(html).toContain('aria-label="Generation steps"');
-    expect(html).toContain('Choose or drop an SVG');
+    expect(html).toContain('Choose or drop an SVG or PNG');
+    expect(html).toContain('accept="image/svg+xml,image/png,.svg,.png"');
+    expect(html).toContain('Choose or drop design context');
     expect(html).toContain('telemetry off');
     expect(html).not.toContain('dangerouslySetInnerHTML');
+  });
+
+  it('offers an optional UTF-8 design context file for the connected agent', () => {
+    const html = renderToStaticMarkup(
+      createElement(DesignContextFileEditor, {
+        context: null,
+        maxBytes: 256_000,
+        disabled: false,
+        onFile: vi.fn(),
+      }),
+    );
+    expect(html).toContain('Design context file');
+    expect(html).toContain('JSX, TSX, HTML, CSS, JSON, Markdown');
+    expect(html).toContain(
+      'connected agent receives this file together with the SVG or PNG evidence',
+    );
   });
 
   it('renders accessible typed-context and exact-canvas editors', () => {

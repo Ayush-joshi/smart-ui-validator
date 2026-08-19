@@ -403,12 +403,21 @@ describe('stable host-neutral MCP contract', () => {
       'base64',
     );
     const evidenceRelativePath = 'runs/design-render.png';
+    const structuredDesignContext = {
+      schemaVersion: '1.0',
+      exactCopy: [],
+      designTokens: [],
+      componentSemantics: [],
+      interactions: [],
+      generalNotes: 'Keep the heading copy.',
+    };
+    const jsx = 'export const Card = () => <h1>Semantic title</h1>;';
     await mkdir(join(studioWorkspace, 'runs'), { recursive: true });
     await writeFile(join(studioWorkspace, 'runs', 'design-render.png'), png);
     await writeFile(
       join(requestsDir, 'round-1.json'),
       JSON.stringify({
-        schemaVersion: '1.0',
+        schemaVersion: '3.0',
         runId,
         round: 1,
         designName: 'design',
@@ -421,6 +430,33 @@ describe('stable host-neutral MCP contract', () => {
         unavailableFonts: [],
         readableText: ['Semantic title'],
         instructions: 'Keep the heading copy.',
+        structuredDesignContext,
+        structuredContextHash: `sha256:${createHash('sha256').update(JSON.stringify(structuredDesignContext)).digest('hex')}`,
+        contextRedacted: false,
+        presentationSpec: {
+          schemaVersion: '1.0',
+          primaryCanvas: { id: 'source', width: 320, height: 180, deviceScaleFactor: 1 },
+          fit: 'intrinsic',
+          horizontalAlignment: 'start',
+          verticalAlignment: 'start',
+          viewports: [],
+        },
+        designContext: {
+          filename: 'Card.jsx',
+          mediaType: 'text/javascript',
+          content: jsx,
+          originalHash: `sha256:${createHash('sha256').update(jsx).digest('hex')}`,
+          byteLength: new TextEncoder().encode(jsx).byteLength,
+          provenance: 'studio:user-upload',
+          contentRedacted: false,
+        },
+        designReference: {
+          filename: 'design.png',
+          mediaType: 'image/png',
+          originalHash: `sha256:${createHash('sha256').update(png).digest('hex')}`,
+          byteLength: png.byteLength,
+          provenance: 'studio:user-upload',
+        },
         sanitizedSvg: '<svg xmlns="http://www.w3.org/2000/svg" width="320" height="180"></svg>',
         svgTruncated: false,
         visualEvidence: [
@@ -457,6 +493,17 @@ describe('stable host-neutral MCP contract', () => {
           },
           structuredDesignContext: { generalNotes: 'Keep the heading copy.' },
           structuredContextHash: expect.stringMatching(/^sha256:/),
+          designContext: {
+            filename: 'Card.jsx',
+            content: jsx,
+            provenance: 'studio:user-upload',
+          },
+          designReference: {
+            filename: 'design.png',
+            mediaType: 'image/png',
+            byteLength: png.byteLength,
+            provenance: 'studio:user-upload',
+          },
         },
       ],
     });

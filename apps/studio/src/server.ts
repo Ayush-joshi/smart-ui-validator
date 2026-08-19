@@ -38,6 +38,7 @@ import {
   LocalSvgStructureProvider,
   LoopbackGeneratedPreviewProvider,
   MAX_AUTHORING_ROUNDS,
+  MAX_DESIGN_CONTEXT_BYTES,
   PlaywrightBrowserProvider,
   ReproducibleGenerationExporter,
   SmartUiError,
@@ -48,10 +49,13 @@ import {
   deleteAuthoringRequest,
   deleteAuthoringResponse,
   generationRecordSchema,
+  generationDesignContextSchema,
   emptyStructuredDesignContext,
   intrinsicPresentationSpec,
   highestIssuedAuthoringRound,
   loadConfig,
+  readImageDimensions,
+  redactSensitiveValue,
   svgGenerationInputSchema,
   presentationSpecSchema,
   structuredDesignContextSchema,
@@ -79,6 +83,7 @@ const RECORD_PATH = /^objects\/[a-f0-9]{2}\/[a-f0-9]{64}\.json$/u;
 const DEFAULT_RETENTION_MS = 24 * 60 * 60 * 1_000;
 const DEFAULT_MAX_IMPROVE_ROUNDS = 5;
 const MAX_JSON_BYTES = 65_536;
+const DESIGN_CONTEXT_PATH = join('input', 'design-context.txt');
 
 const STUDIO_CSP = [
   "default-src 'self'",
@@ -126,6 +131,8 @@ export interface StudioHealth {
 
 interface InspectionSummary {
   filename: string;
+  mediaType?: 'image/svg+xml' | 'image/png';
+  byteLength?: number;
   width: number;
   height: number;
   readableTextNodes: number;
@@ -157,6 +164,17 @@ interface RunPreferences {
   improve: boolean;
 }
 
+interface DesignContextSummary {
+  filename: string;
+  mediaType: string;
+  originalHash: string;
+  byteLength: number;
+}
+
+interface StoredDesignContext extends DesignContextSummary {
+  path: string;
+}
+
 /** Immutable evidence for one authored round of a run. */
 interface RunRound {
   round: number;
@@ -184,6 +202,7 @@ interface StudioRun {
   progress: { stage: string; value: number; message: string };
   inspection?: InspectionSummary;
   preferences?: RunPreferences;
+  designContext?: StoredDesignContext;
   rounds: RunRound[];
   records: Map<number, GenerationRecord>;
   selectedRound?: number;
@@ -198,7 +217,7 @@ interface StudioRun {
 }
 
 interface PersistedRun {
-  schemaVersion: '2.0';
+  schemaVersion: '3.0';
   runId: string;
   filename: string;
   createdAt: string;
@@ -207,6 +226,7 @@ interface PersistedRun {
   progress: StudioRun['progress'];
   inspection?: InspectionSummary;
   preferences?: RunPreferences;
+  designContext?: DesignContextSummary;
   rounds?: RunRound[];
   selectedRound?: number;
   acceptedRound?: number;
@@ -348,7 +368,10 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
       return json(response, 200, {
         csrfToken: csrf,
         runs: [...runs.values()].map((item) => runSummary(item, maxImproveRounds)),
-        limits: { maxUploadBytes: (await loadConfig(workspace)).generation.limits.maxSvgBytes },
+        limits: {
+          maxUploadBytes: (await loadConfig(workspace)).generation.limits.maxSvgBytes,
+          maxDesignContextBytes: MAX_DESIGN_CONTEXT_BYTES,
+        },
         agent: { configured: true, transport: 'mcp', workspace, maxImproveRounds },
       });
     }
@@ -369,9 +392,9 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
           [...runs.values()].map((item) => runSummary(item, maxImproveRounds)),
         );
       if (request.method !== 'POST') return method(response, 'GET, POST');
-      exactContentType(request, 'image/svg+xml');
-      const filename = uploadFilename(request.headers['x-smart-ui-filename']);
-      const run = await inspectUpload(request, workspace, filename);
+      const mediaType = designUploadMediaType(request);
+      const filename = uploadFilename(request.headers['x-smart-ui-filename'], mediaType);
+      const run = await inspectUpload(request, workspace, filename, mediaType);
       runs.set(run.id, run);
       await persistRun(run);
       return json(response, 201, runSummary(run, maxImproveRounds));
@@ -395,6 +418,20 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
         return json(response, 200, { runId: run.id, deleted: true, verified: true });
       }
       return method(response, 'GET, DELETE');
+    }
+    if (segments[3] === 'design-context' && segments.length === 4) {
+      if (request.method !== 'PUT') return method(response, 'PUT');
+      exactContentType(request, 'application/octet-stream');
+      if (run.phase !== 'inspected') {
+        throw new SmartUiError(
+          'POLICY_VIOLATION',
+          'Design context can only be attached before generation starts.',
+        );
+      }
+      run.designContext = await storeDesignContext(request, run);
+      run.updatedAt = new Date().toISOString();
+      await persistRun(run);
+      return json(response, 200, runSummary(run, maxImproveRounds));
     }
     if (segments[3] === 'generate' && segments.length === 4) {
       if (request.method !== 'POST') return method(response, 'POST');
@@ -493,20 +530,30 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
     request: IncomingMessage,
     root: string,
     filename: string,
+    mediaType: 'image/svg+xml' | 'image/png',
   ): Promise<StudioRun> {
     const config = await loadConfig(root);
     const id = `run-${randomUUID()}`;
     const runRoot = join(runsRoot, id);
     const inputRoot = join(runRoot, 'input');
-    const uploadPath = join(inputRoot, 'upload.svg');
+    const referencePath = join(inputRoot, mediaType === 'image/png' ? 'upload.png' : 'upload.svg');
+    const uploadPath =
+      mediaType === 'image/png' ? join(inputRoot, 'normalized-reference.svg') : referencePath;
     const inspectionArtifactRoot = join(runRoot, 'inspection-artifacts');
     await mkdir(inputRoot, { recursive: true, mode: 0o700 });
     try {
-      await streamUpload(request, uploadPath, config.generation.limits.maxSvgBytes);
+      await streamUpload(request, referencePath, config.generation.limits.maxSvgBytes, 'Design');
+      const referenceBytes = await readFile(referencePath);
+      if (mediaType === 'image/png') {
+        const dimensions = readImageDimensions(referenceBytes, mediaType);
+        if (!dimensions) throw new SmartUiError('INVALID_INPUT', 'PNG dimensions are unavailable.');
+        const normalizedSvg = pngReferenceSvg(referenceBytes, dimensions.width, dimensions.height);
+        await writeFile(uploadPath, normalizedSvg, { flag: 'wx', mode: 0o600 });
+      }
       const store = new LocalArtifactStore(inspectionArtifactRoot);
       const inspection = await new LocalSvgStructureProvider(
         store,
-        config.generation.limits,
+        normalizedStructureLimits(config.generation.limits, await readFile(uploadPath)),
       ).inspect(
         svgGenerationInputSchema.parse({
           workspaceRoot: root,
@@ -517,9 +564,13 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
           rendering: { background: { kind: 'transparent' }, locale: 'en-US', theme: 'light' },
         }),
       );
-      const readableTextNodes = inspection.bundle.scene.nodes.filter(
-        (node) => node.type === 'text' && Boolean(node.text?.trim()),
-      ).length;
+      const readableTextNodes =
+        mediaType === 'image/png'
+          ? 0
+          : inspection.bundle.scene.nodes.filter(
+              (node) => node.type === 'text' && Boolean(node.text?.trim()),
+            ).length;
+      const originalInputHash = `sha256:${createHash('sha256').update(referenceBytes).digest('hex')}`;
       const now = new Date().toISOString();
       return {
         id,
@@ -530,21 +581,32 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
         createdAt: now,
         updatedAt: now,
         phase: 'inspected',
-        progress: { stage: 'inspect', value: 0.12, message: 'SVG accepted and inspected.' },
+        progress: {
+          stage: 'inspect',
+          value: 0.12,
+          message: `${mediaType === 'image/png' ? 'PNG' : 'SVG'} accepted and inspected.`,
+        },
         rounds: [],
         records: new Map(),
         controller: undefined,
         task: undefined,
         inspection: {
           filename,
+          mediaType,
+          byteLength: referenceBytes.byteLength,
           width: inspection.bundle.viewport.width,
           height: inspection.bundle.viewport.height,
           readableTextNodes,
-          originalInputHash: inspection.bundle.originalInputHash,
+          originalInputHash,
           sanitizedHash: inspection.bundle.sanitizedHash,
           sanitization: inspection.bundle.sanitization,
           uncertaintyCount: inspection.bundle.uncertainties.length,
-          recommendedModes: readableTextNodes > 0 ? ['hybrid', 'semantic', 'exact'] : ['exact'],
+          recommendedModes:
+            mediaType === 'image/png'
+              ? ['semantic', 'hybrid', 'exact']
+              : readableTextNodes > 0
+                ? ['hybrid', 'semantic', 'exact']
+                : ['exact'],
         },
       };
     } catch (error) {
@@ -562,6 +624,9 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
       const config = await loadConfig(workspace);
       const artifactRoot = roundArtifactRoot(run.root, round);
       const store = new LocalArtifactStore(artifactRoot);
+      const generationDesignContext = run.designContext
+        ? await studioGenerationDesignContext(run.designContext)
+        : undefined;
       const generationInput = svgGenerationInputSchema.parse({
         workspaceRoot: workspace,
         svgPath: run.uploadPath,
@@ -570,11 +635,18 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
         mode: preferences.mode,
         layout: preferences.layout,
         ...(preferences.instructions ? { instructions: preferences.instructions } : {}),
+        ...(generationDesignContext ? { designContext: generationDesignContext } : {}),
+        ...(designReferenceMediaType(run) === 'image/png'
+          ? { designReference: studioPngDesignReference(run) }
+          : {}),
         structuredDesignContext: preferences.structuredDesignContext,
         presentationSpec: preferences.presentationSpec,
         rendering: { background: { kind: 'transparent' }, locale: 'en-US', theme: 'light' },
       });
-      const structure = new LocalSvgStructureProvider(store, config.generation.limits);
+      const structure = new LocalSvgStructureProvider(
+        store,
+        normalizedStructureLimits(config.generation.limits, await readFile(run.uploadPath)),
+      );
       let generator: HtmlGenerationProvider = new DeterministicHtmlGenerationProvider();
       let fallbackGenerator: HtmlGenerationProvider | undefined;
       let proposalPolicy: 'non-regression' | 'prefer-proposal' | undefined;
@@ -712,7 +784,7 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
     });
     const inspection = await new LocalSvgStructureProvider(
       inspectionStore,
-      config.generation.limits,
+      normalizedStructureLimits(config.generation.limits, await readFile(run.uploadPath)),
     ).inspect(inspectionInput, signal);
     const previous = run.rounds.at(-1);
     const visualEvidence = [
@@ -734,6 +806,28 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
       ...(previous ? { priorEvidence: priorEvidence(run, previous) } : {}),
       ...(previous?.responseHash ? { previousResponseHash: previous.responseHash } : {}),
       ...(visualEvidence.length > 0 ? { visualEvidence } : {}),
+      ...(run.designContext
+        ? {
+            designContext: {
+              filename: run.designContext.filename,
+              mediaType: run.designContext.mediaType,
+              content: new TextDecoder('utf-8', { fatal: true }).decode(
+                await readFile(run.designContext.path),
+              ),
+              originalHash: run.designContext.originalHash,
+              byteLength: run.designContext.byteLength,
+              provenance: 'studio:user-upload',
+            },
+          }
+        : {}),
+      designReference: {
+        filename: run.filename,
+        mediaType: designReferenceMediaType(run),
+        originalHash: run.inspection?.originalInputHash ?? inspection.bundle.originalInputHash,
+        byteLength:
+          run.inspection?.byteLength ?? (await readFile(designReferencePath(run))).byteLength,
+        provenance: 'studio:user-upload',
+      },
       timeoutMs: agentTimeoutMs,
     });
     await writeAuthoringRequest(queueRoot, request);
@@ -786,6 +880,21 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
   ): Promise<AuthoringVisualEvidence[]> {
     const signal = run.controller?.signal;
     try {
+      if (designReferenceMediaType(run) === 'image/png') {
+        const bytes = await readFile(designReferencePath(run));
+        return [
+          {
+            kind: 'design-render',
+            label: `Uploaded PNG design reference at ${inspection.bundle.presentationSpec.primaryCanvas.width}x${inspection.bundle.presentationSpec.primaryCanvas.height}`,
+            mediaType: 'image/png',
+            workspaceRelativePath: relative(workspace, designReferencePath(run))
+              .split(sep)
+              .join('/'),
+            hash: `sha256:${createHash('sha256').update(bytes).digest('hex')}`,
+            byteLength: bytes.byteLength,
+          },
+        ];
+      }
       const exact = await new DeterministicHtmlGenerationProvider().generate(
         { ...input, mode: 'exact' },
         inspection,
@@ -1020,11 +1129,12 @@ async function streamUpload(
   request: IncomingMessage,
   destination: string,
   limit: number,
+  label = 'SVG',
 ): Promise<void> {
   const declared = Number(request.headers['content-length']);
   if (Number.isFinite(declared) && (declared < 1 || declared > limit)) {
     drain(request);
-    throw new SmartUiError('INVALID_INPUT', `SVG upload must be from 1 to ${limit} bytes.`);
+    throw new SmartUiError('INVALID_INPUT', `${label} upload must be from 1 to ${limit} bytes.`);
   }
   const temporary = `${destination}.uploading`;
   const output = createWriteStream(temporary, { flags: 'wx', mode: 0o600 });
@@ -1034,10 +1144,10 @@ async function streamUpload(
       const chunk = Buffer.isBuffer(chunkValue) ? chunkValue : Buffer.from(chunkValue);
       bytes += chunk.byteLength;
       if (bytes > limit)
-        throw new SmartUiError('INVALID_INPUT', `SVG upload exceeds ${limit} bytes.`);
+        throw new SmartUiError('INVALID_INPUT', `${label} upload exceeds ${limit} bytes.`);
       if (!output.write(chunk)) await once(output, 'drain');
     }
-    if (bytes === 0) throw new SmartUiError('INVALID_INPUT', 'SVG upload cannot be empty.');
+    if (bytes === 0) throw new SmartUiError('INVALID_INPUT', `${label} upload cannot be empty.`);
     output.end();
     await once(output, 'close');
     await rename(temporary, destination);
@@ -1067,6 +1177,47 @@ async function readBounded(request: IncomingMessage, limit: number): Promise<Uin
     chunks.push(chunk);
   }
   return Buffer.concat(chunks);
+}
+
+async function storeDesignContext(
+  request: IncomingMessage,
+  run: StudioRun,
+): Promise<StoredDesignContext> {
+  const bytes = await readBounded(request, MAX_DESIGN_CONTEXT_BYTES);
+  if (bytes.byteLength === 0) {
+    throw new SmartUiError('INVALID_INPUT', 'Design context file cannot be empty.');
+  }
+  let content: string;
+  try {
+    content = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+  } catch {
+    throw new SmartUiError(
+      'INVALID_INPUT',
+      'Design context must be a UTF-8 text file such as JSX, TSX, HTML, CSS, JSON, or Markdown.',
+    );
+  }
+  if (content.includes('\0')) {
+    throw new SmartUiError(
+      'INVALID_INPUT',
+      'Design context must be text; binary files are not accepted.',
+    );
+  }
+  const destination = join(run.root, DESIGN_CONTEXT_PATH);
+  const temporary = `${destination}.${randomUUID()}.uploading`;
+  try {
+    await writeFile(temporary, bytes, { flag: 'wx', mode: 0o600 });
+    await rename(temporary, destination);
+  } catch (error) {
+    await rm(temporary, { force: true });
+    throw error;
+  }
+  return {
+    path: destination,
+    filename: contextFilename(request.headers['x-smart-ui-filename']),
+    mediaType: contextMediaType(request.headers['x-smart-ui-context-type']),
+    originalHash: `sha256:${createHash('sha256').update(bytes).digest('hex')}`,
+    byteLength: bytes.byteLength,
+  };
 }
 
 function parsePreferences(value: unknown, inspection?: InspectionSummary): RunPreferences {
@@ -1239,6 +1390,14 @@ function runSummary(run: StudioRun, maxImproveRounds: number) {
     phase: run.phase,
     progress: run.progress,
     inspection: run.inspection,
+    designContext: run.designContext
+      ? {
+          filename: run.designContext.filename,
+          mediaType: run.designContext.mediaType,
+          originalHash: run.designContext.originalHash,
+          byteLength: run.designContext.byteLength,
+        }
+      : null,
     preferences: run.preferences
       ? {
           presentationSpec: run.preferences.presentationSpec,
@@ -1411,7 +1570,7 @@ async function evidence(
 
 async function persistRun(run: StudioRun): Promise<void> {
   const value: PersistedRun = {
-    schemaVersion: '2.0',
+    schemaVersion: '3.0',
     runId: run.id,
     filename: run.filename,
     createdAt: run.createdAt,
@@ -1420,6 +1579,16 @@ async function persistRun(run: StudioRun): Promise<void> {
     progress: run.progress,
     ...(run.inspection ? { inspection: run.inspection } : {}),
     ...(run.preferences ? { preferences: run.preferences } : {}),
+    ...(run.designContext
+      ? {
+          designContext: {
+            filename: run.designContext.filename,
+            mediaType: run.designContext.mediaType,
+            originalHash: run.designContext.originalHash,
+            byteLength: run.designContext.byteLength,
+          },
+        }
+      : {}),
     ...(run.rounds.length > 0 ? { rounds: run.rounds } : {}),
     ...(run.selectedRound ? { selectedRound: run.selectedRound } : {}),
     ...(run.acceptedRound ? { acceptedRound: run.acceptedRound } : {}),
@@ -1451,11 +1620,27 @@ async function recoverRuns(
         await rm(root, { recursive: true, force: true });
         continue;
       }
+      if (pointer.designContext) {
+        const contextBytes = await readFile(join(root, DESIGN_CONTEXT_PATH));
+        const contextText = new TextDecoder('utf-8', { fatal: true }).decode(contextBytes);
+        const contextHash = `sha256:${createHash('sha256').update(contextBytes).digest('hex')}`;
+        if (
+          contextText.includes('\0') ||
+          contextBytes.byteLength !== pointer.designContext.byteLength ||
+          contextHash !== pointer.designContext.originalHash
+        ) {
+          throw new Error('design context integrity mismatch');
+        }
+      }
       const run: StudioRun = {
         id: pointer.runId,
         root,
         artifactRoot: roundArtifactRoot(root, pointer.selectedRound ?? 1),
-        uploadPath: join(root, 'input', 'upload.svg'),
+        uploadPath: join(
+          root,
+          'input',
+          pointer.inspection?.mediaType === 'image/png' ? 'normalized-reference.svg' : 'upload.svg',
+        ),
         filename: pointer.filename,
         createdAt: pointer.createdAt,
         updatedAt: pointer.updatedAt,
@@ -1465,6 +1650,14 @@ async function recoverRuns(
           : pointer.progress,
         ...(pointer.inspection ? { inspection: pointer.inspection } : {}),
         ...(pointer.preferences ? { preferences: pointer.preferences } : {}),
+        ...(pointer.designContext
+          ? {
+              designContext: {
+                ...pointer.designContext,
+                path: join(root, DESIGN_CONTEXT_PATH),
+              },
+            }
+          : {}),
         rounds: pointer.rounds ?? [],
         records: new Map<number, GenerationRecord>(),
         ...(pointer.selectedRound ? { selectedRound: pointer.selectedRound } : {}),
@@ -1502,7 +1695,7 @@ function parsePersistedRun(value: unknown): PersistedRun {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('invalid run');
   const run = value as Record<string, unknown>;
   if (
-    (run['schemaVersion'] !== '1.0' && run['schemaVersion'] !== '2.0') ||
+    !['1.0', '2.0', '3.0'].includes(String(run['schemaVersion'])) ||
     typeof run['runId'] !== 'string' ||
     !RUN_ID.test(run['runId']) ||
     typeof run['filename'] !== 'string' ||
@@ -1540,10 +1733,12 @@ function parsePersistedRun(value: unknown): PersistedRun {
   }
   const inspection = run['inspection'] as InspectionSummary | undefined;
   const preferences = run['preferences'];
+  const designContext = parseDesignContextSummary(run['designContext']);
   return {
-    ...(run as unknown as Omit<PersistedRun, 'schemaVersion' | 'preferences'>),
-    schemaVersion: '2.0',
+    ...(run as unknown as Omit<PersistedRun, 'schemaVersion' | 'preferences' | 'designContext'>),
+    schemaVersion: '3.0',
     ...(preferences ? { preferences: parsePreferences(preferences, inspection) } : {}),
+    ...(designContext ? { designContext } : {}),
   };
 }
 
@@ -1632,16 +1827,138 @@ function parseRequestUrl(value: string | undefined): URL {
   }
 }
 
-function uploadFilename(value: string | string[] | undefined): string {
-  if (typeof value !== 'string' || value.length < 1 || value.length > 200)
-    return 'uploaded-design.svg';
+function designUploadMediaType(request: IncomingMessage): 'image/svg+xml' | 'image/png' {
+  const value = request.headers['content-type'];
+  if (value === 'image/svg+xml' || value === 'image/png') return value;
+  drain(request);
+  throw new SmartUiError(
+    'INVALID_INPUT',
+    'Content-Type must be exactly image/svg+xml or image/png.',
+  );
+}
+
+function uploadFilename(
+  value: string | string[] | undefined,
+  mediaType: 'image/svg+xml' | 'image/png',
+): string {
+  const extension = mediaType === 'image/png' ? '.png' : '.svg';
+  const fallback = `uploaded-design${extension}`;
+  if (typeof value !== 'string' || value.length < 1 || value.length > 200) return fallback;
   const name = [...basename(value)]
     .filter((character) => {
       const code = character.codePointAt(0) ?? 0;
       return code >= 32 && code !== 127;
     })
     .join('');
-  return extname(name).toLowerCase() === '.svg' && name.length > 4 ? name : 'uploaded-design.svg';
+  return extname(name).toLowerCase() === extension && name.length > extension.length
+    ? name
+    : fallback;
+}
+
+function designReferenceMediaType(run: StudioRun): 'image/svg+xml' | 'image/png' {
+  return run.inspection?.mediaType === 'image/png' ? 'image/png' : 'image/svg+xml';
+}
+
+function designReferencePath(run: StudioRun): string {
+  return join(
+    run.root,
+    'input',
+    designReferenceMediaType(run) === 'image/png' ? 'upload.png' : 'upload.svg',
+  );
+}
+
+function studioPngDesignReference(run: StudioRun) {
+  const inspection = run.inspection;
+  if (
+    inspection?.mediaType !== 'image/png' ||
+    inspection.byteLength === undefined ||
+    !/^sha256:[a-f0-9]{64}$/u.test(inspection.originalInputHash)
+  ) {
+    throw new SmartUiError('NOT_FOUND', 'The verified PNG reference metadata is unavailable.');
+  }
+  return {
+    path: designReferencePath(run),
+    filename: run.filename,
+    mediaType: 'image/png' as const,
+    originalHash: inspection.originalInputHash,
+    byteLength: inspection.byteLength,
+    provenance: 'studio:user-upload',
+  };
+}
+
+async function studioGenerationDesignContext(context: StoredDesignContext) {
+  const content = new TextDecoder('utf-8', { fatal: true }).decode(await readFile(context.path));
+  const redacted = redactSensitiveValue(content);
+  if (typeof redacted !== 'string') {
+    throw new SmartUiError('INVALID_INPUT', 'Design context could not be normalized as text.');
+  }
+  return generationDesignContextSchema.parse({
+    filename: context.filename,
+    mediaType: context.mediaType,
+    content: redacted,
+    originalHash: context.originalHash,
+    byteLength: context.byteLength,
+    provenance: 'studio:user-upload',
+    contentRedacted: redacted !== content,
+  });
+}
+
+function pngReferenceSvg(bytes: Uint8Array, width: number, height: number): string {
+  const data = Buffer.from(bytes).toString('base64');
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}"><image width="${width}" height="${height}" preserveAspectRatio="none" href="data:image/png;base64,${data}"/></svg>`;
+}
+
+function normalizedStructureLimits(
+  limits: Awaited<ReturnType<typeof loadConfig>>['generation']['limits'],
+  normalizedSvg: Uint8Array,
+): Awaited<ReturnType<typeof loadConfig>>['generation']['limits'] {
+  if (normalizedSvg.byteLength > 50_000_000) {
+    throw new SmartUiError('INVALID_INPUT', 'PNG reference is too large to normalize safely.');
+  }
+  return {
+    ...limits,
+    maxSvgBytes: Math.max(limits.maxSvgBytes, normalizedSvg.byteLength),
+    maxDecodedCharacters: Math.max(limits.maxDecodedCharacters, normalizedSvg.byteLength),
+  };
+}
+
+function contextFilename(value: string | string[] | undefined): string {
+  if (typeof value !== 'string' || value.length < 1 || value.length > 200)
+    return 'design-context.txt';
+  const name = basename(value)
+    .replaceAll(/[^a-zA-Z0-9._ -]/gu, '_')
+    .trim();
+  return name.length > 0 && name !== '.' && name !== '..' ? name : 'design-context.txt';
+}
+
+function contextMediaType(value: string | string[] | undefined): string {
+  return typeof value === 'string' && /^[a-z0-9][a-z0-9.+-]*\/[a-z0-9][a-z0-9.+-]*$/u.test(value)
+    ? value.slice(0, 100)
+    : 'text/plain';
+}
+
+function parseDesignContextSummary(value: unknown): DesignContextSummary | undefined {
+  if (value === undefined) return undefined;
+  if (!value || typeof value !== 'object' || Array.isArray(value))
+    throw new Error('invalid context');
+  const context = value as Record<string, unknown>;
+  if (
+    Object.keys(context).some(
+      (key) => !['filename', 'mediaType', 'originalHash', 'byteLength'].includes(key),
+    ) ||
+    typeof context['filename'] !== 'string' ||
+    contextFilename(context['filename']) !== context['filename'] ||
+    typeof context['mediaType'] !== 'string' ||
+    contextMediaType(context['mediaType']) !== context['mediaType'] ||
+    typeof context['originalHash'] !== 'string' ||
+    !/^sha256:[a-f0-9]{64}$/u.test(context['originalHash']) ||
+    !Number.isInteger(context['byteLength']) ||
+    Number(context['byteLength']) < 1 ||
+    Number(context['byteLength']) > MAX_DESIGN_CONTEXT_BYTES
+  ) {
+    throw new Error('invalid design context');
+  }
+  return context as unknown as DesignContextSummary;
 }
 
 function safeDownloadName(value: string): string {

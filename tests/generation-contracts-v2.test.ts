@@ -167,7 +167,7 @@ describe('generation 2.0 authoring contracts', () => {
       expiresAt: new Date(60_000).toISOString(),
     };
     const upgradedRequest = upgradeAuthoringRequest(legacyRequest);
-    expect(upgradedRequest.schemaVersion).toBe('2.0');
+    expect(upgradedRequest.schemaVersion).toBe('3.0');
     expect(upgradedRequest.presentationSpec.primaryCanvas).toMatchObject({
       width: 320,
       height: 180,

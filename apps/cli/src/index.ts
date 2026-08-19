@@ -1,9 +1,9 @@
 #!/usr/bin/env node
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { readFile, writeFile } from 'node:fs/promises';
-import { dirname, extname, isAbsolute, join, relative, resolve } from 'node:path';
+import { lstat, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
+import { basename, dirname, extname, isAbsolute, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Command, Option } from 'commander';
 import {
@@ -14,7 +14,9 @@ import {
   HtmlGenerationReporter,
   HtmlReporter,
   DeterministicHtmlGenerationProvider,
+  DEFAULT_AUTHORING_TIMEOUT_MS,
   GenerationOrchestrator,
+  HostProposedHtmlGenerationProvider,
   LocalArtifactStore,
   LocalImageDesignProvider,
   LocalMemoryProvider,
@@ -28,6 +30,11 @@ import {
   SmartUiError,
   SmartUiOrchestrator,
   compareImages,
+  agentQueueRoot,
+  authoredHostFiles,
+  buildAuthoringRequest,
+  deleteAuthoringRequest,
+  deleteAuthoringResponse,
   designContractSchema,
   evaluateRelease,
   loadConfig,
@@ -37,12 +44,20 @@ import {
   runSetup,
   ensureStudioAgentHostConfig,
   installPlaywrightChromium,
+  generationDesignContextSchema,
   presentationSpecSchema,
+  readImageDimensions,
+  redactSensitiveValue,
+  svgGenerationInputSchema,
+  waitForAuthoringResponse,
+  writeAuthoringRequest,
   structuredDesignContextSchema,
   runStudioAgentSetupChecks,
   type StudioAgentHost,
   type PresentationSpec,
+  type AuthoringVisualEvidence,
   type StructuredDesignContext,
+  type SvgGenerationInput,
 } from 'smart-ui-validator-core';
 import { registerMemoryCommands } from './memory-cli.js';
 import { loadStudioModule } from './studio-loader.js';
@@ -167,11 +182,14 @@ program
 
 program
   .command('generate')
-  .description('Generate offline standalone HTML and CSS from a local SVG')
+  .description('Generate offline standalone HTML and CSS from a local SVG or PNG')
   .requiredOption('--workspace <path>', 'exact workspace and containment boundary')
-  .requiredOption('--design <path>', 'local SVG inside the workspace')
+  .requiredOption('--design <path>', 'local SVG or PNG inside the workspace')
   .option('--output <path>', 'materialize accepted files into this new empty directory')
   .option('--artifacts <path>', 'artifact base inside the workspace')
+  .addOption(
+    new Option('--engine <engine>').choices(['deterministic', 'agent']).default('deterministic'),
+  )
   .addOption(new Option('--mode <mode>').choices(['exact', 'hybrid', 'semantic']).default('hybrid'))
   .addOption(
     new Option('--layout <layout>')
@@ -180,16 +198,25 @@ program
   )
   .option('--name <name>', 'friendly generated UI name')
   .option('--instructions <text>', 'bounded implementation note')
-  .option('--design-context <path>', 'StructuredDesignContext 1.0 JSON inside the workspace')
+  .option(
+    '--design-context <path>',
+    'optional bounded UTF-8 source context (JSX, TSX, HTML, CSS, JSON, Markdown, or text)',
+  )
+  .option('--structured-context <path>', 'StructuredDesignContext 1.0 JSON inside the workspace')
   .option('--presentation <path>', 'PresentationSpec 1.0 JSON inside the workspace')
   .option('--viewport <width>x<height>', 'explicit source viewport', parseGenerationViewport)
   .option('--timeout <milliseconds>', 'generation timeout', parseGenerationTimeout)
+  .option(
+    '--agent-timeout <milliseconds>',
+    'maximum wait for an MCP-connected authoring agent',
+    parseAgentAuthoringTimeout,
+  )
   .option(
     '--max-passes <count>',
     'maximum bounded generation revisions (0 or 1)',
     parseGenerationPassCount,
   )
-  .option('--dry-run', 'inspect SVG safety and capability without a generated deliverable')
+  .option('--dry-run', 'inspect design safety and capability without a generated deliverable')
   .option('--json', 'emit one compact JSON result')
   .action(async (options: GenerateCliOptions) => {
     const workspace = userPath(options.workspace);
@@ -201,18 +228,17 @@ program
     const store = new LocalArtifactStore(runRoot);
     const controller = new AbortController();
     const cancel = () => controller.abort();
+    let stagingPath: string | undefined;
     process.once('SIGINT', cancel);
     try {
-      const structuredDesignContext = options.designContext
-        ? structuredDesignContextSchema.parse(
-            JSON.parse(
-              await readFile(
-                containedUserPath(workspace, options.designContext, 'design context'),
-                'utf8',
-              ),
-            ),
-          )
-        : undefined;
+      if (options.engine === 'agent' && options.maxPasses === 0) {
+        throw new SmartUiError(
+          'INVALID_INPUT',
+          '--engine agent requires --max-passes 1 so the authored proposal can be evaluated.',
+        );
+      }
+      const contexts = await readCliDesignContexts(workspace, options);
+      const structuredDesignContext = contexts.structuredDesignContext;
       const presentationSpec = options.presentation
         ? presentationSpecSchema.parse(
             JSON.parse(
@@ -223,45 +249,69 @@ program
             ),
           )
         : undefined;
+      const preparedDesign = await prepareCliGenerationDesign(
+        workspace,
+        containedUserPath(workspace, options.design, 'design reference'),
+        config.generation.limits,
+      );
+      stagingPath = preparedDesign.stagingPath;
+      const generationInput = svgGenerationInputSchema.parse({
+        workspaceRoot: workspace,
+        svgPath: preparedDesign.svgPath,
+        artifactRoot: runRoot,
+        ...(options.output ? { exportRoot: userPath(options.output) } : {}),
+        name: options.name ?? preparedDesign.name,
+        mode: options.mode,
+        layout: options.layout,
+        ...(options.instructions ? { instructions: options.instructions } : {}),
+        ...(contexts.designContext ? { designContext: contexts.designContext } : {}),
+        ...(preparedDesign.designReference
+          ? { designReference: preparedDesign.designReference }
+          : {}),
+        ...(structuredDesignContext ? { structuredDesignContext } : {}),
+        ...(presentationSpec ? { presentationSpec } : {}),
+        ...(options.viewport ? { viewport: options.viewport } : {}),
+        rendering: {
+          background: { kind: 'transparent' },
+          locale: 'en-US',
+          theme: 'light',
+        },
+        dryRun: options.dryRun ?? false,
+        ...(options.timeout !== undefined ? { timeoutMs: options.timeout } : {}),
+        ...(options.maxPasses !== undefined ? { maxPasses: options.maxPasses } : {}),
+      });
+      const deterministicGenerator = new DeterministicHtmlGenerationProvider();
+      const agentGenerator =
+        options.engine === 'agent' && !generationInput.dryRun
+          ? await cliAgentGenerator({
+              workspace,
+              input: generationInput,
+              preparedDesign,
+              structureLimits: preparedDesign.structureLimits,
+              config,
+              timeoutMs: options.agentTimeout ?? DEFAULT_AUTHORING_TIMEOUT_MS,
+              signal: controller.signal,
+            })
+          : undefined;
       const result = await new GenerationOrchestrator({
-        structure: new LocalSvgStructureProvider(store, config.generation.limits),
-        generator: new DeterministicHtmlGenerationProvider(),
+        structure: new LocalSvgStructureProvider(store, preparedDesign.structureLimits),
+        generator: agentGenerator ?? deterministicGenerator,
+        ...(agentGenerator ? { fallbackGenerator: deterministicGenerator } : {}),
+        ...(agentGenerator ? { proposalPolicy: 'prefer-proposal' as const } : {}),
         preview: new LoopbackGeneratedPreviewProvider(),
         browser: new PlaywrightBrowserProvider(),
         artifacts: store,
         reporter: new HtmlGenerationReporter(store),
         exporter: new ReproducibleGenerationExporter(workspace),
         config,
-      }).run(
-        {
-          workspaceRoot: workspace,
-          svgPath: userPath(options.design),
-          artifactRoot: runRoot,
-          ...(options.output ? { exportRoot: userPath(options.output) } : {}),
-          ...(options.name ? { name: options.name } : {}),
-          mode: options.mode,
-          layout: options.layout,
-          ...(options.instructions ? { instructions: options.instructions } : {}),
-          ...(structuredDesignContext ? { structuredDesignContext } : {}),
-          ...(presentationSpec ? { presentationSpec } : {}),
-          ...(options.viewport ? { viewport: options.viewport } : {}),
-          rendering: {
-            background: { kind: 'transparent' },
-            locale: 'en-US',
-            theme: 'light',
-          },
-          dryRun: options.dryRun ?? false,
-          ...(options.timeout !== undefined ? { timeoutMs: options.timeout } : {}),
-          ...(options.maxPasses !== undefined ? { maxPasses: options.maxPasses } : {}),
-        },
-        controller.signal,
-      );
+      }).run(generationInput, controller.signal);
       const summary = generationSummary(result, runRoot);
       if (options.json) console.log(JSON.stringify(summary));
       else printGenerationSummary(summary);
       process.exitCode = generationExitCode(result.record);
     } finally {
       process.removeListener('SIGINT', cancel);
+      if (stagingPath) await rm(stagingPath, { recursive: true, force: true });
     }
   });
 
@@ -697,6 +747,382 @@ function containedUserPath(workspace: string, path: string, label: string): stri
   return candidate;
 }
 
+async function readCliDesignContexts(
+  workspace: string,
+  options: GenerateCliOptions,
+): Promise<{
+  structuredDesignContext?: StructuredDesignContext;
+  designContext?: ReturnType<typeof generationDesignContextSchema.parse>;
+}> {
+  let structuredDesignContext = options.structuredDesignContext;
+  if (options.structuredContext) {
+    structuredDesignContext = structuredDesignContextSchema.parse(
+      JSON.parse(
+        await readFile(
+          containedUserPath(workspace, options.structuredContext, 'structured design context'),
+          'utf8',
+        ),
+      ),
+    );
+  }
+  if (!options.designContext) {
+    return structuredDesignContext ? { structuredDesignContext } : {};
+  }
+  const path = await containedRegularCliFile(
+    workspace,
+    containedUserPath(workspace, options.designContext, 'design context'),
+    'Design context',
+  );
+  const bytes = await readFile(path);
+  if (bytes.byteLength < 1 || bytes.byteLength > 256_000) {
+    throw new SmartUiError(
+      'INVALID_INPUT',
+      'Design context must be a non-empty UTF-8 file no larger than 256000 bytes.',
+    );
+  }
+  let content: string;
+  try {
+    content = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+  } catch {
+    throw new SmartUiError('INVALID_INPUT', 'Design context must be strict UTF-8 text.');
+  }
+  if (content.includes('\0')) {
+    throw new SmartUiError('INVALID_INPUT', 'Design context must be text, not binary data.');
+  }
+  if (!options.structuredContext && !structuredDesignContext) {
+    try {
+      const legacy = structuredDesignContextSchema.safeParse(JSON.parse(content));
+      if (legacy.success) return { structuredDesignContext: legacy.data };
+    } catch {
+      // Non-JSON source context is expected here.
+    }
+  }
+  const redacted = redactSensitiveValue(content);
+  if (typeof redacted !== 'string') {
+    throw new SmartUiError('INVALID_INPUT', 'Design context could not be normalized as text.');
+  }
+  return {
+    ...(structuredDesignContext ? { structuredDesignContext } : {}),
+    designContext: generationDesignContextSchema.parse({
+      filename: basename(path),
+      mediaType: sourceContextMediaType(path),
+      content: redacted,
+      originalHash: `sha256:${createHash('sha256').update(bytes).digest('hex')}`,
+      byteLength: bytes.byteLength,
+      provenance: 'cli:user-supplied',
+      contentRedacted: redacted !== content,
+    }),
+  };
+}
+
+async function prepareCliGenerationDesign(
+  workspace: string,
+  designPath: string,
+  limits: Awaited<ReturnType<typeof loadConfig>>['generation']['limits'],
+): Promise<{
+  svgPath: string;
+  name: string;
+  structureLimits: Awaited<ReturnType<typeof loadConfig>>['generation']['limits'];
+  stagingPath?: string;
+  authoringReference: {
+    filename: string;
+    mediaType: 'image/svg+xml' | 'image/png';
+    originalHash: string;
+    byteLength: number;
+    provenance: string;
+  };
+  designReference?: {
+    path: string;
+    filename: string;
+    mediaType: 'image/png';
+    originalHash: string;
+    byteLength: number;
+    provenance: string;
+  };
+}> {
+  const path = await containedRegularCliFile(workspace, designPath, 'Design reference');
+  const extension = extname(path).toLowerCase();
+  if (extension === '.svg') {
+    const bytes = await readFile(path);
+    if (bytes.byteLength < 1 || bytes.byteLength > limits.maxSvgBytes) {
+      throw new SmartUiError(
+        'INVALID_INPUT',
+        `SVG reference must be from 1 to ${limits.maxSvgBytes} bytes.`,
+      );
+    }
+    return {
+      svgPath: path,
+      name: basename(path, extension),
+      structureLimits: limits,
+      authoringReference: {
+        filename: basename(path),
+        mediaType: 'image/svg+xml',
+        originalHash: `sha256:${createHash('sha256').update(bytes).digest('hex')}`,
+        byteLength: bytes.byteLength,
+        provenance: 'cli:user-supplied',
+      },
+    };
+  }
+  if (extension !== '.png') {
+    throw new SmartUiError('INVALID_INPUT', 'Generation design must be an SVG or PNG file.');
+  }
+  const bytes = await readFile(path);
+  if (bytes.byteLength < 1 || bytes.byteLength > limits.maxSvgBytes) {
+    throw new SmartUiError(
+      'INVALID_INPUT',
+      `PNG reference must be from 1 to ${limits.maxSvgBytes} bytes.`,
+    );
+  }
+  const dimensions = readImageDimensions(bytes, 'image/png');
+  if (!dimensions) throw new SmartUiError('INVALID_INPUT', 'PNG dimensions are unavailable.');
+  const normalizedSvg = pngCliReferenceSvg(bytes, dimensions.width, dimensions.height);
+  if (Buffer.byteLength(normalizedSvg) > 50_000_000) {
+    throw new SmartUiError('INVALID_INPUT', 'PNG reference is too large to normalize safely.');
+  }
+  const stagingPath = await mkdtemp(join(resolve(workspace), '.smart-ui-png-input-'));
+  try {
+    const svgPath = join(stagingPath, 'reference.svg');
+    await writeFile(svgPath, normalizedSvg, { flag: 'wx', mode: 0o600 });
+    return {
+      svgPath,
+      name: basename(path, extension),
+      stagingPath,
+      structureLimits: {
+        ...limits,
+        maxSvgBytes: Math.max(limits.maxSvgBytes, Buffer.byteLength(normalizedSvg)),
+        maxDecodedCharacters: Math.max(
+          limits.maxDecodedCharacters,
+          Buffer.byteLength(normalizedSvg),
+        ),
+      },
+      authoringReference: {
+        filename: basename(path),
+        mediaType: 'image/png',
+        originalHash: `sha256:${createHash('sha256').update(bytes).digest('hex')}`,
+        byteLength: bytes.byteLength,
+        provenance: 'cli:user-supplied',
+      },
+      designReference: {
+        path,
+        filename: basename(path),
+        mediaType: 'image/png',
+        originalHash: `sha256:${createHash('sha256').update(bytes).digest('hex')}`,
+        byteLength: bytes.byteLength,
+        provenance: 'cli:user-supplied',
+      },
+    };
+  } catch (error) {
+    await rm(stagingPath, { recursive: true, force: true });
+    throw error;
+  }
+}
+
+async function cliAgentGenerator(options: {
+  workspace: string;
+  input: SvgGenerationInput;
+  preparedDesign: Awaited<ReturnType<typeof prepareCliGenerationDesign>>;
+  structureLimits: Awaited<ReturnType<typeof loadConfig>>['generation']['limits'];
+  config: Awaited<ReturnType<typeof loadConfig>>;
+  timeoutMs: number;
+  signal: AbortSignal;
+}): Promise<HostProposedHtmlGenerationProvider> {
+  const runId = `run-${randomUUID()}`;
+  const evidenceRoot = await mkdtemp(
+    join(resolve(options.workspace), '.smart-ui-cli-agent-evidence-'),
+  );
+  const queueRoot = agentQueueRoot(options.workspace);
+  try {
+    const evidenceStore = new LocalArtifactStore(evidenceRoot);
+    const inspectionInput = svgGenerationInputSchema.parse({
+      ...options.input,
+      artifactRoot: evidenceRoot,
+      exportRoot: undefined,
+      dryRun: false,
+    });
+    const inspection = await new LocalSvgStructureProvider(
+      evidenceStore,
+      options.structureLimits,
+    ).inspect(inspectionInput, options.signal);
+    const visualEvidence = await cliAuthoringVisualEvidence({
+      workspace: options.workspace,
+      input: inspectionInput,
+      preparedDesign: options.preparedDesign,
+      inspection,
+      store: evidenceStore,
+      evidenceRoot,
+      config: options.config,
+      signal: options.signal,
+    });
+    const context = options.input.designContext;
+    const request = buildAuthoringRequest({
+      runId,
+      input: inspectionInput,
+      inspection,
+      ...(context
+        ? {
+            designContext: {
+              filename: context.filename,
+              mediaType: context.mediaType,
+              content: context.content,
+              originalHash: context.originalHash,
+              byteLength: context.byteLength,
+              provenance: context.provenance,
+            },
+          }
+        : {}),
+      designReference: options.preparedDesign.authoringReference,
+      ...(visualEvidence.length > 0 ? { visualEvidence } : {}),
+      timeoutMs: options.timeoutMs,
+    });
+    await writeAuthoringRequest(queueRoot, request);
+    process.stderr.write(
+      `Waiting for the MCP-connected agent. Ask it to call list_studio_authoring_requests with studioWorkspace ${JSON.stringify(options.workspace)} and author run ${runId}.\n`,
+    );
+    const response = await waitForAuthoringResponse(queueRoot, runId, {
+      round: 1,
+      timeoutMs: options.timeoutMs,
+      signal: options.signal,
+    });
+    return new HostProposedHtmlGenerationProvider(
+      `cli-agent:${response.authoringAgent}`,
+      authoredHostFiles(response),
+    );
+  } finally {
+    await Promise.allSettled([
+      deleteAuthoringRequest(queueRoot, runId),
+      deleteAuthoringResponse(queueRoot, runId),
+    ]);
+    await rm(evidenceRoot, { recursive: true, force: true });
+  }
+}
+
+async function cliAuthoringVisualEvidence(options: {
+  workspace: string;
+  input: SvgGenerationInput;
+  preparedDesign: Awaited<ReturnType<typeof prepareCliGenerationDesign>>;
+  inspection: Awaited<ReturnType<LocalSvgStructureProvider['inspect']>>;
+  store: LocalArtifactStore;
+  evidenceRoot: string;
+  config: Awaited<ReturnType<typeof loadConfig>>;
+  signal: AbortSignal;
+}): Promise<AuthoringVisualEvidence[]> {
+  if (options.preparedDesign.authoringReference.mediaType === 'image/png') {
+    const sourcePath = options.preparedDesign.designReference?.path;
+    if (!sourcePath) {
+      throw new SmartUiError('NOT_FOUND', 'The verified PNG design reference is unavailable.');
+    }
+    const artifact = await options.store.put(
+      await readFile(sourcePath),
+      'image/png',
+      'cli-agent-design-reference.png',
+    );
+    const reference = options.preparedDesign.authoringReference;
+    if (artifact.hash !== reference.originalHash || artifact.byteLength !== reference.byteLength) {
+      throw new SmartUiError(
+        'INVALID_INPUT',
+        'Original PNG design reference changed after it was validated.',
+      );
+    }
+    return [
+      {
+        kind: 'design-render',
+        label: `Uploaded PNG design reference at ${options.inspection.bundle.viewport.width}x${options.inspection.bundle.viewport.height}`,
+        mediaType: 'image/png',
+        workspaceRelativePath: relative(
+          options.workspace,
+          resolve(options.evidenceRoot, artifact.relativePath),
+        )
+          .split(/[/\\]/u)
+          .join('/'),
+        hash: artifact.hash,
+        byteLength: artifact.byteLength,
+      },
+    ];
+  }
+  const exact = await new DeterministicHtmlGenerationProvider().generate(
+    { ...options.input, mode: 'exact' },
+    options.inspection,
+    options.signal,
+  );
+  const preview = await new LoopbackGeneratedPreviewProvider().serve(exact, options.signal);
+  try {
+    const evidence = await new PlaywrightBrowserProvider().capture({
+      url: preview.url,
+      viewport: options.inspection.bundle.presentationSpec.primaryCanvas,
+      timeoutMs: Math.min(options.config.generation.timeoutMs, 60_000),
+      locale: options.input.rendering.locale,
+      theme: options.input.rendering.theme,
+      allowedEndpoints: [preview.origin],
+      blockExternalNetwork: true,
+      screenshotBeforeFocusProbe: true,
+      evidenceLimits: options.config.evidence,
+      signal: options.signal,
+    });
+    const artifact = await options.store.put(
+      evidence.screenshot,
+      'image/png',
+      'cli-agent-design-render.png',
+    );
+    return [
+      {
+        kind: 'design-render',
+        label: `Rendered SVG design at ${options.inspection.bundle.viewport.width}x${options.inspection.bundle.viewport.height}`,
+        mediaType: 'image/png',
+        workspaceRelativePath: relative(
+          options.workspace,
+          resolve(options.evidenceRoot, artifact.relativePath),
+        )
+          .split(/[/\\]/u)
+          .join('/'),
+        hash: artifact.hash,
+        byteLength: artifact.byteLength,
+      },
+    ];
+  } finally {
+    await preview.close();
+  }
+}
+
+async function containedRegularCliFile(
+  workspace: string,
+  path: string,
+  label: string,
+): Promise<string> {
+  const info = await lstat(path);
+  if (!info.isFile() || info.isSymbolicLink()) {
+    throw new SmartUiError('INVALID_INPUT', `${label} must be a regular file.`);
+  }
+  const [root, canonical] = await Promise.all([realpath(workspace), realpath(path)]);
+  const relation = relative(root, canonical);
+  if (relation.startsWith('..') || isAbsolute(relation)) {
+    throw new SmartUiError('POLICY_VIOLATION', `${label} crosses outside the declared workspace.`);
+  }
+  // Preserve the caller's lexical workspace spelling (for example /var versus /private/var on
+  // macOS) after the real paths have proved containment. Downstream policy checks compare the
+  // declared workspace and candidate using that same lexical spelling.
+  return resolve(path);
+}
+
+function pngCliReferenceSvg(bytes: Uint8Array, width: number, height: number): string {
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}"><image width="${width}" height="${height}" preserveAspectRatio="none" href="data:image/png;base64,${Buffer.from(bytes).toString('base64')}"/></svg>`;
+}
+
+function sourceContextMediaType(path: string): string {
+  return (
+    {
+      '.js': 'text/javascript',
+      '.jsx': 'text/javascript',
+      '.ts': 'text/typescript',
+      '.tsx': 'text/typescript',
+      '.html': 'text/html',
+      '.css': 'text/css',
+      '.json': 'application/json',
+      '.md': 'text/markdown',
+      '.txt': 'text/plain',
+    }[extname(path).toLowerCase()] ?? 'text/plain'
+  );
+}
+
 async function writeJsonOutput(path: string | undefined, value: unknown): Promise<void> {
   if (path) await writeFile(userPath(path), `${JSON.stringify(value, null, 2)}\n`, { flag: 'wx' });
 }
@@ -721,6 +1147,17 @@ function parseGenerationTimeout(value: string): number {
   const parsed = Number(value);
   if (!Number.isInteger(parsed) || parsed < 1 || parsed > 300_000) {
     throw new SmartUiError('INVALID_INPUT', '--timeout must be from 1 to 300000 milliseconds.');
+  }
+  return parsed;
+}
+
+function parseAgentAuthoringTimeout(value: string): number {
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < 1_000 || parsed > 60 * 60 * 1_000) {
+    throw new SmartUiError(
+      'INVALID_INPUT',
+      '--agent-timeout must be from 1000 to 3600000 milliseconds.',
+    );
   }
   return parsed;
 }
@@ -886,6 +1323,8 @@ function generationSummary(
     generationId: result.record.id,
     status: result.record.status,
     stoppedReason: result.record.stoppedReason,
+    engine: result.record.provenance.hostProposal ? 'agent' : 'deterministic',
+    authoringHost: result.record.provenance.host,
     requestedMode: result.record.input.requestedMode,
     finalMode: result.record.input.finalMode,
     files: result.record.generatedFiles.map((file) => ({
@@ -917,6 +1356,24 @@ function generationSummary(
     archive: result.record.archive
       ? resolve(artifactRoot, result.record.archive.relativePath)
       : undefined,
+    designReference:
+      result.record.schemaVersion === '2.0' && result.record.designReference
+        ? {
+            mediaType: result.record.designReference.mediaType,
+            hash: result.record.input.designReferenceOriginalHash,
+            byteLength: result.record.designReference.byteLength,
+            artifact: resolve(artifactRoot, result.record.designReference.relativePath),
+          }
+        : undefined,
+    designContext:
+      result.record.schemaVersion === '2.0' && result.record.designContext
+        ? {
+            hash: result.record.input.designContextOriginalHash,
+            contentRedacted: result.record.input.designContextContentRedacted,
+            byteLength: result.record.designContext.byteLength,
+            artifact: resolve(artifactRoot, result.record.designContext.relativePath),
+          }
+        : undefined,
     exportedFiles: result.exportedFiles,
     warnings: result.record.warnings,
     failures: result.record.failures,
@@ -925,6 +1382,9 @@ function generationSummary(
 
 function printGenerationSummary(summary: ReturnType<typeof generationSummary>): void {
   console.log(`Generation ${summary.generationId}: ${summary.status} (${summary.stoppedReason})`);
+  console.log(
+    `Engine: ${summary.engine}${summary.authoringHost ? ` (${summary.authoringHost})` : ''}`,
+  );
   console.log(
     `Mode: ${summary.requestedMode}${summary.finalMode ? ` -> ${summary.finalMode}` : ''}`,
   );
@@ -943,6 +1403,16 @@ function printGenerationSummary(summary: ReturnType<typeof generationSummary>): 
   console.log(`Record: ${summary.record}`);
   if (summary.report) console.log(`Report: ${summary.report}`);
   if (summary.archive) console.log(`ZIP: ${summary.archive}`);
+  if (summary.designReference) {
+    console.log(
+      `Design reference: ${summary.designReference.mediaType} (${summary.designReference.hash})`,
+    );
+  }
+  if (summary.designContext) {
+    console.log(
+      `Design context: ${summary.designContext.hash}${summary.designContext.contentRedacted ? ' (redacted)' : ''}`,
+    );
+  }
   if (summary.uncertaintyCount > 0) console.log(`Uncertainties: ${summary.uncertaintyCount}`);
   for (const warning of summary.warnings.slice(0, 10)) console.log(`Warning: ${warning}`);
   for (const failure of summary.failures)
@@ -988,16 +1458,19 @@ interface GenerateCliOptions {
   design: string;
   output?: string;
   artifacts?: string;
+  engine: 'deterministic' | 'agent';
   mode: 'exact' | 'hybrid' | 'semantic';
   layout: 'fixed' | 'responsive' | 'component';
   name?: string;
   instructions?: string;
   designContext?: string;
+  structuredContext?: string;
   presentation?: string;
   structuredDesignContext?: StructuredDesignContext;
   presentationSpec?: PresentationSpec;
   viewport?: { width: number; height: number; deviceScaleFactor: number };
   timeout?: number;
+  agentTimeout?: number;
   maxPasses?: number;
   dryRun?: boolean;
   json?: boolean;

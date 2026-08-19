@@ -37,7 +37,7 @@ describe('Studio real-browser workflow', () => {
         true,
       );
       await page
-        .locator('input[type="file"]')
+        .locator('input[type="file"][accept*="image/svg+xml"]')
         .setInputFiles(resolve('fixtures/svg-generation/basic.svg'));
       await page.locator('#preferences-title').waitFor();
       expect(await page.locator('.summary-strip').textContent()).toContain('Accepted');
@@ -56,7 +56,7 @@ describe('Studio real-browser workflow', () => {
 
       await page.getByRole('button', { name: 'New run' }).click();
       await page
-        .locator('input[type="file"]')
+        .locator('input[type="file"][accept*="image/svg+xml"]')
         .setInputFiles(resolve('fixtures/svg-generation/basic.svg'));
       await page.locator('#preferences-title').waitFor();
       await page.locator('input[name="engine"][value="deterministic"]').check();
@@ -66,7 +66,7 @@ describe('Studio real-browser workflow', () => {
 
       await page.getByRole('button', { name: 'New run' }).click();
       await page
-        .locator('input[type="file"]')
+        .locator('input[type="file"][accept*="image/svg+xml"]')
         .setInputFiles(resolve('fixtures/svg-generation/unsafe-script.svg'));
       await page.getByRole('alert').waitFor();
       expect(await page.getByRole('alert').textContent()).toContain('not allowed');

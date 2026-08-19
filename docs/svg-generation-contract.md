@@ -1,13 +1,15 @@
-# SVG generation contracts
+# SVG/PNG generation contracts
 
-SVG generation is versioned independently from repository validation. `DesignContract` and
+Standalone SVG/PNG generation is versioned independently from repository validation. `DesignContract` and
 `RunRecord` keep their existing meanings.
 
-`SvgGenerationInput` declares one exact workspace boundary, contained regular SVG, unique core-owned
+`SvgGenerationInput` declares one exact workspace boundary, a contained regular SVG or an internally
+normalized wrapper for a verified PNG reference, unique core-owned
 artifact root, optional separately requested export root, exact/hybrid/semantic mode, fixed/
 responsive/component intent, bounded instructions, optional `StructuredDesignContext` 1.0, optional
 `PresentationSpec` 1.0, source viewport, rendering background, locale, theme, timeout, pass limit,
-and dry-run state. MCP internally assigns an opaque generation ID.
+and dry-run state. It may additionally carry a bounded redacted UTF-8 source-context record and the
+original PNG reference metadata. MCP internally assigns an opaque generation ID.
 
 `DesignBundle` 2.0 contains original and sanitized hashes, sanitized-source artifact, deterministic
 viewport/background/font policy, sanitization counts/decisions, a bounded hierarchical scene with
@@ -28,7 +30,8 @@ undeclared local references, active content, remote schemes/resources, and malfo
 `GenerationRecord` 2.0 retains the accepted manifest hash, generated file hashes/artifacts,
 sanitized source and design-bundle artifacts, mode/layout/rendering inputs, decisions,
 uncertainties, viewport classification, immutable pass evidence, report/ZIP/visual artifacts,
-timings, warnings/failures/cancellation, and optional host/proposal provenance. Proposal passes state
+timings, warnings/failures/cancellation, optional original PNG and redacted source-context artifacts,
+their original hashes and redaction status, and optional host/proposal provenance. Proposal passes state
 whether they were accepted or reverted. Source fidelity has similarity/mismatch metrics; responsive
 robustness without a matching reference has findings and no fidelity score.
 
@@ -40,7 +43,7 @@ evaluation; ordered multi-viewport fidelity/robustness evaluation is Phase 2 of 
 
 `StructuredDesignContext` has bounded exact-copy, design-token, component-semantic, interaction, and
 general-note fields with provenance. Duplicate stable identifiers, field/array/total-character budget
-violations, and unsupported versions fail validation. Authoring requests are schema 2.0 and record
+violations, and unsupported versions fail validation. Authoring requests are schema 3.0 and record
 the original validated hash; common credential patterns may be redacted from the request with
 `contextRedacted: true`. Supported authoring-request 1.0 files upgrade to intrinsic presentation and
 general notes deterministically.
@@ -52,3 +55,14 @@ the reproducible exporter writes a new empty contained directory.
 The CLI, stdio MCP adapter, and local Studio all call the public `GenerationOrchestrator` and persist
 this contract. Studio adds `smart-ui-studio` provenance and a bounded per-run recovery pointer, but
 the core `GenerationRecord` remains authoritative and no Studio-only output schema is introduced.
+For CLI compatibility, `--design-context` recognizes legacy typed-context JSON; new callers should
+use `--structured-context` for typed JSON and reserve `--design-context` for JSX/TSX or other UTF-8
+source evidence.
+
+`smart-ui generate --engine agent` uses the same schema-3.0 queue and MCP tools as Studio for one
+bounded authoring round. The request carries sanitized SVG or a PNG placeholder, original reference
+metadata, optional redacted source context, typed context, canvas guidance, and bounded visual
+evidence. The CLI waits under `--agent-timeout`, validates the submitted offline files, and runs them
+as a host proposal against the deterministic fallback. `--max-passes 0` is rejected in agent mode
+because it would prevent proposal evaluation. Queue and temporary evidence are deleted on every
+terminal path. A dry-run remains inspection-only and never opens the authoring queue.

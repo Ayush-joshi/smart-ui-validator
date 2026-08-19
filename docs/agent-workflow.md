@@ -10,7 +10,7 @@ Smart UI has two separate workflows:
 
 - For an implementation inside an existing React or Angular repository, continue with the
   inspection, validation, and repair state machine below.
-- For standalone HTML/CSS from one local SVG, use the repository-free generation workflow. Do not
+- For standalone HTML/CSS from one local SVG or PNG, use the repository-free generation workflow. Do not
   fabricate a target repository, start an application server, or convert a generation run into a
   repository repair run.
 
@@ -20,10 +20,15 @@ with `get_generation` or `get_generation_report`. `export_generation` is a separ
 and requires approval for the accepted manifest hash, the complete relative-path list, and one exact
 new empty destination.
 
-The local CLI provides the same deterministic engine through `smart-ui generate`. Smart UI Studio
-provides a local visual interface through `smart-ui studio`; it does not require or expose an agent
-host. An agent must not emulate either interface with generic shell/file/browser tools when the
-purpose-built generation operations are available.
+The local CLI provides the same deterministic engine through `smart-ui generate` and accepts a
+contained SVG/PNG plus optional `--design-context` source file and `--structured-context` JSON. The
+free-form source is bounded, redacted, hashed, and retained as provenance. Add `--engine agent` to
+queue the same bounded request used by Studio; the command prints the exact workspace/run handoff,
+waits for this MCP-connected chat to submit HTML/CSS, and then performs deterministic verification.
+Without that flag, the CLI does not interpret it as model-authored code. Smart UI Studio provides a
+local visual interface through `smart-ui studio`; deterministic mode needs no agent, while agent mode
+uses the same connected MCP chat and queue. An agent must not emulate either interface with generic
+shell/file/browser tools when the purpose-built generation operations are available.
 
 Use hybrid mode for general mixed screens, exact mode for artwork-heavy or outlined content, and
 semantic mode when bounded HTML meaning matters most. Treat the deterministic mismatch,

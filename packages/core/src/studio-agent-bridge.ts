@@ -46,6 +46,8 @@ const MAX_EVIDENCE_MESSAGE_CHARACTERS = 400;
 const MAX_RESPONSE_FILES = 100;
 const MAX_RESPONSE_FILE_CHARACTERS = 2_000_000;
 const MAX_VISUAL_EVIDENCE_ITEMS = 4;
+export const MAX_DESIGN_CONTEXT_BYTES = 256_000;
+export const MAX_DESIGN_CONTEXT_CHARACTERS = 256_000;
 /** Workspace-relative POSIX artifact path with no traversal, drive letter, or absolute prefix. */
 const WORKSPACE_RELATIVE_PATH = /^[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+)*$/u;
 
@@ -116,6 +118,41 @@ export const authoringVisualEvidenceSchema = z
 
 export type AuthoringVisualEvidence = z.infer<typeof authoringVisualEvidenceSchema>;
 
+export const authoringDesignContextSchema = z
+  .object({
+    filename: z.string().min(1).max(200),
+    mediaType: z.string().min(1).max(100),
+    content: z.string().min(1).max(MAX_DESIGN_CONTEXT_CHARACTERS),
+    originalHash: z.string().regex(/^sha256:[a-f0-9]{64}$/u),
+    byteLength: z.number().int().positive().max(MAX_DESIGN_CONTEXT_BYTES),
+    provenance: z.string().min(1).max(200),
+    contentRedacted: z.boolean(),
+  })
+  .strict()
+  .superRefine((context, refinement) => {
+    if (context.content.includes('\0')) {
+      refinement.addIssue({
+        code: 'custom',
+        path: ['content'],
+        message: 'Design context is binary.',
+      });
+    }
+  });
+
+export type AuthoringDesignContext = z.infer<typeof authoringDesignContextSchema>;
+
+export const authoringDesignReferenceSchema = z
+  .object({
+    filename: z.string().min(1).max(200),
+    mediaType: z.enum(['image/svg+xml', 'image/png']),
+    originalHash: z.string().regex(/^sha256:[a-f0-9]{64}$/u),
+    byteLength: z.number().int().positive().max(50_000_000),
+    provenance: z.string().min(1).max(200),
+  })
+  .strict();
+
+export type AuthoringDesignReference = z.infer<typeof authoringDesignReferenceSchema>;
+
 export const authoringRequestV1Schema = z
   .object({
     schemaVersion: z.literal('1.0'),
@@ -169,35 +206,58 @@ export const authoringRequestV1Schema = z
     }
   });
 
-export const authoringRequestV2Schema = authoringRequestV1Schema
+const authoringRequestV2BaseSchema = authoringRequestV1Schema.omit({ schemaVersion: true }).extend({
+  schemaVersion: z.literal('2.0'),
+  structuredDesignContext: structuredDesignContextSchema,
+  structuredContextHash: z.string().regex(/^sha256:[a-f0-9]{64}$/u),
+  contextRedacted: z.boolean(),
+  presentationSpec: presentationSpecSchema,
+});
+
+function validateAuthoringRound(
+  request: {
+    round: number;
+    feedback?: string | undefined;
+    priorEvidence?: AuthoringPriorEvidence | undefined;
+  },
+  ctx: z.RefinementCtx,
+): void {
+  if (request.round === 1 && (request.feedback || request.priorEvidence)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'The first authoring round cannot carry revision feedback or prior evidence.',
+    });
+  }
+  if (request.round > 1 && !request.priorEvidence) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'A revision round must carry deterministic prior evidence.',
+    });
+  }
+}
+
+export const authoringRequestV2Schema =
+  authoringRequestV2BaseSchema.superRefine(validateAuthoringRound);
+
+export const authoringRequestV3Schema = authoringRequestV2BaseSchema
   .omit({ schemaVersion: true })
   .extend({
-    schemaVersion: z.literal('2.0'),
-    structuredDesignContext: structuredDesignContextSchema,
-    structuredContextHash: z.string().regex(/^sha256:[a-f0-9]{64}$/u),
-    contextRedacted: z.boolean(),
-    presentationSpec: presentationSpecSchema,
+    schemaVersion: z.literal('3.0'),
+    designContext: authoringDesignContextSchema.optional(),
+    designReference: authoringDesignReferenceSchema.optional(),
   })
-  .superRefine((request, ctx) => {
-    if (request.round === 1 && (request.feedback || request.priorEvidence)) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: 'The first authoring round cannot carry revision feedback or prior evidence.',
-      });
-    }
-    if (request.round > 1 && !request.priorEvidence) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: 'A revision round must carry deterministic prior evidence.',
-      });
-    }
-  });
+  .superRefine(validateAuthoringRound);
 
-/** Supported persisted queue reader. New writes are always upgraded to 2.0. */
-export const authoringRequestSchema = z.union([authoringRequestV1Schema, authoringRequestV2Schema]);
+/** Supported persisted queue reader. New writes are always upgraded to 3.0. */
+export const authoringRequestSchema = z.union([
+  authoringRequestV1Schema,
+  authoringRequestV2Schema,
+  authoringRequestV3Schema,
+]);
 
 export type StudioAuthoringRequestV1 = z.infer<typeof authoringRequestV1Schema>;
-export type StudioAuthoringRequest = z.infer<typeof authoringRequestV2Schema>;
+export type StudioAuthoringRequestV2 = z.infer<typeof authoringRequestV2Schema>;
+export type StudioAuthoringRequest = z.infer<typeof authoringRequestV3Schema>;
 
 export const authoringResponseSchema = z
   .object({
@@ -261,6 +321,15 @@ export function buildAuthoringRequest(options: {
   priorEvidence?: AuthoringPriorEvidence;
   previousResponseHash?: string;
   visualEvidence?: readonly AuthoringVisualEvidence[];
+  designContext?: {
+    filename: string;
+    mediaType: string;
+    content: string;
+    originalHash: string;
+    byteLength: number;
+    provenance: string;
+  };
+  designReference?: AuthoringDesignReference;
   timeoutMs?: number;
   now?: Date;
 }): StudioAuthoringRequest {
@@ -274,13 +343,25 @@ export function buildAuthoringRequest(options: {
     .filter((node) => node.type === 'text' && Boolean(node.text?.trim()))
     .map((node) => node.text!.trim().slice(0, MAX_READABLE_TEXT_CHARACTERS))
     .slice(0, MAX_READABLE_TEXT_NODES);
-  const svgTruncated = inspection.sanitizedXml.length > MAX_SANITIZED_SVG_CHARACTERS;
+  const authoringSvg =
+    options.designReference?.mediaType === 'image/png'
+      ? `<svg xmlns="http://www.w3.org/2000/svg" width="${bundle.viewport.width}" height="${bundle.viewport.height}" viewBox="0 0 ${bundle.viewport.width} ${bundle.viewport.height}" data-smart-ui-reference="png"><!-- Original PNG is attached as visual evidence. --></svg>`
+      : inspection.sanitizedXml;
+  const svgTruncated = authoringSvg.length > MAX_SANITIZED_SVG_CHARACTERS;
   const originalContext = bundle.structuredDesignContext;
   const structuredDesignContext = structuredDesignContextSchema.parse(
     redactSensitiveValue(originalContext),
   );
-  return authoringRequestV2Schema.parse({
-    schemaVersion: '2.0',
+  const designContext = options.designContext
+    ? authoringDesignContextSchema.parse({
+        ...options.designContext,
+        content: redactSensitiveValue(options.designContext.content),
+        contentRedacted:
+          redactSensitiveValue(options.designContext.content) !== options.designContext.content,
+      })
+    : undefined;
+  return authoringRequestV3Schema.parse({
+    schemaVersion: '3.0',
     runId: options.runId,
     round,
     designName: bundle.name.slice(0, 200) || 'design',
@@ -298,15 +379,17 @@ export function buildAuthoringRequest(options: {
     structuredContextHash: bundle.structuredContextHash,
     contextRedacted: JSON.stringify(structuredDesignContext) !== JSON.stringify(originalContext),
     presentationSpec: bundle.presentationSpec,
+    ...(designContext ? { designContext } : {}),
+    ...(options.designReference
+      ? { designReference: authoringDesignReferenceSchema.parse(options.designReference) }
+      : {}),
     ...(input.instructions
       ? { instructions: input.instructions.slice(0, MAX_INSTRUCTION_CHARACTERS) }
       : {}),
     ...(feedback ? { feedback } : {}),
     ...(options.priorEvidence ? { priorEvidence: options.priorEvidence } : {}),
     ...(options.previousResponseHash ? { previousResponseHash: options.previousResponseHash } : {}),
-    sanitizedSvg: svgTruncated
-      ? inspection.sanitizedXml.slice(0, MAX_SANITIZED_SVG_CHARACTERS)
-      : inspection.sanitizedXml,
+    sanitizedSvg: svgTruncated ? authoringSvg.slice(0, MAX_SANITIZED_SVG_CHARACTERS) : authoringSvg,
     svgTruncated,
     ...(options.visualEvidence && options.visualEvidence.length > 0
       ? { visualEvidence: options.visualEvidence.slice(0, MAX_VISUAL_EVIDENCE_ITEMS) }
@@ -337,13 +420,16 @@ export function authoringCanvasGuidance(request: StudioAuthoringRequest): string
 
 /** Deterministically upgrades the supported 1.0 queue request without changing its old meaning. */
 export function upgradeAuthoringRequest(
-  request: StudioAuthoringRequest | StudioAuthoringRequestV1,
+  request: StudioAuthoringRequest | StudioAuthoringRequestV2 | StudioAuthoringRequestV1,
 ): StudioAuthoringRequest {
-  if (request.schemaVersion === '2.0') return authoringRequestV2Schema.parse(request);
+  if (request.schemaVersion === '3.0') return authoringRequestV3Schema.parse(request);
+  if (request.schemaVersion === '2.0') {
+    return authoringRequestV3Schema.parse({ ...request, schemaVersion: '3.0' });
+  }
   const structuredDesignContext = emptyStructuredDesignContext(request.instructions);
-  return authoringRequestV2Schema.parse({
+  return authoringRequestV3Schema.parse({
     ...request,
-    schemaVersion: '2.0',
+    schemaVersion: '3.0',
     structuredDesignContext,
     structuredContextHash: hashStructuredContext(structuredDesignContext),
     contextRedacted: false,
@@ -417,7 +503,7 @@ export async function highestIssuedAuthoringRound(
  */
 export async function writeAuthoringRequest(
   queueRoot: string,
-  request: StudioAuthoringRequest | StudioAuthoringRequestV1,
+  request: StudioAuthoringRequest | StudioAuthoringRequestV2 | StudioAuthoringRequestV1,
 ): Promise<string> {
   const validated = upgradeAuthoringRequest(authoringRequestSchema.parse(request));
   const directory = join(queueRoot, REQUESTS_DIRNAME, validated.runId);

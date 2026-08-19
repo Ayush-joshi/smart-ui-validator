@@ -390,7 +390,7 @@ export class LocalSvgStructureProvider implements SvgStructureProvider {
       schemaVersion: '2.0',
       id: `svg-${sanitizedHash.slice(7, 31)}`,
       name: input.name ?? basename(input.svgPath, extname(input.svgPath)),
-      originalInputHash: originalHash,
+      originalInputHash: input.designReference?.originalHash ?? originalHash,
       sanitizedHash,
       capturedAt: new Date().toISOString(),
       viewport: { ...dimensions, deviceScaleFactor: input.viewport?.deviceScaleFactor ?? 1 },
@@ -410,7 +410,11 @@ export class LocalSvgStructureProvider implements SvgStructureProvider {
       structuredDesignContext,
       structuredContextHash: hashStructuredContext(structuredDesignContext),
       presentationSpec,
-      provenance: { provider: this.name, version: this.version, source: svgPath },
+      provenance: {
+        provider: this.name,
+        version: this.version,
+        source: input.designReference?.path ?? svgPath,
+      },
     });
     if (pathCount > 20 && pathCount > textNodes.length * 5) {
       bundle.uncertainties.push({

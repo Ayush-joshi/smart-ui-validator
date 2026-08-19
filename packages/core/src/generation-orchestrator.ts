@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { lstat, readdir } from 'node:fs/promises';
+import { lstat, readFile, readdir } from 'node:fs/promises';
 import { isAbsolute, relative, resolve } from 'node:path';
 import type { Config } from './config.js';
 import { SmartUiComparator } from './comparator.js';
@@ -111,6 +111,13 @@ export class GenerationOrchestrator {
         );
       }
     }
+    if (input.designReference) {
+      await assertContainedPath(
+        input.workspaceRoot,
+        input.designReference.path,
+        'Original design reference',
+      );
+    }
     if (input.exportRoot) {
       await assertContainedPath(input.workspaceRoot, input.exportRoot, 'Export root');
       await assertEmptyDirectory(input.exportRoot, 'Export root');
@@ -153,7 +160,22 @@ export class GenerationOrchestrator {
       'application/json',
       'design-bundle.json',
     );
-    const baseArtifacts: ArtifactRef[] = [inspection.bundle.sanitizedSvg, designBundle];
+    const designContext = input.designContext
+      ? await this.dependencies.artifacts.put(
+          new TextEncoder().encode(input.designContext.content),
+          input.designContext.mediaType,
+          input.designContext.filename,
+        )
+      : undefined;
+    const designReference = input.designReference
+      ? await persistDesignReference(this.dependencies.artifacts, input.designReference)
+      : undefined;
+    const baseArtifacts: ArtifactRef[] = [
+      inspection.bundle.sanitizedSvg,
+      designBundle,
+      ...(designContext ? [designContext] : []),
+      ...(designReference ? [designReference] : []),
+    ];
     const generationId = input.generationId ?? `generation-${randomUUID()}`;
     if (input.dryRun) {
       const preliminary = generationRecordV2Schema.parse({
@@ -168,6 +190,8 @@ export class GenerationOrchestrator {
         sanitizedHash: inspection.bundle.sanitizedHash,
         sanitizedSource: inspection.bundle.sanitizedSvg,
         designBundle,
+        ...(designContext ? { designContext } : {}),
+        ...(designReference ? { designReference } : {}),
         sanitization: inspection.bundle.sanitization,
         input: recordInput(input, inspection.bundle.name, inspection.bundle.viewport),
         provider: {
@@ -365,6 +389,8 @@ export class GenerationOrchestrator {
       sanitizedHash: inspection.bundle.sanitizedHash,
       sanitizedSource: inspection.bundle.sanitizedSvg,
       designBundle,
+      ...(designContext ? { designContext } : {}),
+      ...(designReference ? { designReference } : {}),
       sanitization: inspection.bundle.sanitization,
       input: recordInput(
         input,
@@ -673,9 +699,9 @@ function generationContract(
     reference: referenceRaster,
     provenance: {
       provider: inspection.bundle.provenance.provider,
-      source: input.svgPath,
+      source: input.designReference?.path ?? input.svgPath,
       capturedAt: inspection.bundle.capturedAt,
-      sourceHash: inspection.bundle.sanitizedHash,
+      sourceHash: input.designReference?.originalHash ?? inspection.bundle.sanitizedHash,
       sourceVersion: inspection.bundle.provenance.version,
     },
     ambiguities: inspection.bundle.uncertainties.map((item) => item.message),
@@ -903,7 +929,34 @@ function recordInput(
       viewport ?? { width: 1, height: 1, deviceScaleFactor: 1 },
     ),
     structuredContextHash: hashStructuredContext(resolveStructuredDesignContext(input)),
+    ...(input.designContext
+      ? {
+          designContextOriginalHash: input.designContext.originalHash,
+          designContextContentRedacted: input.designContext.contentRedacted,
+        }
+      : {}),
+    ...(input.designReference
+      ? {
+          designReferenceOriginalHash: input.designReference.originalHash,
+          designReferenceMediaType: input.designReference.mediaType,
+        }
+      : {}),
   };
+}
+
+async function persistDesignReference(
+  artifacts: ArtifactStore,
+  reference: NonNullable<SvgGenerationInput['designReference']>,
+): Promise<ArtifactRef> {
+  const bytes = await readFile(reference.path);
+  const hashValue = hash(bytes);
+  if (bytes.byteLength !== reference.byteLength || hashValue !== reference.originalHash) {
+    throw new SmartUiError(
+      'INVALID_INPUT',
+      'Original design reference changed after it was validated.',
+    );
+  }
+  return artifacts.put(bytes, reference.mediaType, reference.filename);
 }
 
 async function assertRunPath(workspaceRoot: string, path: string, label: string): Promise<void> {
