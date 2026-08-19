@@ -28,7 +28,8 @@ describe('Studio real-browser workflow', () => {
       const page = await uiBrowser.newPage({ viewport: { width: 1280, height: 900 } });
       await page.goto(context.server.url);
       expect(await page.locator('h1').textContent()).toBe('Smart UI Studio');
-      expect(await page.locator('nav[aria-label="Generation steps"] button').count()).toBe(4);
+      await page.locator('button.work-type-card').filter({ hasText: 'Generate UI' }).click();
+      expect(await page.locator('nav[aria-label="Studio workflow steps"] button').count()).toBe(5);
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
         true,
       );
@@ -43,7 +44,8 @@ describe('Studio real-browser workflow', () => {
       expect(await page.locator('.summary-strip').textContent()).toContain('Accepted');
       await page.locator('input[name="engine"][value="deterministic"]').check();
       await page.locator('input[name="mode"][value="exact"]').check();
-      await page.getByRole('button', { name: 'Generate offline bundle' }).click();
+      await page.getByRole('button', { name: 'Continue to handoff' }).click();
+      await page.getByRole('button', { name: 'Run deterministic generator' }).click();
       await page.locator('#generate-title').waitFor();
       await page.locator('#review-title').waitFor({ timeout: 30_000 });
       expect(await page.locator('.metrics').textContent()).toContain('Source visual similarity');
@@ -54,17 +56,20 @@ describe('Studio real-browser workflow', () => {
       uploaded = runs.find((run) => run.phase === 'completed');
       expect(uploaded?.inspection?.sanitization.accepted).toBe(true);
 
-      await page.getByRole('button', { name: 'New run' }).click();
+      await page.getByRole('button', { name: 'Reset workflow' }).click();
+      await page.locator('button.work-type-card').filter({ hasText: 'Generate UI' }).click();
       await page
         .locator('input[type="file"][accept*="image/svg+xml"]')
         .setInputFiles(resolve('fixtures/svg-generation/basic.svg'));
       await page.locator('#preferences-title').waitFor();
       await page.locator('input[name="engine"][value="deterministic"]').check();
-      await page.getByRole('button', { name: 'Generate offline bundle' }).click();
+      await page.getByRole('button', { name: 'Continue to handoff' }).click();
+      await page.getByRole('button', { name: 'Run deterministic generator' }).click();
       await page.getByRole('button', { name: 'Cancel generation' }).click();
       await page.getByRole('heading', { name: 'Generation canceled' }).waitFor({ timeout: 15_000 });
 
-      await page.getByRole('button', { name: 'New run' }).click();
+      await page.getByRole('button', { name: 'Reset workflow' }).click();
+      await page.locator('button.work-type-card').filter({ hasText: 'Generate UI' }).click();
       await page
         .locator('input[type="file"][accept*="image/svg+xml"]')
         .setInputFiles(resolve('fixtures/svg-generation/unsafe-script.svg'));
