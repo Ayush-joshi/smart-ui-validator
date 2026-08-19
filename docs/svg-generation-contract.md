@@ -59,10 +59,10 @@ For CLI compatibility, `--design-context` recognizes legacy typed-context JSON; 
 use `--structured-context` for typed JSON and reserve `--design-context` for JSX/TSX or other UTF-8
 source evidence.
 
-`smart-ui generate --engine agent` uses the same schema-3.0 queue and MCP tools as Studio for one
-bounded authoring round. The request carries sanitized SVG or a PNG placeholder, original reference
-metadata, optional redacted source context, typed context, canvas guidance, and bounded visual
-evidence. The CLI waits under `--agent-timeout`, validates the submitted offline files, and runs them
-as a host proposal against the deterministic fallback. `--max-passes 0` is rejected in agent mode
-because it would prevent proposal evaluation. Queue and temporary evidence are deleted on every
-terminal path. A dry-run remains inspection-only and never opens the authoring queue.
+CLI agent authoring uses a persistent `GenerationTask`: `smart-ui generation prepare` pins sanitized
+SVG or verified PNG evidence, optional redacted source context, typed context, and canvas guidance.
+An external author writes only the task proposal directory; a connected agent uses task-backed MCP
+tools. `generation review` creates an immutable attempt and runs the host proposal against the
+deterministic fallback. Acceptance is a separate revision-checked metadata decision. The legacy
+`smart-ui generate --engine agent` and `--agent-timeout` queue/wait path is removed; Studio alone
+retains its named queue tools as compatibility adapters during migration.

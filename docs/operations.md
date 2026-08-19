@@ -32,19 +32,45 @@ smart-ui studio --workspace /absolute/smart-ui-studio --health-check --json
 smart-ui studio --workspace /absolute/smart-ui-studio
 ```
 
+To enable the Validate UI work type, declare the exact repository root at process startup. The
+browser cannot select or widen this root:
+
+```bash
+smart-ui studio \
+   --workspace /absolute/smart-ui-studio \
+   --target /absolute/react-or-angular-repository
+```
+
+Use `--review-task /absolute/task.json` to import a hash-verified generation or validate-UI task into
+the shared Review screen.
+
 Startup refuses `/`, a drive root, the user home directory, symlink roots, and unmarked non-empty
-directories. The marker and `runs/` directory are the only shared workspace state. Each
+directories. The marker, `runs/` directory, and bounded handoff-task association registry are the
+only shared workspace state. Each
 `runs/run-<uuid>/` contains a server-named upload, a separate inspection artifact store, a new
 generation artifact store, and a bounded `studio-run.json` pointer. The core `GenerationRecord` in
 the generation store is authoritative; the pointer only enables recovery. Studio binds only to
 `127.0.0.1`, prints no cookie/CSRF capability, collects no telemetry, and accepts no remote clients.
 
+Validate-UI uploads are staged under a server-selected UUID directory inside the configured target,
+revalidated and copied into immutable task evidence by core intake, then removed from staging.
+Routes, presentation paths, and writable files remain target-relative and exact. Task polling trusts
+only verified `state.json` revisions. Removing a CLI-imported task from Studio deletes only its local
+association; it never deletes task or repository files.
+
+Studio starts on the Work type screen and does not automatically select recovered work. Persisted
+runs and task associations remain available under **Recent work**. **Reset workflow** clears only the
+active browser workflow and leaves persisted evidence intact. The separately confirmed **Clear local
+history** action deletes all Studio-owned run directories and unregisters Studio task associations;
+it does not delete target repository files or the underlying task files.
+
 `--retention-hours` defaults to 24 hours and is bounded from one second to 30 days. Expiration and
-the UI's “Delete this run” action close its preview, cancel in-flight work, verify the exact child of
-`runs/`, remove only that directory, and verify absence. For a support bundle, retain the relevant
-record/report/manifest hashes and redact the dedicated workspace path; never include the process
-cookie, CSRF token, raw unsafe upload, or unrelated runs. Local storage is plaintext unless an OS or
-desktop wrapper supplies encryption.
+the UI's **Delete this run** action close its preview, cancel in-flight work, verify the exact child
+of `runs/`, remove only that directory, and verify absence. **Clear local history** applies the same
+bounded run deletion to every Studio run and clears only the association registry. For a support
+bundle, retain the relevant record/report/manifest hashes and redact the dedicated workspace path;
+never include the process cookie, CSRF token, raw unsafe upload, or unrelated runs. Local storage is
+plaintext unless an OS or desktop wrapper supplies encryption.
 
 ## Health and readiness
 

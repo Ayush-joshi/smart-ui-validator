@@ -3,9 +3,9 @@
 Command-line interface for Smart UI Validator's two independent workflows:
 
 - deterministic validation and bounded repair of an existing React or Angular UI; and
-- repository-free generation of standalone HTML/CSS from a local SVG.
+- repository-free generation of standalone HTML/CSS from a local SVG or PNG.
 
-The package also contains Smart UI Studio, a local browser interface to SVG generation. Studio is
+The package also contains Smart UI Studio, a local browser interface for both workflows. Studio is
 bundled inside this CLI package rather than published as a separate service or package.
 
 ## Requirements
@@ -13,7 +13,8 @@ bundled inside this CLI package rather than published as a separate service or p
 - Node.js 22.16 or newer.
 - Network access during first-time setup if the pinned Chromium revision is not already cached.
 - A React or Angular target and running route only for validation/repair.
-- A dedicated local workspace only for SVG generation and Studio.
+- A dedicated local workspace for generation and Studio state.
+- An explicit React/Angular repository root only when Studio Validate UI is enabled.
 
 No standalone SQLite installation or database service is required. Agent Memory uses Node's
 embedded SQLite support and remains optional.
@@ -88,8 +89,9 @@ provenance, and an immutable `GenerationRecord`.
 
 ## Smart UI Studio
 
-Studio is the local visual interface for the SVG workflow above. It is not a repository validator,
-hosted backend, model host, or remote collaboration service.
+Studio is the local visual interface for standalone SVG/PNG generation and bounded validation of an
+explicitly configured React/Angular target. It is not a hosted backend, model host, or remote
+collaboration service.
 
 Studio initializes a dedicated workspace automatically. From a repository checkout it defaults to
 `<cwd>/.studio-workspace` (inside the MCP root), so its default AI-agent engine — powered by the
@@ -105,15 +107,19 @@ Pass `--workspace` to use an explicit dedicated directory, or to initialize/veri
 npx smart-ui studio --workspace /absolute/smart-ui-studio --init-only
 npx smart-ui studio --workspace /absolute/smart-ui-studio --health-check --json
 npx smart-ui studio --workspace /absolute/smart-ui-studio --open
+npx smart-ui studio \
+  --workspace /absolute/smart-ui-studio \
+  --target /absolute/react-or-angular-repository \
+  --open
+npx smart-ui studio --review-task /absolute/task.json --open
 ```
 
-Studio binds only to `127.0.0.1`, starts headless unless `--open` is explicit, and never accepts a
-filesystem path from page JavaScript. Its four steps are SVG input and inspection, engine/mode/layout
-preferences, cancellable generation, and review/download. The AI-agent engine pauses on an
-`awaiting-agent` step with a ready-to-paste prompt for the MCP-connected chat; the deterministic
-engine needs no host. Review includes the isolated preview, escaped source, deterministic
-differences, viewport classifications, findings, uncertainties, evidence images, individual files,
-report, and reproducible ZIP.
+Studio binds only to `127.0.0.1`, starts headless unless `--open` is explicit, and never lets page
+JavaScript select or widen a filesystem root. Start with `--target <absolute-repository>` to enable
+Validate UI. Both work types use Work type, Inputs, Preferences and boundaries, Handoff, and Review.
+They share bounded SVG/PNG upload and upload-or-paste context controls. Validate UI stages its design
+upload inside the target only long enough for core task intake, then removes staging; repository
+writes remain exact and target-relative.
 
 `--retention-hours` defaults to 24 hours. Runs are recoverable after restart and can be deleted one at
 a time from the UI. Local Studio storage is plaintext, telemetry is off, and no credentials are

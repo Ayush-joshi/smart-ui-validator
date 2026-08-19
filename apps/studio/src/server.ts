@@ -53,12 +53,19 @@ import {
   emptyStructuredDesignContext,
   intrinsicPresentationSpec,
   highestIssuedAuthoringRound,
+  acceptHandoffAttempt,
+  cancelHandoffTask,
+  loadHandoffTask,
   loadConfig,
   readImageDimensions,
   redactSensitiveValue,
   svgGenerationInputSchema,
   presentationSpecSchema,
+  prepareGenerationTask,
+  prepareImplementationTask,
   structuredDesignContextSchema,
+  taskReviewView,
+  withHandoffTaskLock,
   waitForAuthoringResponse,
   writeAuthoringRequest,
   type ArtifactRef,
@@ -84,6 +91,7 @@ const DEFAULT_RETENTION_MS = 24 * 60 * 60 * 1_000;
 const DEFAULT_MAX_IMPROVE_ROUNDS = 5;
 const MAX_JSON_BYTES = 65_536;
 const DESIGN_CONTEXT_PATH = join('input', 'design-context.txt');
+const TASK_REGISTRY_NAME = 'handoff-tasks.json';
 
 const STUDIO_CSP = [
   "default-src 'self'",
@@ -108,6 +116,10 @@ export interface StudioServerOptions {
   agentTimeoutMs?: number;
   /** Bound on confirm-then-improve revision rounds beyond the first authored round. */
   maxImproveRounds?: number;
+  /** Repository root that enables validate-UI preparation; the browser cannot grant a new root. */
+  targetRoot?: string;
+  /** Existing verified task imported for review at startup. */
+  reviewTask?: string;
 }
 
 export interface StudioServer {
@@ -240,6 +252,14 @@ interface StaticAsset {
   bytes: Uint8Array;
 }
 
+interface TaskAssociation {
+  taskId: string;
+  taskHash: string;
+  taskType: 'generation' | 'validate-ui';
+  taskFile: string;
+  importedAt: string;
+}
+
 const RUN_PHASES: RunPhase[] = [
   'inspected',
   'generating',
@@ -310,6 +330,22 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
   const capability = randomBytes(32).toString('base64url');
   const csrf = randomBytes(32).toString('base64url');
   const runs = new Map<string, StudioRun>();
+  const taskAssociations = await loadTaskRegistry(workspace);
+  const targetRoot = options.targetRoot
+    ? await verifiedDirectory(options.targetRoot, 'Target root')
+    : undefined;
+  if (options.reviewTask) {
+    const taskFile = resolve(options.reviewTask);
+    const loaded = await loadHandoffTask(taskFile);
+    taskAssociations.set(loaded.task.taskId, {
+      taskId: loaded.task.taskId,
+      taskHash: loaded.task.taskHash,
+      taskType: loaded.task.taskType,
+      taskFile,
+      importedAt: new Date().toISOString(),
+    });
+    await persistTaskRegistry(workspace, taskAssociations);
+  }
   const runsRoot = join(workspace, RUNS_NAME);
   let expectedHost = '';
   let origin = '';
@@ -373,6 +409,14 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
           maxDesignContextBytes: MAX_DESIGN_CONTEXT_BYTES,
         },
         agent: { configured: true, transport: 'mcp', workspace, maxImproveRounds },
+        handoff: {
+          targetEnabled: Boolean(targetRoot),
+          targetRoot: targetRoot ?? null,
+          restartCommand: targetRoot
+            ? null
+            : 'smart-ui studio --target <absolute-repository> --open',
+          tasks: await taskViews(taskAssociations),
+        },
       });
     }
     const readOnlyArtifactRequest =
@@ -383,6 +427,131 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
     if (pathname === '/api/health') {
       if (request.method !== 'GET') return method(response, 'GET');
       return json(response, 200, await health());
+    }
+    if (pathname === '/api/tasks') {
+      if (request.method !== 'GET') return method(response, 'GET');
+      return json(response, 200, await taskViews(taskAssociations));
+    }
+    if (pathname === '/api/tasks/validate-ui/design') {
+      if (request.method !== 'POST') return method(response, 'POST');
+      if (!targetRoot) {
+        throw new SmartUiError(
+          'POLICY_VIOLATION',
+          'Validate-UI requires Studio to start with --target <absolute-repository>.',
+        );
+      }
+      const mediaType = designUploadMediaType(request);
+      const filename = uploadFilename(request.headers['x-smart-ui-filename'], mediaType);
+      const limit = (await loadConfig(workspace)).generation.limits.maxSvgBytes;
+      const bytes = await readBounded(request, limit);
+      if (bytes.byteLength === 0) {
+        throw new SmartUiError('INVALID_INPUT', 'Design reference cannot be empty.');
+      }
+      const smartUiRoot = join(targetRoot, '.smart-ui');
+      const stagingRoot = join(smartUiRoot, 'studio-uploads');
+      await mkdir(smartUiRoot, { recursive: true, mode: 0o700 });
+      await requireRealDirectory(smartUiRoot, 'Target .smart-ui directory');
+      await mkdir(stagingRoot, { recursive: true, mode: 0o700 });
+      await requireRealDirectory(stagingRoot, 'Studio upload directory');
+      const uploadRoot = join(stagingRoot, randomUUID());
+      await mkdir(uploadRoot, { mode: 0o700 });
+      const destination = join(uploadRoot, filename);
+      try {
+        await writeFile(destination, bytes, { flag: 'wx', mode: 0o600 });
+      } catch (error) {
+        await rm(uploadRoot, { recursive: true, force: true });
+        throw error;
+      }
+      return json(response, 201, {
+        designPath: relative(targetRoot, destination).split(sep).join('/'),
+      });
+    }
+    if (pathname === '/api/tasks/validate-ui') {
+      if (request.method !== 'POST') return method(response, 'POST');
+      exactContentType(request, 'application/json');
+      if (!targetRoot) {
+        throw new SmartUiError(
+          'POLICY_VIOLATION',
+          'Validate-UI requires Studio to start with --target <absolute-repository>.',
+        );
+      }
+      const input = parseStudioImplementationTask(await readJsonBody(request));
+      const designPath = resolve(targetRoot, input.designPath);
+      const stagedUpload = /^\.smart-ui[\\/]studio-uploads[\\/][a-f0-9-]{36}[\\/][^\\/]+$/u.test(
+        input.designPath,
+      );
+      let prepared;
+      try {
+        prepared = await prepareImplementationTask({
+          target: targetRoot,
+          designPath,
+          route: input.route,
+          writableFiles: input.writableFiles,
+          ...(input.designContextPath
+            ? { designContextPath: resolve(targetRoot, input.designContextPath) }
+            : {}),
+          ...(input.structuredContextPath
+            ? { structuredContextPath: resolve(targetRoot, input.structuredContextPath) }
+            : {}),
+          ...(input.presentationPath
+            ? { presentationPath: resolve(targetRoot, input.presentationPath) }
+            : {}),
+          ...(input.instructions ? { instructions: input.instructions } : {}),
+        });
+      } finally {
+        if (stagedUpload) await rm(dirname(designPath), { recursive: true, force: true });
+      }
+      taskAssociations.set(prepared.task.taskId, {
+        taskId: prepared.task.taskId,
+        taskHash: prepared.task.taskHash,
+        taskType: prepared.task.taskType,
+        taskFile: prepared.taskFile,
+        importedAt: new Date().toISOString(),
+      });
+      await persistTaskRegistry(workspace, taskAssociations);
+      return json(response, 201, await taskReviewView(prepared.taskFile));
+    }
+    if (pathname === '/api/work') {
+      if (request.method !== 'DELETE') return method(response, 'DELETE');
+      const deletedRuns = runs.size;
+      const unregisteredTasks = taskAssociations.size;
+      for (const run of [...runs.values()]) {
+        await deleteRun(run, runsRoot);
+        runs.delete(run.id);
+      }
+      taskAssociations.clear();
+      await persistTaskRegistry(workspace, taskAssociations);
+      return json(response, 200, { deletedRuns, unregisteredTasks, verified: true });
+    }
+    const taskMatch = /^\/api\/tasks\/(task-[0-9a-f-]{36})(?:\/(decision))?$/u.exec(pathname);
+    if (taskMatch) {
+      const association = taskAssociations.get(taskMatch[1]!);
+      if (!association)
+        throw new SmartUiError('NOT_FOUND', 'Studio task association was not found.');
+      if (!taskMatch[2]) {
+        if (request.method === 'GET')
+          return json(response, 200, await taskReviewView(association.taskFile));
+        if (request.method === 'DELETE') {
+          taskAssociations.delete(association.taskId);
+          await persistTaskRegistry(workspace, taskAssociations);
+          return json(response, 200, {
+            taskId: association.taskId,
+            unregistered: true,
+            taskDeleted: false,
+          });
+        }
+        return method(response, 'GET, DELETE');
+      }
+      if (request.method !== 'POST') return method(response, 'POST');
+      exactContentType(request, 'application/json');
+      const decision = parseTaskDecision(await readJsonBody(request));
+      const loaded = await loadHandoffTask(association.taskFile);
+      await withHandoffTaskLock(loaded.taskRoot, () =>
+        decision.action === 'accept'
+          ? acceptHandoffAttempt(loaded.taskRoot, loaded.state, decision.attempt)
+          : cancelHandoffTask(loaded.taskRoot, loaded.state),
+      );
+      return json(response, 200, await taskReviewView(association.taskFile));
     }
     if (pathname === '/api/runs') {
       if (request.method === 'GET')
@@ -411,7 +580,15 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
       throw new SmartUiError('NOT_FOUND', 'Studio run was not found.');
     }
     if (segments.length === 3) {
-      if (request.method === 'GET') return json(response, 200, runSummary(run, maxImproveRounds));
+      if (request.method === 'GET') {
+        if (
+          run.task &&
+          !['generating', 'awaiting-agent', 'awaiting-agent-revision'].includes(run.phase)
+        ) {
+          await run.task;
+        }
+        return json(response, 200, runSummary(run, maxImproveRounds));
+      }
       if (request.method === 'DELETE') {
         await deleteRun(run, runsRoot);
         runs.delete(run.id);
@@ -452,6 +629,54 @@ export async function startStudioServer(options: StudioServerOptions): Promise<S
         run.controller = undefined;
       });
       return json(response, 202, runSummary(run, maxImproveRounds));
+    }
+    if (segments[3] === 'handoff' && segments.length === 4) {
+      if (request.method !== 'POST') return method(response, 'POST');
+      exactContentType(request, 'application/json');
+      if (run.phase !== 'inspected') {
+        throw new SmartUiError(
+          'POLICY_VIOLATION',
+          'Only an inspected run can prepare a handoff task.',
+        );
+      }
+      const preferences = parsePreferences(await readJsonBody(request), run.inspection);
+      const handoffInputRoot = join(run.root, 'input', `handoff-${randomUUID()}`);
+      await mkdir(handoffInputRoot, { recursive: true, mode: 0o700 });
+      const structuredContextPath = join(handoffInputRoot, 'structured-context.json');
+      const presentationPath = join(handoffInputRoot, 'presentation.json');
+      await writeFile(
+        structuredContextPath,
+        `${JSON.stringify(preferences.structuredDesignContext, null, 2)}\n`,
+        { flag: 'wx', mode: 0o600 },
+      );
+      await writeFile(
+        presentationPath,
+        `${JSON.stringify(preferences.presentationSpec, null, 2)}\n`,
+        { flag: 'wx', mode: 0o600 },
+      );
+      const prepared = await prepareGenerationTask({
+        workspace,
+        designPath: designReferencePath(run),
+        ...(run.designContext ? { designContextPath: run.designContext.path } : {}),
+        structuredContextPath,
+        presentationPath,
+        mode: preferences.mode,
+        layout: preferences.layout,
+        ...(preferences.instructions ? { instructions: preferences.instructions } : {}),
+        studioRunId: run.id,
+      });
+      taskAssociations.set(prepared.task.taskId, {
+        taskId: prepared.task.taskId,
+        taskHash: prepared.task.taskHash,
+        taskType: prepared.task.taskType,
+        taskFile: prepared.taskFile,
+        importedAt: new Date().toISOString(),
+      });
+      await persistTaskRegistry(workspace, taskAssociations);
+      run.preferences = preferences;
+      run.updatedAt = new Date().toISOString();
+      await persistRun(run);
+      return json(response, 201, await taskReviewView(prepared.taskFile));
     }
     if (segments[3] === 'decision' && segments.length === 4) {
       if (request.method !== 'POST') return method(response, 'POST');
@@ -1179,6 +1404,13 @@ async function readBounded(request: IncomingMessage, limit: number): Promise<Uin
   return Buffer.concat(chunks);
 }
 
+async function requireRealDirectory(path: string, label: string): Promise<void> {
+  const info = await lstat(path);
+  if (!info.isDirectory() || info.isSymbolicLink()) {
+    throw new SmartUiError('POLICY_VIOLATION', `${label} must be a real directory.`);
+  }
+}
+
 async function storeDesignContext(
   request: IncomingMessage,
   run: StudioRun,
@@ -1598,6 +1830,178 @@ async function persistRun(run: StudioRun): Promise<void> {
   const temporary = join(run.root, `${POINTER_NAME}.${process.pid}.tmp`);
   await writeFile(temporary, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600 });
   await rename(temporary, join(run.root, POINTER_NAME));
+}
+
+async function loadTaskRegistry(workspace: string): Promise<Map<string, TaskAssociation>> {
+  const associations = new Map<string, TaskAssociation>();
+  let raw: unknown;
+  try {
+    raw = JSON.parse(await readFile(join(workspace, TASK_REGISTRY_NAME), 'utf8'));
+  } catch (error) {
+    if (missing(error)) return associations;
+    throw new SmartUiError('INVALID_INPUT', 'Studio handoff task registry is not valid JSON.');
+  }
+  if (!raw || typeof raw !== 'object' || !Array.isArray((raw as { tasks?: unknown }).tasks)) {
+    throw new SmartUiError('INVALID_INPUT', 'Studio handoff task registry is malformed.');
+  }
+  for (const item of (raw as { tasks: unknown[] }).tasks) {
+    if (!item || typeof item !== 'object')
+      throw new SmartUiError('INVALID_INPUT', 'Studio task association is malformed.');
+    const value = item as Record<string, unknown>;
+    if (
+      typeof value['taskId'] !== 'string' ||
+      !/^task-[0-9a-f-]{36}$/u.test(value['taskId']) ||
+      typeof value['taskHash'] !== 'string' ||
+      !/^sha256:[a-f0-9]{64}$/u.test(value['taskHash']) ||
+      (value['taskType'] !== 'generation' && value['taskType'] !== 'validate-ui') ||
+      typeof value['taskFile'] !== 'string' ||
+      !isAbsolute(value['taskFile']) ||
+      typeof value['importedAt'] !== 'string' ||
+      !Number.isFinite(Date.parse(value['importedAt']))
+    ) {
+      throw new SmartUiError('INVALID_INPUT', 'Studio task association is malformed.');
+    }
+    associations.set(value['taskId'], value as unknown as TaskAssociation);
+  }
+  await taskViews(associations);
+  return associations;
+}
+
+async function persistTaskRegistry(
+  workspace: string,
+  associations: Map<string, TaskAssociation>,
+): Promise<void> {
+  const destination = join(workspace, TASK_REGISTRY_NAME);
+  const temporary = `${destination}.${process.pid}.${randomUUID()}.tmp`;
+  await writeFile(
+    temporary,
+    `${JSON.stringify({ schemaVersion: '1.0', tasks: [...associations.values()] }, null, 2)}\n`,
+    { flag: 'wx', mode: 0o600 },
+  );
+  await rename(temporary, destination);
+}
+
+async function taskViews(associations: Map<string, TaskAssociation>) {
+  const views = [];
+  for (const association of associations.values()) {
+    const loaded = await loadHandoffTask(association.taskFile);
+    if (
+      loaded.task.taskId !== association.taskId ||
+      loaded.task.taskHash !== association.taskHash ||
+      loaded.task.taskType !== association.taskType
+    ) {
+      throw new SmartUiError('POLICY_VIOLATION', 'Studio task association failed verification.');
+    }
+    views.push(await taskReviewView(association.taskFile));
+  }
+  return views.sort((left, right) => left.taskId.localeCompare(right.taskId));
+}
+
+async function verifiedDirectory(path: string, label: string): Promise<string> {
+  const canonical = await realpath(resolve(path));
+  const info = await lstat(canonical);
+  if (!info.isDirectory() || info.isSymbolicLink()) {
+    throw new SmartUiError('POLICY_VIOLATION', `${label} must be a real directory.`);
+  }
+  return canonical;
+}
+
+function parseTaskDecision(
+  value: unknown,
+): { action: 'accept'; attempt: number } | { action: 'cancel'; attempt: number } {
+  if (!value || typeof value !== 'object') {
+    throw new SmartUiError('INVALID_INPUT', 'Task decision body is required.');
+  }
+  const action = (value as { action?: unknown }).action;
+  const attempt = (value as { attempt?: unknown }).attempt;
+  if (
+    (action !== 'accept' && action !== 'cancel') ||
+    !Number.isInteger(attempt) ||
+    Number(attempt) < 1
+  ) {
+    throw new SmartUiError(
+      'INVALID_INPUT',
+      'Task decision requires accept or cancel and a positive attempt.',
+    );
+  }
+  return { action, attempt: Number(attempt) };
+}
+
+function parseStudioImplementationTask(value: unknown): {
+  designPath: string;
+  route: string;
+  writableFiles: string[];
+  designContextPath?: string;
+  structuredContextPath?: string;
+  presentationPath?: string;
+  instructions?: string;
+} {
+  if (!value || typeof value !== 'object') {
+    throw new SmartUiError('INVALID_INPUT', 'Validate-UI task input is required.');
+  }
+  const input = value as Record<string, unknown>;
+  const relative = (name: string, required = false) => {
+    const candidate = input[name];
+    if (candidate === undefined && !required) return undefined;
+    if (
+      typeof candidate !== 'string' ||
+      candidate.length < 1 ||
+      candidate.length > 1_024 ||
+      isAbsolute(candidate) ||
+      candidate.split(/[\\/]/u).some((segment) => segment === '..')
+    ) {
+      throw new SmartUiError(
+        'INVALID_INPUT',
+        `${name} must be a target-relative path without traversal.`,
+      );
+    }
+    return candidate;
+  };
+  if (typeof input['route'] !== 'string' || input['route'].length > 2_048) {
+    throw new SmartUiError('INVALID_INPUT', 'A bounded review route is required.');
+  }
+  if (
+    !Array.isArray(input['writableFiles']) ||
+    input['writableFiles'].length < 1 ||
+    input['writableFiles'].length > 40
+  ) {
+    throw new SmartUiError('INVALID_INPUT', 'One to 40 exact writable files are required.');
+  }
+  const writableInput = input['writableFiles'] as unknown[];
+  const writableFiles = writableInput.map((item) => {
+    if (
+      typeof item !== 'string' ||
+      item.length < 1 ||
+      item.length > 1_024 ||
+      isAbsolute(item) ||
+      item.split(/[\\/]/u).some((segment) => segment === '..')
+    ) {
+      throw new SmartUiError(
+        'INVALID_INPUT',
+        'Writable files must be exact target-relative paths.',
+      );
+    }
+    return item;
+  });
+  const instructions = input['instructions'];
+  if (
+    instructions !== undefined &&
+    (typeof instructions !== 'string' || instructions.length > 4_000)
+  ) {
+    throw new SmartUiError('INVALID_INPUT', 'Instructions must be bounded text.');
+  }
+  const designContextPath = relative('designContextPath');
+  const structuredContextPath = relative('structuredContextPath');
+  const presentationPath = relative('presentationPath');
+  return {
+    designPath: relative('designPath', true)!,
+    route: input['route'],
+    writableFiles,
+    ...(designContextPath ? { designContextPath } : {}),
+    ...(structuredContextPath ? { structuredContextPath } : {}),
+    ...(presentationPath ? { presentationPath } : {}),
+    ...(typeof instructions === 'string' && instructions ? { instructions } : {}),
+  };
 }
 
 async function recoverRuns(

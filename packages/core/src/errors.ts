@@ -4,7 +4,8 @@ export type SmartUiErrorCode =
   | 'POLICY_VIOLATION'
   | 'PROVIDER_FAILURE'
   | 'TIMEOUT'
-  | 'NOT_FOUND';
+  | 'NOT_FOUND'
+  | 'TASK_BUSY';
 
 export class SmartUiError extends Error {
   constructor(

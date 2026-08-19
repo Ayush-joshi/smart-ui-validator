@@ -1,11 +1,12 @@
 import { mkdtemp, readFile, readdir, realpath, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { request as httpRequest } from 'node:http';
-import { join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   agentQueueRoot,
   listPendingAuthoringRequests,
+  prepareGenerationTask,
   writeAuthoringResponse,
 } from '../packages/core/src/index.js';
 import {
@@ -21,6 +22,156 @@ afterEach(async () => {
 });
 
 describe('local Studio server security and lifecycle', () => {
+  it('imports verified handoff tasks, recovers them, and unregisters without deleting task files', async () => {
+    const context = await studioFixture(4_000);
+    await context.server.close();
+    servers.splice(servers.indexOf(context.server), 1);
+    const taskWorkspace = await realpath(await mkdtemp(join(tmpdir(), 'smart-ui-task-workspace-')));
+    const designPath = join(taskWorkspace, 'design.svg');
+    await writeFile(designPath, cleanSvg);
+    const prepared = await prepareGenerationTask({
+      workspace: taskWorkspace,
+      designPath,
+      mode: 'hybrid',
+      layout: 'responsive',
+    });
+    const imported = await connect(context.workspace, context.staticRoot, undefined, undefined, {
+      reviewTask: prepared.taskFile,
+    });
+    const tasks = await json<Array<{ taskId: string; taskHash: string; status: string }>>(
+      await imported.request('/api/tasks'),
+    );
+    expect(tasks).toEqual([
+      expect.objectContaining({
+        taskId: prepared.task.taskId,
+        taskHash: prepared.task.taskHash,
+        status: 'awaiting-author',
+      }),
+    ]);
+
+    await imported.server.close();
+    servers.splice(servers.indexOf(imported.server), 1);
+    const recovered = await connect(context.workspace, context.staticRoot);
+    expect(await json<unknown[]>(await recovered.request('/api/tasks'))).toHaveLength(1);
+    const removed = await json<{ unregistered: boolean; taskDeleted: boolean }>(
+      await recovered.request(`/api/tasks/${prepared.task.taskId}`, { method: 'DELETE' }),
+    );
+    expect(removed).toEqual({
+      taskId: prepared.task.taskId,
+      unregistered: true,
+      taskDeleted: false,
+    });
+    await expect(stat(prepared.taskFile)).resolves.toBeTruthy();
+  });
+
+  it('prepares a persistent generation handoff without creating an agent queue request', async () => {
+    const context = await studioFixture(4_000);
+    const uploaded = await json<{ runId: string }>(
+      await context.request('/api/runs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'image/svg+xml', 'X-Smart-UI-Filename': 'handoff.svg' },
+        body: cleanSvg,
+      }),
+    );
+    const response = await context.request(`/api/runs/${uploaded.runId}/handoff`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        engine: 'agent',
+        mode: 'hybrid',
+        layout: 'responsive',
+        improve: true,
+        structuredDesignContext: {
+          schemaVersion: '1.0',
+          exactCopy: [],
+          designTokens: [],
+          componentSemantics: [],
+          interactions: [],
+        },
+        presentationSpec: {
+          schemaVersion: '1.0',
+          primaryCanvas: { id: 'source', width: 120, height: 80, deviceScaleFactor: 1 },
+          fit: 'intrinsic',
+          horizontalAlignment: 'start',
+          verticalAlignment: 'start',
+          viewports: [],
+        },
+      }),
+    });
+    expect(response.status).toBe(201);
+    const task = await json<{
+      taskType: string;
+      status: string;
+      commands: { review: string; mcp: string };
+    }>(response);
+    expect(task).toMatchObject({
+      taskType: 'generation',
+      status: 'awaiting-author',
+      commands: {
+        review: expect.stringContaining('generation review'),
+        mcp: expect.stringContaining('submit_handoff_generation'),
+      },
+    });
+    expect(await listPendingAuthoringRequests(agentQueueRoot(context.workspace))).toEqual([]);
+    expect(await json<unknown[]>(await context.request('/api/tasks'))).toHaveLength(1);
+  });
+
+  it('prepares validate-UI from a bounded upload and removes its staging directory', async () => {
+    const context = await studioFixture(4_000);
+    await context.server.close();
+    servers.splice(servers.indexOf(context.server), 1);
+    const target = await realpath(await mkdtemp(join(tmpdir(), 'smart-ui-studio-target-')));
+    await import('node:fs/promises').then(({ mkdir }) => mkdir(join(target, 'src')));
+    await writeFile(
+      join(target, 'package.json'),
+      JSON.stringify({ dependencies: { react: '19.1.1' }, devDependencies: { vite: '8.2.0' } }),
+    );
+    await writeFile(join(target, 'src', 'App.tsx'), 'export const App = () => <main />;\n');
+    const configured = await connect(context.workspace, context.staticRoot, undefined, undefined, {
+      targetRoot: target,
+    });
+    const uploadedResponse = await configured.request('/api/tasks/validate-ui/design', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'image/svg+xml',
+        'X-Smart-UI-Filename': 'reference.svg',
+      },
+      body: cleanSvg,
+    });
+    expect(uploadedResponse.status).toBe(201);
+    const uploaded = await json<{ designPath: string }>(uploadedResponse);
+    expect(uploaded.designPath).toMatch(
+      /^\.smart-ui\/studio-uploads\/[a-f0-9-]{36}\/reference\.svg$/u,
+    );
+    const stagedDesign = resolve(target, uploaded.designPath);
+    await expect(stat(stagedDesign)).resolves.toBeTruthy();
+    const created = await configured.request('/api/tasks/validate-ui', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        designPath: uploaded.designPath,
+        route: 'http://127.0.0.1:4173/',
+        writableFiles: ['src/App.tsx', 'src/App.css'],
+      }),
+    });
+    expect(created.status).toBe(201);
+    expect(await json<{ taskType: string; writableFiles: string[] }>(created)).toMatchObject({
+      taskType: 'validate-ui',
+      writableFiles: ['src/App.tsx', 'src/App.css'],
+    });
+    await expect(stat(dirname(stagedDesign))).rejects.toThrow();
+    const traversal = await configured.request('/api/tasks/validate-ui', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        designPath: '../outside.svg',
+        route: 'http://127.0.0.1:4173/',
+        writableFiles: ['src/App.tsx'],
+      }),
+    });
+    expect(traversal.status).toBe(400);
+  });
+
   it('refuses broad or non-dedicated roots and initializes only an empty workspace', async () => {
     await expect(initializeStudioWorkspace('/')).rejects.toThrow(/refuses filesystem roots/u);
     const nonempty = await mkdtemp(join(tmpdir(), 'smart-ui-studio-nonempty-'));
@@ -219,6 +370,34 @@ describe('local Studio server security and lifecycle', () => {
     expect(
       (await readdir(join(context.workspace, 'runs'))).every((name) => name === second.runId),
     ).toBe(true);
+  });
+
+  it('durably clears Studio-owned history without leaving recovered work', async () => {
+    const context = await studioFixture(4_000);
+    await context.request('/api/runs', {
+      method: 'POST',
+      headers: { 'Content-Type': 'image/svg+xml' },
+      body: cleanSvg,
+    });
+    await context.request('/api/runs', {
+      method: 'POST',
+      headers: { 'Content-Type': 'image/svg+xml' },
+      body: cleanSvg,
+    });
+
+    const reset = await json<{
+      deletedRuns: number;
+      unregisteredTasks: number;
+      verified: boolean;
+    }>(await context.request('/api/work', { method: 'DELETE' }));
+    expect(reset).toEqual({ deletedRuns: 2, unregisteredTasks: 0, verified: true });
+    expect(await json(await context.request('/api/runs'))).toEqual([]);
+    expect(await readdir(join(context.workspace, 'runs'))).toEqual([]);
+
+    await context.server.close();
+    servers.splice(servers.indexOf(context.server), 1);
+    const recovered = await connect(context.workspace, context.staticRoot);
+    expect(await json(await recovered.request('/api/runs'))).toEqual([]);
   });
 
   it('expires only old completed runs and reports packaged health without leaking local paths', async () => {
@@ -611,7 +790,7 @@ async function waitForPhase(
   runId: string,
   phase: string,
 ): Promise<StudioRunSummary> {
-  for (let attempt = 0; attempt < 200; attempt += 1) {
+  for (let attempt = 0; attempt < 600; attempt += 1) {
     const run = await json<StudioRunSummary>(await context.request(`/api/runs/${runId}`));
     if (run.phase === phase) return run;
     if (['completed', 'failed', 'canceled'].includes(run.phase) && run.phase !== phase) {
@@ -653,20 +832,25 @@ async function connect(
   staticRoot: string,
   retentionMs?: number,
   agentTimeoutMs?: number,
+  handoff?: { targetRoot?: string; reviewTask?: string },
 ) {
   const server = await startStudioServer({
     workspaceRoot: workspace,
     staticRoot,
     ...(retentionMs ? { retentionMs } : {}),
     ...(agentTimeoutMs ? { agentTimeoutMs } : {}),
+    ...(handoff?.targetRoot ? { targetRoot: handoff.targetRoot } : {}),
+    ...(handoff?.reviewTask ? { reviewTask: handoff.reviewTask } : {}),
   });
   servers.push(server);
   const origin = server.url.slice(0, -1);
   const root = await fetch(server.url);
   const cookie = root.headers.get('set-cookie')!.split(';')[0]!;
-  const session = await json<{ csrfToken: string }>(
-    await fetch(`${server.url}api/session`, { headers: { Cookie: cookie } }),
-  );
+  const sessionResponse = await fetch(`${server.url}api/session`, { headers: { Cookie: cookie } });
+  if (!sessionResponse.ok) {
+    throw new Error(`Studio session failed: ${await sessionResponse.text()}`);
+  }
+  const session = await json<{ csrfToken: string }>(sessionResponse);
   return {
     workspace,
     staticRoot,

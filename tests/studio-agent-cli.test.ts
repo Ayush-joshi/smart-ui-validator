@@ -98,5 +98,5 @@ describe('smart-ui Studio agent bootstrap CLI', () => {
       ]),
     });
     expect(await readFile(configPath, 'utf8')).toBe(config);
-  }, 30_000);
+  }, 60_000);
 });

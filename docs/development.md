@@ -4,9 +4,10 @@ Use Node.js 22.16 or newer and pnpm 10. The Agent Memory dependency establishes 
 floor; its SQLite-backed tests currently emit Node's experimental SQLite warning.
 
 The workspace has two engine paths: `SmartUiOrchestrator` for existing-repository validation/repair
-and `GenerationOrchestrator` for repository-free SVG generation. `apps/studio` is a private build
-input for the second path; its production server/static assets are copied into the CLI package rather
-than published independently.
+and `GenerationOrchestrator` for repository-free SVG/PNG generation. Persistent handoff tasks let
+CLI, MCP, Studio, external agents, and humans submit to either path through the same immutable attempt
+contracts. `apps/studio` is a private build input for both work types; its production server/static
+assets are copied into the CLI package rather than published independently.
 
 ## Quality gates
 
@@ -46,8 +47,22 @@ pnpm smart-ui studio --workspace /absolute/path/to/studio-workspace --health-che
 pnpm smart-ui studio --workspace /absolute/path/to/studio-workspace
 ```
 
-The agent engine needs the `smart-ui` MCP server running from `.vscode/mcp.json`; after rebuilding it,
-restart it (**MCP: List Servers → smart-ui → Restart**) so new tools and evidence load.
+Studio opens with Generate UI and Validate UI choices. Validate UI is disabled unless startup names
+the exact repository root; the browser cannot grant a new root:
+
+```bash
+pnpm smart-ui studio \
+  --workspace /absolute/path/to/studio-workspace \
+  --target /absolute/path/to/react-or-angular-repository
+```
+
+Use `--review-task /absolute/path/to/task.json` to import a verified existing task directly into the
+shared Review experience. Removing that association in Studio does not delete task or repository
+files.
+
+Connected-agent continuations need the `smart-ui` MCP server running from `.vscode/mcp.json`; after
+rebuilding it, restart it (**MCP: List Servers → smart-ui → Restart**) so task tools and evidence
+load. External agent/human continuation needs no MCP connection.
 
 To refresh the owned SVG pilot evidence deliberately, build first and run
 `pnpm evaluate:svg:measure`, review the observation diff, then run `pnpm evaluate:svg`. The

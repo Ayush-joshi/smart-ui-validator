@@ -68,8 +68,9 @@ the agent calls `list_studio_authoring_requests` and `submit_studio_authored_htm
 ## SVG generation without a host
 
 A host is optional for standalone generation. Use `smart-ui generate` for repeatable CLI runs or
-`smart-ui studio` for the four-step local browser workflow. Both call the same core engine as the MCP
-generation tools and do not require model credentials.
+`smart-ui studio` for the five-step local browser workflow. Both call the same core engine as the MCP
+generation tools and do not require model credentials. Studio also enables bounded Validate UI when
+started with an explicit `--target`.
 
 ## OpenClaw and Slack
 

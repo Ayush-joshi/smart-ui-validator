@@ -32,17 +32,22 @@ import {
   designContractSchema,
   designBundleSchema,
   generationRecordSchema,
+  getHandoffTask,
+  listPendingHandoffTasks,
   listPendingAuthoringRequests,
   loadConfig,
   memoryLayerSchema,
   memoryScopeSchema,
   memorySensitivitySchema,
   presentationSpecSchema,
+  readHandoffEvidencePage,
   readAuthoringRequest,
   runRecordSchema,
   redactSensitiveText,
   redactSensitiveValue,
   structuredDesignContextSchema,
+  submitHandoffGeneration,
+  submitHandoffImplementation,
   resolveMemoryPath,
   validateAuthoredResponse,
   writeAuthoringResponse,
@@ -132,6 +137,11 @@ export const MCP_TOOL_DEFINITIONS = [
   ['export_generation', false],
   ['get_generation', true],
   ['get_generation_report', true],
+  ['list_handoff_tasks', true],
+  ['get_handoff_task', true],
+  ['read_handoff_evidence', true],
+  ['submit_handoff_generation', false],
+  ['submit_handoff_implementation', false],
   ['list_studio_authoring_requests', true],
   ['submit_studio_authored_html', false],
 ] as const;
@@ -853,6 +863,142 @@ export function createSmartUiMcpServer(): McpServer {
         manifestHash: record.manifestHash,
         exportRoot,
         exportedFiles,
+      });
+    },
+  );
+  server.registerTool(
+    'list_handoff_tasks',
+    tool('List actionable generation or validate-UI handoff tasks in a contained root.', true, {
+      root: z.string().min(1),
+      taskType: z.enum(['generation', 'validate-ui']).optional(),
+    }),
+    async ({ root, taskType }) => {
+      const trustedRoot = trustedAbsolutePath(root, 'root');
+      const tasks = await listPendingHandoffTasks(trustedRoot, taskType);
+      return result({ root: trustedRoot, count: tasks.length, tasks });
+    },
+  );
+  server.registerTool(
+    'get_handoff_task',
+    tool('Read one hash-verified handoff task and its current lifecycle state.', true, {
+      taskFile: z.string().min(1),
+    }),
+    async ({ taskFile }) => {
+      const trustedTaskFile = trustedAbsolutePath(taskFile, 'taskFile');
+      return result(await getHandoffTask(trustedTaskFile));
+    },
+  );
+  server.registerTool(
+    'read_handoff_evidence',
+    tool('Read one declared UTF-8 handoff evidence file in bounded pages.', true, {
+      taskFile: z.string().min(1),
+      relativePath: z.string().min(1).max(1_024),
+      offset: z.number().int().nonnegative().optional(),
+      limit: z.number().int().min(1).max(64_000).optional(),
+    }),
+    async ({ taskFile, relativePath, offset, limit }) => {
+      const trustedTaskFile = trustedAbsolutePath(taskFile, 'taskFile');
+      return result(
+        await readHandoffEvidencePage({
+          taskFile: trustedTaskFile,
+          relativePath,
+          ...(offset === undefined ? {} : { offset }),
+          ...(limit === undefined ? {} : { limit }),
+        }),
+      );
+    },
+  );
+  server.registerTool(
+    'submit_handoff_generation',
+    tool(
+      'Submit approved generation files and run the same immutable deterministic review as CLI.',
+      false,
+      {
+        taskFile: z.string().min(1),
+        taskHash: z.string().regex(/^sha256:[a-f0-9]{64}$/u),
+        revision: z.number().int().nonnegative(),
+        approved: z.literal(true),
+        authoringAgent: z.string().min(1).max(200),
+        note: z.string().max(4_000).optional(),
+        files: z
+          .array(
+            z
+              .object({
+                relativePath: z.string().min(1).max(1_024),
+                content: z.string().min(1).max(4_000_000),
+              })
+              .strict(),
+          )
+          .min(2)
+          .max(100),
+      },
+    ),
+    async ({ taskFile, taskHash, revision, authoringAgent, note, files }, extra) => {
+      const trustedTaskFile = trustedAbsolutePath(taskFile, 'taskFile');
+      const reviewed = await submitHandoffGeneration({
+        taskFile: trustedTaskFile,
+        taskHash,
+        revision,
+        authoringAgent,
+        files,
+        ...(note ? { note } : {}),
+        ...(extra.signal ? { signal: extra.signal } : {}),
+      });
+      return result({
+        taskId: reviewed.task.taskId,
+        taskHash: reviewed.task.taskHash,
+        revision: reviewed.state.revision,
+        status: reviewed.state.status,
+        attempt: reviewed.attempt,
+        result: reviewed.result,
+        nextCommand: reviewed.task.commands.status,
+      });
+    },
+  );
+  server.registerTool(
+    'submit_handoff_implementation',
+    tool(
+      'Apply approved exact allowlisted source files and run immutable validate-UI review.',
+      false,
+      {
+        taskFile: z.string().min(1),
+        taskHash: z.string().regex(/^sha256:[a-f0-9]{64}$/u),
+        revision: z.number().int().nonnegative(),
+        approved: z.literal(true),
+        authoringAgent: z.string().min(1).max(200),
+        note: z.string().max(4_000).optional(),
+        files: z
+          .array(
+            z
+              .object({
+                relativePath: z.string().min(1).max(1_024),
+                content: z.string().max(20_000_000),
+              })
+              .strict(),
+          )
+          .min(1)
+          .max(40),
+      },
+    ),
+    async ({ taskFile, taskHash, revision, authoringAgent, note, files }, extra) => {
+      const trustedTaskFile = trustedAbsolutePath(taskFile, 'taskFile');
+      const reviewed = await submitHandoffImplementation({
+        taskFile: trustedTaskFile,
+        taskHash,
+        revision,
+        authoringAgent,
+        files,
+        ...(note ? { note } : {}),
+        ...(extra.signal ? { signal: extra.signal } : {}),
+      });
+      return result({
+        taskId: reviewed.task.taskId,
+        taskHash: reviewed.task.taskHash,
+        revision: reviewed.state.revision,
+        status: reviewed.state.status,
+        attempt: reviewed.attempt,
+        result: reviewed.result,
+        index: reviewed.index,
       });
     },
   );

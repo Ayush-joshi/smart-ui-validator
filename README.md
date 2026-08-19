@@ -296,9 +296,8 @@ round records the validated original context hash plus whether credential-like t
 An additional optional UTF-8 design-context file may contain JSX, TSX, HTML, CSS, JSON, Markdown, or
 plain text. Studio passes its redacted content to the connected authoring agent with the SVG/PNG
 evidence. The deterministic CLI records the same bounded, redacted source and original hash as an
-immutable provenance artifact; it does not claim to interpret source code without an agent. With
-`--engine agent`, it sends both inputs through the shared MCP authoring queue before deterministic
-verification.
+immutable provenance artifact; it does not claim to interpret source code without an agent. Agent
+or human authoring uses persistent `generation prepare/review` tasks.
 
 ### Generate from the CLI
 
@@ -306,27 +305,26 @@ The SVG or PNG must be inside the exact workspace. `--output` is optional; when 
 name a new empty directory inside that workspace.
 
 ```bash
-npx smart-ui generate \
+npx smart-ui generation prepare \
   --workspace /absolute/path/to/svg-workspace \
   --design /absolute/path/to/svg-workspace/design/pricing.png \
   --design-context /absolute/path/to/svg-workspace/design/Pricing.jsx \
   --structured-context /absolute/path/to/svg-workspace/design/context.json \
-  --engine agent \
-  --output /absolute/path/to/svg-workspace/generated/pricing \
   --mode hybrid \
-  --layout responsive \
-  --name "Pricing screen"
+  --layout responsive
 ```
 
 Useful options:
 
-- `--engine deterministic|agent` selects the built-in generator or the MCP-connected authoring
-  queue. Agent mode prints an exact handoff prompt, waits for `list_studio_authoring_requests` and
-  `submit_studio_authored_html`, then renders and compares the returned files. Its workspace must be
-  inside the MCP server's `SMART_UI_MCP_ROOT`.
-- `--agent-timeout <milliseconds>` bounds that wait from 1 second to 1 hour. Timeout or cancellation
-  removes the queued request and temporary evidence. Agent mode requires `--max-passes 1` so its
-  proposal is evaluated; deterministic mode remains the default.
+- `smart-ui generation prepare` creates a persistent task, exact proposal directory, pinned
+  evidence, and `AGENT_INSTRUCTIONS.md` without invoking or waiting for an agent.
+- `smart-ui generation review --task <task.json>` snapshots the proposal and runs deterministic
+  isolated review. `smart-ui task accept` records the explicit decision.
+- `smart-ui validate-ui prepare` creates an exact-write React/Angular implementation task for an
+  already-running route. `validate-ui review` records ordered viewport/state evidence and never
+  scores an unreferenced robustness viewport.
+- `smart-ui generate --engine agent` now returns a migration message pointing to
+  `smart-ui generation prepare`; `--agent-timeout` was removed.
 - `--instructions <text>` adds one bounded implementation note.
 - `--design-context <path>` reads a contained, non-empty UTF-8 source-context file up to 250 KB.
   JSX, TSX, HTML, CSS, JSON, Markdown, and plain text are supported; credential-like values are
@@ -338,9 +336,7 @@ Useful options:
 - `--viewport <width>x<height>` overrides the source viewport when the SVG does not provide the
   intended dimensions.
 - `--max-passes 0|1` controls the bounded revision count.
-- `--dry-run --json` performs safety and capability inspection without producing a deliverable;
-  it never queues an agent request, even when `--engine agent` is supplied, and its compact result
-  includes retained design-reference and source-context artifact metadata.
+- `--dry-run --json` performs safety and capability inspection without producing a deliverable.
 - Omitting `--output` retains the immutable artifact run, report, and ZIP without materializing a
   separate export directory.
 
@@ -380,19 +376,20 @@ business logic that is not represented by the design evidence and bounded contex
 
 ## Smart UI Studio
 
-Smart UI Studio is the packaged local browser interface for SVG/PNG-to-HTML generation. It is designed
-for teammates who want to upload, configure, review, and download a generation without composing CLI
-arguments. Its deterministic engine needs no MCP host; agent authoring uses the connected MCP chat.
+Smart UI Studio is the packaged local browser interface for standalone SVG/PNG-to-HTML generation and
+bounded validation of an existing React or Angular target. Its deterministic engine needs no MCP
+host; substantial authoring and implementation use a connected MCP agent or external handoff.
 
-Studio is not used to validate or repair an existing React or Angular repository. It has no hosted
-backend, account system, remote collaboration, Figma or model credential collection, or telemetry.
+Studio has no hosted backend, account system, remote collaboration, Figma or model credential
+collection, or telemetry. Validate UI is available only when Studio starts with an explicit
+`--target <absolute-repository>`.
 
 ### How Studio works
 
 The CLI starts a private server on an ephemeral `127.0.0.1` port and prints the exact URL. The browser
 receives a random process capability in an HTTP-only, same-site cookie and uses a separate CSRF
 token. Studio checks the exact host, origin, method, and content type, exposes no CORS access, and
-never accepts a filesystem path from page JavaScript.
+never lets page JavaScript select or widen a filesystem root.
 
 Each upload receives an opaque run ID and separate server-owned inspection and generation artifact
 roots. SVG is streamed and structurally sanitized; PNG is size-bounded and checked for a valid
@@ -406,6 +403,13 @@ not restricted by extension. Studio accepts only bounded UTF-8 text, stores it i
 records its filename, media type, byte size, hash, and provenance, and redacts credential-like text
 before including it in the MCP authoring request and generation record. Binary and oversized context
 files fail closed.
+
+Validate UI accepts the design reference through the same bounded SVG/PNG dropzone. The server stages
+it under a UUID-scoped `.smart-ui/studio-uploads` directory inside the configured target, passes that
+contained file through the unchanged core task intake, and removes the staging directory after the
+immutable task evidence is created. The browser can declare only an already-running route, optional
+target-relative presentation file, and exact target-relative writable files; no globs, arbitrary
+commands, dependency installation, or directory-wide writes are accepted.
 
 ### Generation engines
 
@@ -459,22 +463,19 @@ Servers → smart-ui → Restart**) so new tools and evidence are picked up.
 `--port <port>` requests an exact loopback port; the default `0` is safer for concurrent runs because
 the operating system chooses an available ephemeral port.
 
-### The four Studio steps
+### The five Studio steps
 
-1. **Input:** drag, drop, or choose one `.svg` or `.png`, plus optional UTF-8 design context. Studio
-   verifies it and shows dimensions, hashes, scene size, readable text, decisions, uncertainties,
-   and recommended modes.
-2. **Preferences:** optionally attach the JSX, TSX, HTML, CSS, JSON, Markdown, or other UTF-8 design
-   context supplied with the design reference; choose the engine, generation mode, and layout;
-   choose intrinsic or custom canvas, DPR, fit, alignment, and bounded named viewports; and enter
-   structured exact copy, tokens, component semantics, interactions, and an optional compatibility
-   note.
-3. **Generate:** follow sanitization, inspection, generation, preview, comparison, packaging, and
-   reporting progress. With the AI-agent engine, the run pauses on an `awaiting-agent` step that shows
-   the prompt to paste into the MCP-connected chat. You can cancel an in-flight run.
-4. **Review:** inspect the isolated preview, visual similarity/mismatch, viewport classifications,
-   source code, findings, uncertainties, generated-output screenshot, heatmap, and overlay. Download
-   individual accepted files, the reproducible ZIP, or the offline report.
+1. **Work type:** choose Generate UI for a standalone bundle or Validate UI for an explicitly
+   configured React/Angular target.
+2. **Inputs:** upload or drop one `.svg` or `.png`; upload optional bounded UTF-8 design context or
+   paste/type it directly.
+3. **Preferences and boundaries:** configure generation mode, canvas, and structured context, or set
+   the already-running validation route, optional presentation matrix, and exact writable files.
+4. **Handoff:** continue with the connected MCP agent or use the persistent external agent/human task
+   instructions. Both methods converge on the same deterministic review.
+5. **Review:** inspect task state, attempts, blocking findings, visual evidence, fidelity only where a
+   pinned reference exists, explicit `Not scored` robustness cells, and changed allowlisted files;
+   then Accept, Revise, Cancel, or remove the task from Studio without deleting repository files.
 
 The review screen can delete exactly one verified run. Expiry and deletion close its preview, cancel
 in-flight work, remove only that run directory, and verify that it is gone.
@@ -488,7 +489,8 @@ in-flight work, remove only that run directory, and verify that it is gone.
   artifact confidentiality matters.
 - A clear error and recovery message for unsafe SVGs, unsupported input, cancellation, interrupted
   work, or a failed health dependency.
-- No repository source edits and no conversion of the output into a React or Angular application.
+- Validate UI changes only exact allowlisted repository files through the task/MCP implementation
+  contract; Generate UI does not convert its standalone output into a React or Angular application.
 
 ## Exit codes
 

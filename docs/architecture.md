@@ -22,6 +22,13 @@ flowchart LR
     CLI --> Generate["GenerationOrchestrator"]
     MCP --> Generate
     Studio --> Generate
+    Studio --> Validate
+
+    CLI --> Tasks["Persistent handoff tasks"]
+    MCP --> Tasks
+    Studio --> Tasks
+    Tasks --> Validate
+    Tasks --> Generate
 
     Validate --> Shared["Browser, comparator, artifacts, policy, reporting"]
     Generate --> Shared
@@ -83,11 +90,12 @@ compatibility readers.
 The CLI accepts `--design-context` as bounded UTF-8 source evidence and `--structured-context` as
 typed `StructuredDesignContext` JSON. Credential-like source text is redacted before it enters the
 artifact store; the record retains its original hash and redaction status. Deterministic mode does
-not interpret arbitrary JSX as if a model had authored from it. `--engine agent` creates one bounded
-request in the same workspace-contained queue as Studio, exposes it through the existing MCP tools,
-waits under an explicit timeout/cancellation boundary, and supplies the response to
-`HostProposedHtmlGenerationProvider` with the fallback and deterministic comparison intact.
-Temporary queue evidence is removed after success, timeout, or cancellation.
+not interpret arbitrary JSX as if a model had authored it. Agent or human authoring uses a persistent
+`GenerationTask`: prepare pins evidence and exact writable locations, submission creates an immutable
+attempt, deterministic review produces a normal `GenerationRecord`, and acceptance is a separate
+revision-checked metadata decision. The removed `smart-ui generate --engine agent` path returns a
+migration message pointing to `smart-ui generation prepare`; CLI no longer creates or waits on an
+authoring queue.
 
 The stdio MCP adapter exposes only inspection, complete generation, retrieval, reporting, and
 separately approved export. Normalized scene nodes are paged in groups of 50; raw XML, full generated
@@ -104,16 +112,25 @@ engine. Its reviewed production server and hashed static assets are copied into
 `smart-ui-validator/dist/studio` after the Studio build; the CLI dynamically loads only that packaged
 subtree.
 
-`smart-ui studio` is a thin local host over the public generation APIs. Upload inspection uses a
-dedicated per-run inspection store, generation starts with a new empty immutable artifact root, and
-the persisted `GenerationRecord` remains authoritative. Browser state is only a projection of that
-record. Completed records are recovered after restart, and accepted manifests can be previewed again
-on separate ephemeral origins.
+`smart-ui studio` is a thin local host over the public generation, validation, and handoff APIs. Its
+first screen offers Generate UI and Validate UI, followed by one shared Inputs, Preferences and
+boundaries, Handoff, and Review progression. Generation upload inspection uses a dedicated per-run
+inspection store, generation starts with a new empty immutable artifact root, and the persisted
+`GenerationRecord` remains authoritative. Validate UI is enabled only by an explicit startup
+`--target`; browser uploads are staged under a server-selected target-contained path and passed to
+the unchanged core task intake. Page JavaScript cannot select or widen a repository root.
 
-Before generation, Studio may store one bounded UTF-8 design-context file inside the opaque run.
-The versioned authoring bridge sends its redacted content, original hash, filename, media type, byte
-size, and provenance to the connected agent alongside sanitized SVG or verified PNG evidence. The
-context is never executed; binary or oversized input is rejected.
+Both work types accept bounded UTF-8 design context by upload or paste/type input. The versioned
+authoring boundary records redacted content, original hash, filename/media type when uploaded, byte
+size, and provenance alongside sanitized SVG or verified PNG evidence. Context is never executed;
+binary or oversized input is rejected.
+
+Persistent `GenerationTask` and `ImplementationTask` associations are hash-verified on import and
+polling. Connected MCP and external agent/human continuations reference the same task and converge on
+one shared Review projection. Validate-UI attempts snapshot only exact allowlisted UTF-8 files and
+record ordered primary-reference, alternate-reference, and robustness-only cells. Robustness cells
+without pinned references are explicitly unscored. Removing an imported task from Studio unregisters
+the association without deleting its task or repository files.
 
 The Studio server binds only `127.0.0.1`, uses opaque run identifiers, and never accepts an arbitrary
 server path from page JavaScript. One process capability is held in an HTTP-only SameSite cookie; a
@@ -122,8 +139,9 @@ JSON text and rendered through React escaping, never injected into the Studio do
 is served by `LoopbackGeneratedPreviewProvider`, preserving one engine and one output policy across
 CLI, MCP, and Studio.
 
-Studio does not participate in repository inspection or repair. It is a visual interface for the SVG/PNG
-generation branch only and collects no Figma/model credentials or telemetry.
+Studio does not own repository inspection, scoring, or repair logic. It delegates validate-UI task
+preparation and review to the same host-neutral core used by CLI and MCP, and collects no Figma/model
+credentials or telemetry.
 
 ## Governed interaction, memory, and deployment boundaries
 

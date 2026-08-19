@@ -8,6 +8,7 @@ import {
   LocalArtifactStore,
   LocalSvgStructureProvider,
   configSchema,
+  prepareGenerationTask,
   type SvgGenerationInput,
 } from '../packages/core/src/index.js';
 import { createSmartUiMcpServer } from '../apps/mcp-server/src/server.js';
@@ -23,6 +24,65 @@ afterEach(async () => {
 });
 
 describe('SVG generation MCP Phase 2', () => {
+  it('lists task-backed work, pages verified evidence, and rejects stale submissions', async () => {
+    const { client } = await connect();
+    const workspace = await workspaceFixture('handoff');
+    const prepared = await prepareGenerationTask({
+      workspace,
+      designPath: join(workspace, 'screen.svg'),
+      mode: 'hybrid',
+      layout: 'responsive',
+    });
+    const listed = await client.callTool({
+      name: 'list_handoff_tasks',
+      arguments: { root: workspace, taskType: 'generation' },
+    });
+    expect(listed.isError, JSON.stringify(listed.content)).toBeFalsy();
+    expect(listed.structuredContent).toMatchObject({
+      count: 1,
+      tasks: [expect.objectContaining({ taskId: prepared.task.taskId, revision: 0 })],
+    });
+    const evidence = prepared.task.evidence[0]!;
+    const page = await client.callTool({
+      name: 'read_handoff_evidence',
+      arguments: {
+        taskFile: prepared.taskFile,
+        relativePath: evidence.relativePath,
+        limit: 40,
+      },
+    });
+    expect(page.isError).toBeFalsy();
+    expect(page.structuredContent).toMatchObject({
+      taskId: prepared.task.taskId,
+      hash: evidence.hash,
+      offset: 0,
+      nextOffset: 40,
+    });
+    const stale = await client.callTool({
+      name: 'submit_handoff_generation',
+      arguments: {
+        taskFile: prepared.taskFile,
+        taskHash: prepared.task.taskHash,
+        revision: 1,
+        approved: true,
+        authoringAgent: 'transport-test',
+        files: [
+          {
+            relativePath: 'index.html',
+            content: '<!doctype html><link rel="stylesheet" href="styles.css">',
+          },
+          { relativePath: 'styles.css', content: 'body { margin: 0; }' },
+        ],
+      },
+    });
+    expect(stale.isError).toBe(true);
+    expect(stale.content).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ text: expect.stringContaining('revision 0') }),
+      ]),
+    );
+  });
+
   it('inspects paged context and rejects an unapproved or unsafe host proposal before rendering', async () => {
     const { client } = await connect();
     const workspace = await workspaceFixture('inspect');

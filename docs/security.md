@@ -35,10 +35,13 @@ Implemented controls:
   capability in an HTTP-only SameSite cookie. API writes additionally require the exact Host,
   Origin, method, media type, bounded body, and CSRF token. CORS is absent and cross-site fetches are
   rejected.
-- Studio streams uploads to a server-selected opaque run directory, re-runs core SVG sanitization,
-  deletes rejected raw uploads, and never accepts a browser-supplied filesystem path. Inspection and
-  generation use distinct per-run artifact manifests. Downloads map opaque route values to an
-  accepted record artifact rather than resolving a supplied path.
+- Studio streams generation uploads to a server-selected opaque run directory, re-runs core SVG
+  sanitization, and deletes rejected raw uploads. Validate-UI design uploads are bounded and staged
+  under a UUID-scoped `.smart-ui/studio-uploads` directory inside the startup-configured target; core
+  task intake revalidates containment and copies immutable evidence before Studio removes staging.
+  The browser cannot select or widen a filesystem root. Inspection and generation use distinct
+  per-run artifact manifests. Downloads map opaque route values to an accepted record artifact rather
+  than resolving a supplied path.
 - Studio source review uses escaped text spans, accepted previews use a distinct CSP-locked
   ephemeral origin, session/run state expires under retention, and shutdown stops request
   acceptance, cancels work, and closes every preview. Single-run deletion verifies the exact

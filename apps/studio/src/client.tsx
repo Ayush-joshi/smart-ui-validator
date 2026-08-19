@@ -105,9 +105,13 @@ interface RunSummary {
 type Mode = 'exact' | 'hybrid' | 'semantic';
 type Layout = 'fixed' | 'responsive' | 'component';
 type Engine = 'agent' | 'deterministic';
-type Step = 'input' | 'preferences' | 'generate' | 'review';
+type WorkType = 'generate' | 'validate';
+type Step = 'work-type' | 'inputs' | 'boundaries' | 'handoff' | 'review';
+type ContextMode = 'upload' | 'paste';
 type Fit = 'intrinsic' | 'contain' | 'cover' | 'stretch';
 type Alignment = 'start' | 'center' | 'end';
+const defaultImplementationRoute = 'http://127.0.0.1:4173/';
+const defaultImplementationWrites = 'src/App.tsx';
 interface PresentationViewport {
   id: string;
   width: number;
@@ -172,6 +176,43 @@ interface SessionResponse {
   runs: RunSummary[];
   limits: { maxUploadBytes: number; maxDesignContextBytes: number };
   agent: { configured: boolean; transport: 'mcp'; workspace: string; maxImproveRounds: number };
+  handoff: {
+    targetEnabled: boolean;
+    targetRoot: string | null;
+    restartCommand: string | null;
+    tasks: HandoffTaskView[];
+  };
+}
+
+interface HandoffTaskView {
+  taskId: string;
+  taskType: 'generation' | 'validate-ui';
+  taskHash: string;
+  taskFile: string;
+  status: string;
+  revision: number;
+  activeAttempt: number | null;
+  acceptedAttempt: number | null;
+  writableFiles: string[];
+  route: string | null;
+  attempt: null | {
+    number: number;
+    outcome: string;
+    findingCount: number;
+    blockingFindingCount: number;
+    revisionGuidance: string[];
+    generation: null | { visualSimilarityPercent: number | null; reportPath: string | null };
+    implementation: null | {
+      changedFiles: string[];
+      cells: Array<{
+        viewport: string;
+        state: string;
+        classification: string;
+        score: number | null;
+      }>;
+    };
+  };
+  commands: { review: string; status: string; accept: string; cancel: string; mcp: string };
 }
 
 interface SourceFile {
@@ -183,8 +224,13 @@ interface SourceFile {
 export function StudioApp(): ReactNode {
   const [session, setSession] = useState<SessionResponse>();
   const [runs, setRuns] = useState<RunSummary[]>([]);
+  const [handoffTasks, setHandoffTasks] = useState<HandoffTaskView[]>([]);
   const [activeId, setActiveId] = useState<string>();
-  const [step, setStep] = useState<Step>('input');
+  const [activeTaskId, setActiveTaskId] = useState<string>();
+  const [workType, setWorkType] = useState<WorkType>();
+  const [step, setStep] = useState<Step>('work-type');
+  const [contextMode, setContextMode] = useState<ContextMode>('upload');
+  const [contextText, setContextText] = useState('');
   const [engine, setEngine] = useState<Engine>('agent');
   const [mode, setMode] = useState<Mode>('hybrid');
   const [layout, setLayout] = useState<Layout>('responsive');
@@ -204,8 +250,13 @@ export function StudioApp(): ReactNode {
   const [error, setError] = useState<{ message: string; recovery?: string }>();
   const [source, setSource] = useState<SourceFile>();
   const [pendingDesignContext, setPendingDesignContext] = useState<File>();
+  const [implementationDesignFile, setImplementationDesignFile] = useState<File>();
+  const [implementationRoute, setImplementationRoute] = useState(defaultImplementationRoute);
+  const [implementationWrites, setImplementationWrites] = useState(defaultImplementationWrites);
+  const [implementationPresentationPath, setImplementationPresentationPath] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
   const active = runs.find((run) => run.runId === activeId);
+  const activeTask = handoffTasks.find((task) => task.taskId === activeTaskId);
   const cleanupDecisions =
     active?.inspection?.sanitization.decisions.filter((decision) =>
       decision.startsWith('Removed '),
@@ -217,12 +268,8 @@ export function StudioApp(): ReactNode {
       .then((value) => {
         setSession(value);
         setRuns(value.runs);
+        setHandoffTasks(value.handoff.tasks);
         if (!value.agent.configured) setEngine('deterministic');
-        const latest = value.runs.at(-1);
-        if (latest) {
-          setActiveId(latest.runId);
-          setStep(stepFor(latest));
-        }
       })
       .catch(showFailure(setError));
   }, []);
@@ -239,6 +286,112 @@ export function StudioApp(): ReactNode {
     }, 400);
     return () => window.clearInterval(timer);
   }, [active?.phase, active?.runId, session]);
+
+  useEffect(() => {
+    if (!session || handoffTasks.length === 0) return;
+    let disposed = false;
+    const timer = window.setInterval(() => {
+      void api<HandoffTaskView[]>('/api/tasks', session.csrfToken)
+        .then((tasks) => {
+          if (!disposed) setHandoffTasks(tasks);
+        })
+        .catch(showFailure(setError));
+    }, 1_000);
+    return () => {
+      disposed = true;
+      window.clearInterval(timer);
+    };
+  }, [handoffTasks.length, session]);
+
+  async function decideTask(task: HandoffTaskView, action: 'accept' | 'cancel'): Promise<void> {
+    if (!session || (action === 'accept' && !task.activeAttempt)) return;
+    const updated = await api<HandoffTaskView>(
+      `/api/tasks/${task.taskId}/decision`,
+      session.csrfToken,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action, attempt: task.activeAttempt ?? 1 }),
+      },
+    );
+    setHandoffTasks((current) =>
+      current.map((item) => (item.taskId === updated.taskId ? updated : item)),
+    );
+  }
+
+  async function unregisterTask(task: HandoffTaskView): Promise<void> {
+    if (!session) return;
+    await api(`/api/tasks/${task.taskId}`, session.csrfToken, { method: 'DELETE' });
+    setHandoffTasks((current) => current.filter((item) => item.taskId !== task.taskId));
+    if (activeTaskId === task.taskId) {
+      setActiveTaskId(undefined);
+      setWorkType(undefined);
+      setStep('work-type');
+    }
+  }
+
+  async function prepareImplementationHandoff(): Promise<void> {
+    if (!session?.handoff.targetEnabled || !implementationDesignFile) return;
+    setBusy(true);
+    setError(undefined);
+    try {
+      const lowerName = implementationDesignFile.name.toLowerCase();
+      if (!lowerName.endsWith('.svg') && !lowerName.endsWith('.png')) {
+        throw new Error('Choose one .svg or .png file.');
+      }
+      if (implementationDesignFile.size > session.limits.maxUploadBytes) {
+        throw new Error(
+          `Design reference exceeds the ${formatBytes(session.limits.maxUploadBytes)} limit.`,
+        );
+      }
+      const uploadedDesign = await api<{ designPath: string }>(
+        '/api/tasks/validate-ui/design',
+        session.csrfToken,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': lowerName.endsWith('.png') ? 'image/png' : 'image/svg+xml',
+            'X-Smart-UI-Filename': implementationDesignFile.name,
+          },
+          body: implementationDesignFile,
+        },
+      );
+      const uploadedContext =
+        contextMode === 'upload' && pendingDesignContext
+          ? await pendingDesignContext.text()
+          : contextText;
+      if (uploadedContext.length > 4_000) {
+        throw new Error('Validate UI context must be 4,000 characters or fewer.');
+      }
+      const task = await api<HandoffTaskView>('/api/tasks/validate-ui', session.csrfToken, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          designPath: uploadedDesign.designPath,
+          route: implementationRoute.trim(),
+          writableFiles: implementationWrites
+            .split(/\r?\n/u)
+            .map((value) => value.trim())
+            .filter(Boolean),
+          ...(implementationPresentationPath.trim()
+            ? { presentationPath: implementationPresentationPath.trim() }
+            : {}),
+          ...(uploadedContext.trim() ? { instructions: uploadedContext.trim() } : {}),
+        }),
+      });
+      setHandoffTasks((current) => [
+        ...current.filter((item) => item.taskId !== task.taskId),
+        task,
+      ]);
+      setActiveTaskId(task.taskId);
+      setImplementationDesignFile(undefined);
+      setStep('handoff');
+    } catch (value) {
+      showFailure(setError)(value);
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function upload(file: File): Promise<void> {
     if (!session) return;
@@ -266,9 +419,13 @@ export function StudioApp(): ReactNode {
       setMode(engine === 'agent' ? 'semantic' : (run.inspection?.recommendedModes[0] ?? 'hybrid'));
       setCanvasWidth(run.inspection?.width ?? 1);
       setCanvasHeight(run.inspection?.height ?? 1);
-      setStep('preferences');
-      if (pendingDesignContext) {
-        if (pendingDesignContext.size > session.limits.maxDesignContextBytes) {
+      setStep('boundaries');
+      const designContext =
+        contextMode === 'paste' && contextText.trim()
+          ? new File([contextText], 'pasted-design-context.txt', { type: 'text/plain' })
+          : pendingDesignContext;
+      if (designContext) {
+        if (designContext.size > session.limits.maxDesignContextBytes) {
           throw new Error(
             `Design context exceeds the ${formatBytes(session.limits.maxDesignContextBytes)} limit.`,
           );
@@ -280,10 +437,10 @@ export function StudioApp(): ReactNode {
             method: 'PUT',
             headers: {
               'Content-Type': 'application/octet-stream',
-              'X-Smart-UI-Filename': pendingDesignContext.name,
-              'X-Smart-UI-Context-Type': pendingDesignContext.type || 'text/plain',
+              'X-Smart-UI-Filename': designContext.name,
+              'X-Smart-UI-Context-Type': designContext.type || 'text/plain',
             },
-            body: pendingDesignContext,
+            body: designContext,
           },
         );
         setRuns((current) => replaceRun(current, preparedRun));
@@ -301,10 +458,62 @@ export function StudioApp(): ReactNode {
     setBusy(true);
     setError(undefined);
     try {
-      const sourceWidth = active.inspection?.width ?? canvasWidth;
-      const sourceHeight = active.inspection?.height ?? canvasHeight;
-      const presentationSpec: PresentationSpec = {
-        schemaVersion: '1.0',
+      const run = await api<RunSummary>(`/api/runs/${active.runId}/generate`, session.csrfToken, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(currentPreferences()),
+      });
+      setRuns((current) => replaceRun(current, run));
+      setStep('handoff');
+    } catch (value) {
+      showFailure(setError)(value);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function prepareHandoff(): Promise<void> {
+    if (!session || !active) return;
+    setBusy(true);
+    setError(undefined);
+    try {
+      const task = await api<HandoffTaskView>(
+        `/api/runs/${active.runId}/handoff`,
+        session.csrfToken,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(currentPreferences()),
+        },
+      );
+      setHandoffTasks((current) => [
+        ...current.filter((item) => item.taskId !== task.taskId),
+        task,
+      ]);
+      setActiveTaskId(task.taskId);
+      setStep('handoff');
+    } catch (value) {
+      showFailure(setError)(value);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function currentPreferences() {
+    const sourceWidth = active?.inspection?.width ?? canvasWidth;
+    const sourceHeight = active?.inspection?.height ?? canvasHeight;
+    return {
+      engine,
+      mode,
+      layout,
+      improve,
+      ...(instructions.trim() ? { instructions } : {}),
+      structuredDesignContext: {
+        ...structuredContext,
+        ...(instructions.trim() ? { generalNotes: instructions } : {}),
+      },
+      presentationSpec: {
+        schemaVersion: '1.0' as const,
         primaryCanvas: {
           id: customCanvas ? 'primary' : 'source',
           width: customCanvas ? canvasWidth : sourceWidth,
@@ -315,30 +524,8 @@ export function StudioApp(): ReactNode {
         horizontalAlignment: customCanvas ? horizontalAlignment : 'start',
         verticalAlignment: customCanvas ? verticalAlignment : 'start',
         viewports: validationViewports,
-      };
-      const run = await api<RunSummary>(`/api/runs/${active.runId}/generate`, session.csrfToken, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          engine,
-          mode,
-          layout,
-          improve,
-          ...(instructions.trim() ? { instructions } : {}),
-          structuredDesignContext: {
-            ...structuredContext,
-            ...(instructions.trim() ? { generalNotes: instructions } : {}),
-          },
-          presentationSpec,
-        }),
-      });
-      setRuns((current) => replaceRun(current, run));
-      setStep('generate');
-    } catch (value) {
-      showFailure(setError)(value);
-    } finally {
-      setBusy(false);
-    }
+      },
+    };
   }
 
   async function uploadDesignContext(file: File): Promise<void> {
@@ -390,7 +577,7 @@ export function StudioApp(): ReactNode {
       setSource(undefined);
       if (action === 'improve') {
         setFeedback('');
-        setStep('generate');
+        setStep('handoff');
       }
     } catch (value) {
       showFailure(setError)(value);
@@ -426,9 +613,33 @@ export function StudioApp(): ReactNode {
       .catch(showFailure(setError));
   }
 
-  function newRun(): void {
+  async function clearLocalHistory(): Promise<void> {
+    if (
+      !session ||
+      !window.confirm(
+        'Delete all local Studio runs and remove task associations from Studio? Target repository files and task files will remain intact.',
+      )
+    )
+      return;
+    setBusy(true);
+    setError(undefined);
+    try {
+      await api('/api/work', session.csrfToken, { method: 'DELETE' });
+      setRuns([]);
+      setHandoffTasks([]);
+      newRun(true);
+    } catch (value) {
+      showFailure(setError)(value);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function newRun(resetWorkType = false): void {
     setActiveId(undefined);
-    setStep('input');
+    setActiveTaskId(undefined);
+    if (resetWorkType) setWorkType(undefined);
+    setStep(resetWorkType ? 'work-type' : 'inputs');
     setEngine(session?.agent.configured ? 'agent' : 'deterministic');
     setMode('hybrid');
     setLayout('responsive');
@@ -446,6 +657,12 @@ export function StudioApp(): ReactNode {
     setFeedback('');
     setSource(undefined);
     setPendingDesignContext(undefined);
+    setImplementationDesignFile(undefined);
+    setImplementationRoute(defaultImplementationRoute);
+    setImplementationWrites(defaultImplementationWrites);
+    setContextMode('upload');
+    setContextText('');
+    setImplementationPresentationPath('');
     setError(undefined);
     if (inputRef.current) inputRef.current.value = '';
   }
@@ -454,28 +671,37 @@ export function StudioApp(): ReactNode {
     <div className="shell">
       <header className="topbar">
         <div>
-          <p className="eyebrow">Local-only SVG / PNG generation</p>
+          <p className="eyebrow">Local UI engineering workspace</p>
           <h1>Smart UI Studio</h1>
         </div>
         <div className="top-actions">
           <span className="local-badge">127.0.0.1 · telemetry off</span>
-          {active && <button onClick={newRun}>New run</button>}
+          <button disabled={busy} onClick={() => newRun(true)}>
+            Reset workflow
+          </button>
         </div>
       </header>
 
-      <nav className="steps" aria-label="Generation steps">
-        {(['input', 'preferences', 'generate', 'review'] as Step[]).map((item, index) => (
-          <button
-            key={item}
-            className={step === item ? 'active' : ''}
-            disabled={!canVisit(item, active)}
-            aria-current={step === item ? 'step' : undefined}
-            onClick={() => setStep(item)}
-          >
-            <span>{index + 1}</span> {title(item)}
-          </button>
-        ))}
-      </nav>
+      {workType && (
+        <nav className="steps" aria-label="Studio workflow steps">
+          {(['work-type', 'inputs', 'boundaries', 'handoff', 'review'] as Step[]).map(
+            (item, index) => (
+              <button
+                key={item}
+                className={step === item ? 'active' : ''}
+                disabled={!canVisit(item, workType, active, activeTask)}
+                aria-current={step === item ? 'step' : undefined}
+                onClick={() => {
+                  if (shouldResetWorkflow(item)) newRun(true);
+                  else setStep(item);
+                }}
+              >
+                <span>{index + 1}</span> {title(item)}
+              </button>
+            ),
+          )}
+        </nav>
+      )}
 
       {error && (
         <div className="alert" role="alert">
@@ -485,66 +711,121 @@ export function StudioApp(): ReactNode {
       )}
 
       <main>
-        {step === 'input' && (
+        {step === 'work-type' && (
+          <section className="work-picker" aria-labelledby="work-type-title">
+            <p className="eyebrow">Start a workflow</p>
+            <h2 id="work-type-title">What are you working on?</h2>
+            <p className="lede">Choose a work type. Both follow the same bounded review flow.</p>
+            <div className="work-type-grid">
+              <button
+                className="work-type-card"
+                onClick={() => {
+                  setWorkType('generate');
+                  setStep('inputs');
+                }}
+              >
+                <span className="work-type-mark">01</span>
+                <strong>Generate UI</strong>
+                <span>
+                  Create a standalone, offline HTML and CSS bundle from SVG or PNG evidence.
+                </span>
+                <small>Available</small>
+              </button>
+              <button
+                className="work-type-card"
+                disabled={!session?.handoff.targetEnabled}
+                onClick={() => {
+                  setWorkType('validate');
+                  setStep('inputs');
+                }}
+              >
+                <span className="work-type-mark">02</span>
+                <strong>Validate UI</strong>
+                <span>
+                  Implement or review exact files in the configured React or Angular target.
+                </span>
+                <small>{session?.handoff.targetEnabled ? 'Available' : 'Target required'}</small>
+              </button>
+            </div>
+            {!session?.handoff.targetEnabled && session?.handoff.restartCommand && (
+              <div className="restart-note">
+                <strong>Validate UI is unavailable.</strong>
+                <span>Restart Studio with an explicit target:</span>
+                <code>{session.handoff.restartCommand}</code>
+              </div>
+            )}
+            {hasRecentWork(runs.length, handoffTasks.length) && (
+              <div className="recent-work">
+                <div className="editor-heading">
+                  <h3>Recent work</h3>
+                  <button disabled={busy} onClick={() => void clearLocalHistory()}>
+                    Clear local history
+                  </button>
+                </div>
+                <div className="recent-work-list">
+                  {runs.map((run) => (
+                    <button
+                      key={run.runId}
+                      onClick={() => {
+                        setWorkType('generate');
+                        setActiveId(run.runId);
+                        setStep(stepFor(run));
+                      }}
+                    >
+                      <span>
+                        <strong>{run.filename}</strong>
+                        <small>Generate UI</small>
+                      </span>
+                      <span className="status-pill">{run.phase}</span>
+                    </button>
+                  ))}
+                  {handoffTasks.map((task) => (
+                    <button
+                      key={task.taskId}
+                      onClick={() => {
+                        setWorkType(task.taskType === 'generation' ? 'generate' : 'validate');
+                        setActiveTaskId(task.taskId);
+                        setStep(task.attempt ? 'review' : 'handoff');
+                      }}
+                    >
+                      <span>
+                        <strong>{task.taskId}</strong>
+                        <small>{task.taskType}</small>
+                      </span>
+                      <span className="status-pill">{task.status}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </section>
+        )}
+
+        {step === 'inputs' && workType === 'generate' && (
           <section className="panel input-panel" aria-labelledby="input-title">
-            <p className="eyebrow">Step 1</p>
+            <p className="eyebrow">Step 2 · Inputs</p>
             <h2 id="input-title">Choose design inputs</h2>
             <p className="lede">
               Add the required SVG or PNG reference and, when available, its accompanying design
               context. With the agent engine, both are passed to the authoring agent.
             </p>
-            <div className="input-file-grid">
-              <label
-                className="dropzone"
-                onDragOver={(event) => event.preventDefault()}
-                onDrop={(event) => {
-                  event.preventDefault();
-                  const file = event.dataTransfer.files[0];
-                  if (file) void upload(file);
-                }}
-              >
-                <input
-                  ref={inputRef}
-                  type="file"
-                  accept="image/svg+xml,image/png,.svg,.png"
-                  disabled={busy || !session}
-                  onChange={(event) => {
-                    const file = event.target.files?.[0];
-                    if (file) void upload(file);
-                  }}
-                />
-                <small>Required</small>
-                <strong>{busy ? 'Inspecting safely…' : 'Choose or drop an SVG or PNG'}</strong>
-                <span>
-                  Maximum {session ? formatBytes(session.limits.maxUploadBytes) : 'loading…'} · PNG
-                  is verified as bounded raster evidence
-                </span>
-              </label>
-              <label
-                className="dropzone context-dropzone"
-                onDragOver={(event) => event.preventDefault()}
-                onDrop={(event) => {
-                  event.preventDefault();
-                  const file = event.dataTransfer.files[0];
-                  if (file) setPendingDesignContext(file);
-                }}
-              >
-                <input
-                  type="file"
-                  disabled={busy || !session}
-                  onChange={(event) => {
-                    const file = event.target.files?.[0];
-                    if (file) setPendingDesignContext(file);
-                  }}
-                />
-                <small>Optional</small>
-                <strong>{pendingDesignContext?.name ?? 'Choose or drop design context'}</strong>
-                <span>
-                  JSX, TSX, HTML, CSS, JSON, Markdown, or other UTF-8 text · maximum{' '}
-                  {session ? formatBytes(session.limits.maxDesignContextBytes) : 'loading…'}
-                </span>
-              </label>
+            <div className="input-file-grid single-reference">
+              <DesignReferenceInput
+                inputRef={inputRef}
+                busy={busy}
+                maxBytes={session?.limits.maxUploadBytes}
+                onFile={(file) => void upload(file)}
+              />
             </div>
+            <ContextInput
+              mode={contextMode}
+              file={pendingDesignContext}
+              text={contextText}
+              maxBytes={session?.limits.maxDesignContextBytes}
+              onMode={setContextMode}
+              onFile={setPendingDesignContext}
+              onText={setContextText}
+            />
             {runs.length > 0 && (
               <div className="recent">
                 <h3>Previous local runs</h3>
@@ -565,7 +846,40 @@ export function StudioApp(): ReactNode {
           </section>
         )}
 
-        {step === 'preferences' && active?.inspection && (
+        {step === 'inputs' && workType === 'validate' && (
+          <section className="panel form-panel" aria-labelledby="validate-input-title">
+            <p className="eyebrow">Step 2 · Inputs</p>
+            <h2 id="validate-input-title">Choose validation evidence</h2>
+            <div className="input-file-grid single-reference">
+              <DesignReferenceInput
+                file={implementationDesignFile}
+                busy={busy}
+                maxBytes={session?.limits.maxUploadBytes}
+                onFile={setImplementationDesignFile}
+              />
+            </div>
+            <ContextInput
+              mode={contextMode}
+              file={pendingDesignContext}
+              text={contextText}
+              maxBytes={4_000}
+              onMode={setContextMode}
+              onFile={setPendingDesignContext}
+              onText={setContextText}
+            />
+            <div className="sticky-actions">
+              <button
+                className="primary"
+                disabled={!implementationDesignFile}
+                onClick={() => setStep('boundaries')}
+              >
+                Continue to boundaries
+              </button>
+            </div>
+          </section>
+        )}
+
+        {step === 'boundaries' && workType === 'generate' && active?.inspection && (
           <section className="panel" aria-labelledby="preferences-title">
             <div className="summary-strip">
               <div>
@@ -626,7 +940,7 @@ export function StudioApp(): ReactNode {
                 </div>
               </dl>
             </details>
-            <p className="eyebrow">Step 2</p>
+            <p className="eyebrow">Step 3 · Preferences and boundaries</p>
             <h2 id="preferences-title">Set implementation preferences</h2>
             <DesignContextFileEditor
               context={active.designContext}
@@ -761,16 +1075,98 @@ export function StudioApp(): ReactNode {
               </label>
             )}
             <div className="actions">
-              <button className="primary" disabled={busy} onClick={() => void generate()}>
-                {engine === 'agent' ? 'Generate with AI agent' : 'Generate offline bundle'}
+              <button className="primary" disabled={busy} onClick={() => setStep('handoff')}>
+                Continue to handoff
               </button>
             </div>
           </section>
         )}
 
-        {step === 'generate' && active && (
+        {step === 'boundaries' && workType === 'validate' && (
+          <section className="panel form-panel" aria-labelledby="validate-boundaries-title">
+            <p className="eyebrow">Step 3 · Preferences and boundaries</p>
+            <h2 id="validate-boundaries-title">Set the exact implementation boundary</h2>
+            <BoundarySummary target={session?.handoff.targetRoot ?? null} />
+            <label className="field-block">
+              <span>
+                Already-running route <small>required</small>
+              </span>
+              <input
+                type="url"
+                value={implementationRoute}
+                onChange={(event) => setImplementationRoute(event.target.value)}
+              />
+            </label>
+            <label className="field-block">
+              <span>
+                Exact writable files <small>required · one target-relative file per line</small>
+              </span>
+              <textarea
+                value={implementationWrites}
+                onChange={(event) => setImplementationWrites(event.target.value)}
+              />
+            </label>
+            <label className="field-block">
+              <span>
+                Presentation matrix file <small>optional · target-relative JSON</small>
+              </span>
+              <input
+                value={implementationPresentationPath}
+                onChange={(event) => setImplementationPresentationPath(event.target.value)}
+                placeholder="smart-ui.presentation.json"
+              />
+            </label>
+            <p className="field-help">
+              Viewports come from the optional presentation file and configured target viewports;
+              interaction states remain governed by the target Smart UI configuration.
+            </p>
+            <div className="sticky-actions">
+              <button
+                className="primary"
+                disabled={busy || !implementationRoute.trim() || !implementationWrites.trim()}
+                onClick={() => void prepareImplementationHandoff()}
+              >
+                Prepare bounded task
+              </button>
+            </div>
+          </section>
+        )}
+
+        {step === 'handoff' && workType === 'generate' && active?.phase === 'inspected' && (
+          <section className="panel handoff-panel" aria-labelledby="generation-handoff-title">
+            <p className="eyebrow">Step 4 · Handoff</p>
+            <h2 id="generation-handoff-title">Choose how to continue</h2>
+            <p className="lede">Both methods use this run and converge on deterministic review.</p>
+            <div className="continuation-grid">
+              <article>
+                <small>Connected</small>
+                <h3>Connected MCP agent</h3>
+                <p>Author through the configured MCP agent and keep this tab open for progress.</p>
+                <button className="primary" disabled={busy} onClick={() => void generate()}>
+                  {engine === 'agent' ? 'Continue with MCP agent' : 'Run deterministic generator'}
+                </button>
+              </article>
+              <article>
+                <small>Portable</small>
+                <h3>External agent or human</h3>
+                <p>
+                  Create a persistent task with bounded evidence, instructions, and review commands.
+                </p>
+                <button disabled={busy} onClick={() => void prepareHandoff()}>
+                  Prepare external handoff
+                </button>
+              </article>
+            </div>
+          </section>
+        )}
+
+        {step === 'handoff' && activeTask && (
+          <TaskHandoff task={activeTask} onReview={() => setStep('review')} />
+        )}
+
+        {step === 'handoff' && workType === 'generate' && active && isRunning(active.phase) && (
           <section className="panel progress-panel" aria-labelledby="generate-title">
-            <p className="eyebrow">Step 3</p>
+            <p className="eyebrow">Step 4 · Handoff</p>
             <h2 id="generate-title">Building and measuring</h2>
             <div
               className="progress-ring"
@@ -831,7 +1227,7 @@ export function StudioApp(): ReactNode {
           </section>
         )}
 
-        {step === 'review' && active && (
+        {step === 'review' && workType === 'generate' && active && !activeTask && (
           <Review
             run={active}
             source={source}
@@ -843,11 +1239,331 @@ export function StudioApp(): ReactNode {
             onDelete={removeRun}
           />
         )}
+        {step === 'review' && activeTask && (
+          <TaskReview
+            task={activeTask}
+            busy={busy}
+            onAccept={() => void decideTask(activeTask, 'accept')}
+            onRevise={() => setStep('handoff')}
+            onCancel={() => void decideTask(activeTask, 'cancel')}
+            onRemove={() => void unregisterTask(activeTask)}
+          />
+        )}
       </main>
       <footer>
         Runs remain plaintext in the dedicated local workspace until deleted or expired.
       </footer>
     </div>
+  );
+}
+
+export function DesignReferenceInput({
+  file,
+  busy,
+  maxBytes,
+  inputRef,
+  onFile,
+}: {
+  file?: File | undefined;
+  busy: boolean;
+  maxBytes?: number | undefined;
+  inputRef?: React.RefObject<HTMLInputElement | null> | undefined;
+  onFile(file: File): void;
+}): ReactNode {
+  return (
+    <label
+      className="dropzone"
+      onDragOver={(event) => event.preventDefault()}
+      onDrop={(event) => {
+        event.preventDefault();
+        const dropped = event.dataTransfer.files[0];
+        if (dropped) onFile(dropped);
+      }}
+    >
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/svg+xml,image/png,.svg,.png"
+        disabled={busy || maxBytes === undefined}
+        onChange={(event) => {
+          const selected = event.target.files?.[0];
+          if (selected) onFile(selected);
+        }}
+      />
+      <small>Required</small>
+      <strong>
+        {busy ? 'Inspecting safely…' : (file?.name ?? 'Choose or drop an SVG or PNG')}
+      </strong>
+      <span>Maximum {maxBytes ? formatBytes(maxBytes) : 'loading…'}</span>
+    </label>
+  );
+}
+
+function ContextInput({
+  mode,
+  file,
+  text,
+  maxBytes,
+  onMode,
+  onFile,
+  onText,
+}: {
+  mode: ContextMode;
+  file: File | undefined;
+  text: string;
+  maxBytes: number | undefined;
+  onMode(value: ContextMode): void;
+  onFile(value: File | undefined): void;
+  onText(value: string): void;
+}): ReactNode {
+  return (
+    <fieldset className="context-input">
+      <legend>
+        Design context <small>optional</small>
+      </legend>
+      <div className="segmented" aria-label="Design context source">
+        <button
+          type="button"
+          className={mode === 'upload' ? 'active' : ''}
+          onClick={() => onMode('upload')}
+        >
+          Upload
+        </button>
+        <button
+          type="button"
+          className={mode === 'paste' ? 'active' : ''}
+          onClick={() => onMode('paste')}
+        >
+          Paste or type
+        </button>
+      </div>
+      {mode === 'upload' ? (
+        <label
+          className="dropzone"
+          onDragOver={(event) => event.preventDefault()}
+          onDrop={(event) => {
+            event.preventDefault();
+            onFile(event.dataTransfer.files[0]);
+          }}
+        >
+          <input type="file" onChange={(event) => onFile(event.target.files?.[0])} />
+          <small>Optional</small>
+          <strong>{file?.name ?? 'Choose or drop design context'}</strong>
+          <span>UTF-8 text file · maximum {maxBytes ? formatBytes(maxBytes) : 'loading…'}</span>
+        </label>
+      ) : (
+        <label className="field-block">
+          <span>
+            Context <small>{text.length} characters</small>
+          </span>
+          <textarea
+            value={text}
+            maxLength={maxBytes}
+            onChange={(event) => onText(event.target.value)}
+            placeholder="Exact copy, components, interactions, tokens, or implementation constraints"
+          />
+        </label>
+      )}
+    </fieldset>
+  );
+}
+
+function BoundarySummary({ target }: { target: string | null }): ReactNode {
+  return (
+    <div className="boundary-summary">
+      <span>Configured target</span>
+      <code>{target ?? 'No target configured'}</code>
+      <small>Read-only here. Every writable path is revalidated by the server.</small>
+    </div>
+  );
+}
+
+function TaskHandoff({ task, onReview }: { task: HandoffTaskView; onReview(): void }): ReactNode {
+  return (
+    <section className="panel handoff-panel" aria-labelledby="task-handoff-title">
+      <p className="eyebrow">Step 4 · Handoff</p>
+      <div className="review-header">
+        <div>
+          <h2 id="task-handoff-title">Choose how to continue</h2>
+          <p className="lede">
+            Task {task.taskId} is persistent and both methods converge on the same review.
+          </p>
+        </div>
+        <span className="status-pill">{task.status}</span>
+      </div>
+      <div className="continuation-grid">
+        <article>
+          <small>Connected</small>
+          <h3>Connected MCP agent</h3>
+          <p>Use the task-backed MCP instructions with the configured agent.</p>
+          <CommandBlock value={task.commands.mcp} label="MCP instructions" />
+        </article>
+        <article>
+          <small>Portable</small>
+          <h3>External agent or human</h3>
+          <p>Use the evidence, exact writable paths, and review command outside Studio.</p>
+          <CommandBlock value={task.commands.review} label="Review command" />
+        </article>
+      </div>
+      <div className="boundary-summary">
+        <span>Exact writable files</span>
+        <code>
+          {task.writableFiles.length ? task.writableFiles.join('\n') : 'Standalone bundle only'}
+        </code>
+        {task.route && <small>Running route: {task.route}</small>}
+      </div>
+      <div className="sticky-actions">
+        <button className="primary" disabled={!task.attempt} onClick={onReview}>
+          {task.attempt ? `Review attempt ${task.attempt.number}` : 'Waiting for first attempt'}
+        </button>
+      </div>
+    </section>
+  );
+}
+
+function CommandBlock({ value, label }: { value: string; label: string }): ReactNode {
+  return (
+    <div className="command-block">
+      <span>{label}</span>
+      <pre>
+        <code>{value}</code>
+      </pre>
+      <button type="button" onClick={() => void navigator.clipboard.writeText(value)}>
+        Copy
+      </button>
+    </div>
+  );
+}
+
+function TaskReview({
+  task,
+  busy,
+  onAccept,
+  onRevise,
+  onCancel,
+  onRemove,
+}: {
+  task: HandoffTaskView;
+  busy: boolean;
+  onAccept(): void;
+  onRevise(): void;
+  onCancel(): void;
+  onRemove(): void;
+}): ReactNode {
+  const attempt = task.attempt;
+  return (
+    <section className="review task-review-screen" aria-labelledby="task-review-title">
+      <div className="review-header">
+        <div>
+          <p className="eyebrow">Step 5 · Review</p>
+          <h2 id="task-review-title">Review verified attempt</h2>
+          <p>
+            {task.taskId} · revision {task.revision}
+          </p>
+        </div>
+        <span className="status-pill">{task.status}</span>
+      </div>
+      {!attempt ? (
+        <div className="panel">
+          <h3>No verified attempt yet</h3>
+          <p className="muted">
+            Continue from Handoff after the implementation is ready for deterministic review.
+          </p>
+        </div>
+      ) : (
+        <>
+          <div className="metrics">
+            <Metric label="Attempt" value={String(attempt.number)} />
+            <Metric label="Outcome" value={attempt.outcome} />
+            <Metric label="Findings" value={String(attempt.findingCount)} />
+            <Metric label="Blocking" value={String(attempt.blockingFindingCount)} />
+          </div>
+          {attempt.generation && (
+            <div className="panel inset">
+              <h3>Generation fidelity</h3>
+              <p className="score-value">
+                {attempt.generation.visualSimilarityPercent === null
+                  ? 'Not scored'
+                  : `${attempt.generation.visualSimilarityPercent.toFixed(3)}%`}
+              </p>
+              {attempt.generation.reportPath && <code>{attempt.generation.reportPath}</code>}
+            </div>
+          )}
+          {attempt.implementation && (
+            <div className="review-grid">
+              <div className="panel inset">
+                <h3>Viewport and state evidence</h3>
+                <div className="cell-grid">
+                  {attempt.implementation.cells.map((cell) => (
+                    <div className="evidence-cell" key={`${cell.viewport}-${cell.state}`}>
+                      <strong>
+                        {cell.viewport} · {cell.state}
+                      </strong>
+                      <span>{cell.classification}</span>
+                      <small>
+                        {cell.score === null
+                          ? 'Not scored · robustness only'
+                          : `${cell.score.toFixed(3)}% fidelity`}
+                      </small>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div className="panel inset">
+                <h3>Changed allowlisted files</h3>
+                {attempt.implementation.changedFiles.length ? (
+                  attempt.implementation.changedFiles.map((file) => (
+                    <code className="path-row" key={file}>
+                      {file}
+                    </code>
+                  ))
+                ) : (
+                  <p className="muted">No changed files reported.</p>
+                )}
+              </div>
+            </div>
+          )}
+          {attempt.revisionGuidance.length > 0 && (
+            <div className="panel inset">
+              <h3>Revision guidance</h3>
+              <ul>
+                {attempt.revisionGuidance.map((item) => (
+                  <li key={item}>{item}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </>
+      )}
+      <div className="decision-bar">
+        <button
+          className="primary"
+          disabled={busy || !attempt || task.status !== 'awaiting-decision'}
+          onClick={onAccept}
+        >
+          Accept
+        </button>
+        <button
+          disabled={busy || ['accepted', 'canceled'].includes(task.status)}
+          onClick={onRevise}
+        >
+          Revise
+        </button>
+        <button
+          className="danger"
+          disabled={busy || ['accepted', 'canceled'].includes(task.status)}
+          onClick={onCancel}
+        >
+          Cancel
+        </button>
+        <button disabled={busy} onClick={onRemove}>
+          Remove from Studio
+        </button>
+        <small>
+          Removal unregisters this task from Studio; task and repository files remain intact.
+        </small>
+      </div>
+    </section>
   );
 }
 
@@ -1582,7 +2298,7 @@ export function Review({
   if (run.phase === 'canceled' || !result) {
     return (
       <section className="panel">
-        <p className="eyebrow">Step 4</p>
+        <p className="eyebrow">Step 5 · Review</p>
         <h2>{run.phase === 'canceled' ? 'Generation canceled' : 'Generation did not complete'}</h2>
         <p>{run.error?.message ?? run.progress.message}</p>
         {run.error?.recovery && <p>{run.error.recovery}</p>}
@@ -1604,7 +2320,7 @@ export function Review({
       )}
       <div className="review-header">
         <div>
-          <p className="eyebrow">Step 4</p>
+          <p className="eyebrow">Step 5 · Review</p>
           <h2 id="review-title">Review deterministic evidence</h2>
           <p>
             {run.filename} · {result.requestedMode}
@@ -1923,25 +2639,34 @@ function replaceRun(runs: RunSummary[], run: RunSummary): RunSummary[] {
   return runs.map((item) => (item.runId === run.runId ? run : item));
 }
 function stepFor(run: RunSummary): Step {
-  return run.phase === 'inspected' ? 'preferences' : isRunning(run.phase) ? 'generate' : 'review';
+  return run.phase === 'inspected' ? 'boundaries' : isRunning(run.phase) ? 'handoff' : 'review';
 }
 function isRunning(phase: Phase | undefined): boolean {
   return (
     phase === 'generating' || phase === 'awaiting-agent' || phase === 'awaiting-agent-revision'
   );
 }
-function canVisit(step: Step, run: RunSummary | undefined): boolean {
-  return (
-    step === 'input' ||
-    Boolean(
-      run &&
-        (step === 'preferences'
-          ? run.phase === 'inspected'
-          : step === 'generate'
-            ? isRunning(run.phase)
-            : run.phase !== 'inspected'),
-    )
-  );
+export function shouldResetWorkflow(step: Step): boolean {
+  return step === 'work-type';
+}
+export function hasRecentWork(runCount: number, taskCount: number): boolean {
+  return runCount > 0 || taskCount > 0;
+}
+function canVisit(
+  step: Step,
+  workType: WorkType,
+  run: RunSummary | undefined,
+  task: HandoffTaskView | undefined,
+): boolean {
+  if (step === 'work-type' || step === 'inputs') return true;
+  if (workType === 'validate') {
+    if (step === 'boundaries') return true;
+    if (step === 'handoff') return Boolean(task);
+    return Boolean(task?.attempt);
+  }
+  if (step === 'boundaries') return run?.phase === 'inspected';
+  if (step === 'handoff') return Boolean(run);
+  return Boolean(run && run.phase !== 'inspected' && !isRunning(run.phase));
 }
 function title(value: string): string {
   return value ? value[0]!.toUpperCase() + value.slice(1).replaceAll('-', ' ') : value;

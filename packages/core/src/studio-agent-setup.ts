@@ -43,6 +43,7 @@ export interface StudioAgentSetupOptions {
   hostConfigPath: string;
   expectedHostConfig: string;
   sourcePaths?: string[];
+  studioSourcePaths?: string[];
   skipChromiumProbe?: boolean;
 }
 
@@ -70,7 +71,7 @@ export async function runStudioAgentSetupChecks(
   const rootCheck = await checkMcpRoot(options.mcpRoot, options.workspaceRoot);
   checks.push(rootCheck);
   checks.push(await checkMcpBuild(options.mcpEntryPath, options.sourcePaths));
-  checks.push(await checkStudioAssets(options.studioAssetsRoot));
+  checks.push(await checkStudioAssets(options.studioAssetsRoot, options.studioSourcePaths));
   checks.push(await checkWorkspace(options.workspaceRoot, rootCheck.status === 'pass'));
   checks.push(await checkHostConfig(options));
   checks.push(await checkLoopback());
@@ -194,7 +195,10 @@ async function checkMcpBuild(
   };
 }
 
-async function checkStudioAssets(root: string): Promise<StudioAgentSetupCheck> {
+async function checkStudioAssets(
+  root: string,
+  sourcePaths?: string[],
+): Promise<StudioAgentSetupCheck> {
   const index = await stat(join(root, 'index.html')).catch(() => undefined);
   const assets = await readdir(join(root, 'assets')).catch(() => []);
   if (!index?.isFile() || !assets.some((name) => name.endsWith('.js'))) {
@@ -204,6 +208,23 @@ async function checkStudioAssets(root: string): Promise<StudioAgentSetupCheck> {
       message: 'Bundled Studio assets are missing or incomplete.',
       recovery: 'Rerun with --ensure-engine to rebuild the Studio assets.',
     };
+  }
+  if (sourcePaths && sourcePaths.length > 0) {
+    const newestSource = Math.max(...(await Promise.all(sourcePaths.map(newestModifiedTime))));
+    const newestAsset = Math.max(
+      index.mtimeMs,
+      ...(await Promise.all(
+        assets.map((name) => stat(join(root, 'assets', name)).then((item) => item.mtimeMs)),
+      )),
+    );
+    if (newestAsset < newestSource) {
+      return {
+        name: 'studio-assets',
+        status: 'fail',
+        message: 'Bundled Studio assets are older than their source.',
+        recovery: 'Rerun with --ensure-engine to rebuild the Studio assets.',
+      };
+    }
   }
   return { name: 'studio-assets', status: 'pass', message: 'Bundled Studio assets are present.' };
 }

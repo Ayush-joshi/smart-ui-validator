@@ -3,22 +3,61 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 import {
   CanvasEditor,
+  DesignReferenceInput,
   DesignContextFileEditor,
+  hasRecentWork,
   Review,
+  shouldResetWorkflow,
   StructuredContextEditor,
   StudioApp,
 } from '../apps/studio/src/client.js';
 
 describe('Studio frontend components', () => {
-  it('renders an accessible four-step local upload workflow', () => {
+  it('opens with accessible Generate UI and Validate UI work choices', () => {
     const html = renderToStaticMarkup(createElement(StudioApp));
     expect(html).toContain('Smart UI Studio');
-    expect(html).toContain('aria-label="Generation steps"');
-    expect(html).toContain('Choose or drop an SVG or PNG');
-    expect(html).toContain('accept="image/svg+xml,image/png,.svg,.png"');
-    expect(html).toContain('Choose or drop design context');
+    expect(html).toContain('What are you working on?');
+    expect(html).toContain('Generate UI');
+    expect(html).toContain('Validate UI');
+    expect(html).toContain('Target required');
+    expect(html).not.toContain('aria-label="Studio workflow steps"');
     expect(html).toContain('telemetry off');
+    expect(html).toContain('Reset workflow');
     expect(html).not.toContain('dangerouslySetInnerHTML');
+  });
+
+  it('treats returning to Step 1 as a non-destructive workflow reset', () => {
+    expect(shouldResetWorkflow('work-type')).toBe(true);
+  });
+
+  it('does not reset client state when navigating between active workflow steps', () => {
+    expect(shouldResetWorkflow('inputs')).toBe(false);
+    expect(shouldResetWorkflow('boundaries')).toBe(false);
+    expect(shouldResetWorkflow('handoff')).toBe(false);
+    expect(shouldResetWorkflow('review')).toBe(false);
+  });
+
+  it('shows persisted work separately from the active workflow', () => {
+    expect(hasRecentWork(0, 0)).toBe(false);
+    expect(hasRecentWork(1, 0)).toBe(true);
+    expect(hasRecentWork(0, 1)).toBe(true);
+  });
+
+  it('uses one SVG and PNG dropzone for generated and validated design references', () => {
+    const file = new File(['<svg/>'], 'checkout.svg', { type: 'image/svg+xml' });
+    const html = renderToStaticMarkup(
+      createElement(DesignReferenceInput, {
+        file,
+        busy: false,
+        maxBytes: 4_000,
+        onFile: vi.fn(),
+      }),
+    );
+    expect(html).toContain('class="dropzone"');
+    expect(html).toContain('type="file"');
+    expect(html).toContain('accept="image/svg+xml,image/png,.svg,.png"');
+    expect(html).toContain('checkout.svg');
+    expect(html).not.toContain('target-relative');
   });
 
   it('offers an optional UTF-8 design context file for the connected agent', () => {

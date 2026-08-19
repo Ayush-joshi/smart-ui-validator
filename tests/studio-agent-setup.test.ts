@@ -31,6 +31,7 @@ describe('Studio agent bootstrap diagnostics', () => {
     const workspace = join(root, 'studio-workspace');
     const mcpEntry = join(root, 'runtime', 'mcp.js');
     const source = join(root, 'src', 'server.ts');
+    const studioSource = join(root, 'src', 'studio.tsx');
     const studioAssets = join(root, 'studio');
     const hostConfig = join(root, '.mcp.json');
     await mkdir(join(studioAssets, 'assets'), { recursive: true });
@@ -38,6 +39,7 @@ describe('Studio agent bootstrap diagnostics', () => {
     await mkdir(join(root, 'src'), { recursive: true });
     await writeFile(mcpEntry, 'export {};\n');
     await writeFile(source, 'export {};\n');
+    await writeFile(studioSource, 'export {};\n');
     await writeFile(join(studioAssets, 'index.html'), '<!doctype html>');
     await writeFile(join(studioAssets, 'assets', 'app.js'), '');
     await writeFile(hostConfig, '{"mcpServers":{}}\n');
@@ -54,6 +56,7 @@ describe('Studio agent bootstrap diagnostics', () => {
       hostConfigPath: hostConfig,
       expectedHostConfig: '{"mcpServers":{}}\n',
       sourcePaths: [source],
+      studioSourcePaths: [studioSource],
       skipChromiumProbe: true,
     });
     const stale = result.checks.find((check) => check.name === 'mcp-build');
@@ -61,6 +64,25 @@ describe('Studio agent bootstrap diagnostics', () => {
     expect(stale?.recovery).toMatch(/--ensure-engine.*restart/u);
     expect(result.checks.find((check) => check.name === 'mcp-root')?.status).toBe('pass');
     expect(result.checks.find((check) => check.name === 'studio-assets')?.status).toBe('pass');
+
+    const future = new Date(Date.now() + 10_000);
+    await utimes(studioSource, future, future);
+    const staleStudio = await runStudioAgentSetupChecks({
+      workspaceRoot: workspace,
+      mcpRoot: root,
+      mcpEntryPath: mcpEntry,
+      studioAssetsRoot: studioAssets,
+      host: 'claude',
+      hostConfigPath: hostConfig,
+      expectedHostConfig: '{"mcpServers":{}}\n',
+      sourcePaths: [],
+      studioSourcePaths: [studioSource],
+      skipChromiumProbe: true,
+    });
+    expect(staleStudio.checks.find((check) => check.name === 'mcp-build')?.status).toBe('pass');
+    expect(staleStudio.checks.find((check) => check.name === 'studio-assets')).toMatchObject({
+      status: 'fail',
+    });
 
     const differing = await runStudioAgentSetupChecks({
       workspaceRoot: workspace,

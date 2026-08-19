@@ -50,8 +50,12 @@ describe('SVG generation cancellation boundaries', () => {
           throw new SmartUiError('PROVIDER_FAILURE', 'Preview timed out.');
         },
       };
+      const readyStructure =
+        stage === 'parsing'
+          ? undefined
+          : await preinspectedStructure(fixture.workspace, fixture.input);
       const result = await orchestrator(fixture.workspace, {
-        ...(stage === 'parsing' ? { structure: waitingStructure } : {}),
+        structure: stage === 'parsing' ? waitingStructure : readyStructure!,
         ...(stage === 'generation' ? { generator: waitingGenerator } : {}),
         ...(stage === 'preview' ? { preview: waitingPreview } : {}),
       }).run({ ...fixture.input, timeoutMs: 1_000 });
@@ -120,6 +124,28 @@ async function generationFixture(name: string) {
     dryRun: false,
   };
   return { workspace, input };
+}
+
+async function preinspectedStructure(
+  workspace: string,
+  input: SvgGenerationInput,
+): Promise<SvgStructureProvider> {
+  const config = configSchema.parse({});
+  const store = new LocalArtifactStore(join(workspace, '.smart-ui', 'preinspection'));
+  const inspectionInput = {
+    ...input,
+    artifactRoot: join(workspace, '.smart-ui', 'preinspection'),
+  };
+  const inspection = await new LocalSvgStructureProvider(store, config.generation.limits).inspect(
+    inspectionInput,
+  );
+  return {
+    name: 'preinspected-structure',
+    version: '1.0.0',
+    async inspect() {
+      return inspection;
+    },
+  };
 }
 
 function orchestrator(

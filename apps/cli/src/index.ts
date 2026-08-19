@@ -14,9 +14,7 @@ import {
   HtmlGenerationReporter,
   HtmlReporter,
   DeterministicHtmlGenerationProvider,
-  DEFAULT_AUTHORING_TIMEOUT_MS,
   GenerationOrchestrator,
-  HostProposedHtmlGenerationProvider,
   LocalArtifactStore,
   LocalImageDesignProvider,
   LocalMemoryProvider,
@@ -30,11 +28,6 @@ import {
   SmartUiError,
   SmartUiOrchestrator,
   compareImages,
-  agentQueueRoot,
-  authoredHostFiles,
-  buildAuthoringRequest,
-  deleteAuthoringRequest,
-  deleteAuthoringResponse,
   designContractSchema,
   evaluateRelease,
   loadConfig,
@@ -49,17 +42,14 @@ import {
   readImageDimensions,
   redactSensitiveValue,
   svgGenerationInputSchema,
-  waitForAuthoringResponse,
-  writeAuthoringRequest,
   structuredDesignContextSchema,
   runStudioAgentSetupChecks,
   type StudioAgentHost,
   type PresentationSpec,
-  type AuthoringVisualEvidence,
   type StructuredDesignContext,
-  type SvgGenerationInput,
 } from 'smart-ui-validator-core';
 import { registerMemoryCommands } from './memory-cli.js';
+import { registerHandoffCommands } from './handoff-cli.js';
 import { loadStudioModule } from './studio-loader.js';
 
 const program = new Command()
@@ -72,6 +62,25 @@ const invocationRoot = process.env['INIT_CWD'] ?? process.cwd();
 
 registerMemoryCommands(program, invocationRoot);
 
+registerHandoffCommands(program, {
+  invocationRoot,
+  print,
+  userPath,
+  openStudioReview: async (taskFile) => {
+    const studio = await loadStudioModule();
+    const workspace = userPath('.studio-workspace');
+    await studio.initializeStudioWorkspace(workspace);
+    const server = await studio.startStudioServer({
+      workspaceRoot: workspace,
+      port: 0,
+      reviewTask: taskFile,
+    });
+    console.log(`Studio review: ${server.url}`);
+    openBrowser(server.url);
+    await waitForStudioShutdown(server);
+  },
+});
+
 program
   .command('studio')
   .description('Launch the local-only SVG generation Studio on an isolated loopback origin')
@@ -82,6 +91,8 @@ program
   .option('--init', 'initialize an empty dedicated workspace before startup')
   .option('--init-only', 'initialize the workspace and exit without starting the server')
   .option('--open', 'open the exact loopback URL in the system browser')
+  .option('--target <path>', 'absolute repository root enabling the validate-UI work type')
+  .option('--review-task <path>', 'verified handoff task.json to import and open for review')
   .option('--port <port>', 'exact loopback port (0 chooses an ephemeral port)', parseStudioPort, 0)
   .option(
     '--retention-hours <hours>',
@@ -128,6 +139,7 @@ program
         hostConfigPath,
         expectedHostConfig,
         ...(runtime.sourcePaths ? { sourcePaths: runtime.sourcePaths } : {}),
+        ...(runtime.studioSourcePaths ? { studioSourcePaths: runtime.studioSourcePaths } : {}),
       });
       const bootstrap = {
         schemaVersion: '1.0',
@@ -161,6 +173,8 @@ program
       workspaceRoot: workspace,
       port: options.port,
       retentionMs: options.retentionHours * 60 * 60 * 1_000,
+      ...(options.target ? { targetRoot: userPath(options.target) } : {}),
+      ...(options.reviewTask ? { reviewTask: userPath(options.reviewTask) } : {}),
     });
     const health = await server.health();
     const result = {
@@ -207,11 +221,6 @@ program
   .option('--viewport <width>x<height>', 'explicit source viewport', parseGenerationViewport)
   .option('--timeout <milliseconds>', 'generation timeout', parseGenerationTimeout)
   .option(
-    '--agent-timeout <milliseconds>',
-    'maximum wait for an MCP-connected authoring agent',
-    parseAgentAuthoringTimeout,
-  )
-  .option(
     '--max-passes <count>',
     'maximum bounded generation revisions (0 or 1)',
     parseGenerationPassCount,
@@ -219,6 +228,12 @@ program
   .option('--dry-run', 'inspect design safety and capability without a generated deliverable')
   .option('--json', 'emit one compact JSON result')
   .action(async (options: GenerateCliOptions) => {
+    if (options.engine === 'agent') {
+      throw new SmartUiError(
+        'INVALID_INPUT',
+        '`smart-ui generate --engine agent` was removed. Use `smart-ui generation prepare --workspace <path> --design <path>` and review the persistent task instead.',
+      );
+    }
     const workspace = userPath(options.workspace);
     const config = await loadConfig(workspace);
     const artifactBase = options.artifacts
@@ -231,12 +246,6 @@ program
     let stagingPath: string | undefined;
     process.once('SIGINT', cancel);
     try {
-      if (options.engine === 'agent' && options.maxPasses === 0) {
-        throw new SmartUiError(
-          'INVALID_INPUT',
-          '--engine agent requires --max-passes 1 so the authored proposal can be evaluated.',
-        );
-      }
       const contexts = await readCliDesignContexts(workspace, options);
       const structuredDesignContext = contexts.structuredDesignContext;
       const presentationSpec = options.presentation
@@ -281,23 +290,9 @@ program
         ...(options.maxPasses !== undefined ? { maxPasses: options.maxPasses } : {}),
       });
       const deterministicGenerator = new DeterministicHtmlGenerationProvider();
-      const agentGenerator =
-        options.engine === 'agent' && !generationInput.dryRun
-          ? await cliAgentGenerator({
-              workspace,
-              input: generationInput,
-              preparedDesign,
-              structureLimits: preparedDesign.structureLimits,
-              config,
-              timeoutMs: options.agentTimeout ?? DEFAULT_AUTHORING_TIMEOUT_MS,
-              signal: controller.signal,
-            })
-          : undefined;
       const result = await new GenerationOrchestrator({
         structure: new LocalSvgStructureProvider(store, preparedDesign.structureLimits),
-        generator: agentGenerator ?? deterministicGenerator,
-        ...(agentGenerator ? { fallbackGenerator: deterministicGenerator } : {}),
-        ...(agentGenerator ? { proposalPolicy: 'prefer-proposal' as const } : {}),
+        generator: deterministicGenerator,
         preview: new LoopbackGeneratedPreviewProvider(),
         browser: new PlaywrightBrowserProvider(),
         artifacts: store,
@@ -370,6 +365,7 @@ program
         hostConfigPath,
         expectedHostConfig: studioAgentHostConfig(options.host, runtime.mcpEntryPath, mcpRoot),
         ...(runtime.sourcePaths ? { sourcePaths: runtime.sourcePaths } : {}),
+        ...(runtime.studioSourcePaths ? { studioSourcePaths: runtime.studioSourcePaths } : {}),
       });
       print(diagnosis, options.json);
       if (!diagnosis.ready) process.exitCode = 4;
@@ -917,172 +913,6 @@ async function prepareCliGenerationDesign(
   }
 }
 
-async function cliAgentGenerator(options: {
-  workspace: string;
-  input: SvgGenerationInput;
-  preparedDesign: Awaited<ReturnType<typeof prepareCliGenerationDesign>>;
-  structureLimits: Awaited<ReturnType<typeof loadConfig>>['generation']['limits'];
-  config: Awaited<ReturnType<typeof loadConfig>>;
-  timeoutMs: number;
-  signal: AbortSignal;
-}): Promise<HostProposedHtmlGenerationProvider> {
-  const runId = `run-${randomUUID()}`;
-  const evidenceRoot = await mkdtemp(
-    join(resolve(options.workspace), '.smart-ui-cli-agent-evidence-'),
-  );
-  const queueRoot = agentQueueRoot(options.workspace);
-  try {
-    const evidenceStore = new LocalArtifactStore(evidenceRoot);
-    const inspectionInput = svgGenerationInputSchema.parse({
-      ...options.input,
-      artifactRoot: evidenceRoot,
-      exportRoot: undefined,
-      dryRun: false,
-    });
-    const inspection = await new LocalSvgStructureProvider(
-      evidenceStore,
-      options.structureLimits,
-    ).inspect(inspectionInput, options.signal);
-    const visualEvidence = await cliAuthoringVisualEvidence({
-      workspace: options.workspace,
-      input: inspectionInput,
-      preparedDesign: options.preparedDesign,
-      inspection,
-      store: evidenceStore,
-      evidenceRoot,
-      config: options.config,
-      signal: options.signal,
-    });
-    const context = options.input.designContext;
-    const request = buildAuthoringRequest({
-      runId,
-      input: inspectionInput,
-      inspection,
-      ...(context
-        ? {
-            designContext: {
-              filename: context.filename,
-              mediaType: context.mediaType,
-              content: context.content,
-              originalHash: context.originalHash,
-              byteLength: context.byteLength,
-              provenance: context.provenance,
-            },
-          }
-        : {}),
-      designReference: options.preparedDesign.authoringReference,
-      ...(visualEvidence.length > 0 ? { visualEvidence } : {}),
-      timeoutMs: options.timeoutMs,
-    });
-    await writeAuthoringRequest(queueRoot, request);
-    process.stderr.write(
-      `Waiting for the MCP-connected agent. Ask it to call list_studio_authoring_requests with studioWorkspace ${JSON.stringify(options.workspace)} and author run ${runId}.\n`,
-    );
-    const response = await waitForAuthoringResponse(queueRoot, runId, {
-      round: 1,
-      timeoutMs: options.timeoutMs,
-      signal: options.signal,
-    });
-    return new HostProposedHtmlGenerationProvider(
-      `cli-agent:${response.authoringAgent}`,
-      authoredHostFiles(response),
-    );
-  } finally {
-    await Promise.allSettled([
-      deleteAuthoringRequest(queueRoot, runId),
-      deleteAuthoringResponse(queueRoot, runId),
-    ]);
-    await rm(evidenceRoot, { recursive: true, force: true });
-  }
-}
-
-async function cliAuthoringVisualEvidence(options: {
-  workspace: string;
-  input: SvgGenerationInput;
-  preparedDesign: Awaited<ReturnType<typeof prepareCliGenerationDesign>>;
-  inspection: Awaited<ReturnType<LocalSvgStructureProvider['inspect']>>;
-  store: LocalArtifactStore;
-  evidenceRoot: string;
-  config: Awaited<ReturnType<typeof loadConfig>>;
-  signal: AbortSignal;
-}): Promise<AuthoringVisualEvidence[]> {
-  if (options.preparedDesign.authoringReference.mediaType === 'image/png') {
-    const sourcePath = options.preparedDesign.designReference?.path;
-    if (!sourcePath) {
-      throw new SmartUiError('NOT_FOUND', 'The verified PNG design reference is unavailable.');
-    }
-    const artifact = await options.store.put(
-      await readFile(sourcePath),
-      'image/png',
-      'cli-agent-design-reference.png',
-    );
-    const reference = options.preparedDesign.authoringReference;
-    if (artifact.hash !== reference.originalHash || artifact.byteLength !== reference.byteLength) {
-      throw new SmartUiError(
-        'INVALID_INPUT',
-        'Original PNG design reference changed after it was validated.',
-      );
-    }
-    return [
-      {
-        kind: 'design-render',
-        label: `Uploaded PNG design reference at ${options.inspection.bundle.viewport.width}x${options.inspection.bundle.viewport.height}`,
-        mediaType: 'image/png',
-        workspaceRelativePath: relative(
-          options.workspace,
-          resolve(options.evidenceRoot, artifact.relativePath),
-        )
-          .split(/[/\\]/u)
-          .join('/'),
-        hash: artifact.hash,
-        byteLength: artifact.byteLength,
-      },
-    ];
-  }
-  const exact = await new DeterministicHtmlGenerationProvider().generate(
-    { ...options.input, mode: 'exact' },
-    options.inspection,
-    options.signal,
-  );
-  const preview = await new LoopbackGeneratedPreviewProvider().serve(exact, options.signal);
-  try {
-    const evidence = await new PlaywrightBrowserProvider().capture({
-      url: preview.url,
-      viewport: options.inspection.bundle.presentationSpec.primaryCanvas,
-      timeoutMs: Math.min(options.config.generation.timeoutMs, 60_000),
-      locale: options.input.rendering.locale,
-      theme: options.input.rendering.theme,
-      allowedEndpoints: [preview.origin],
-      blockExternalNetwork: true,
-      screenshotBeforeFocusProbe: true,
-      evidenceLimits: options.config.evidence,
-      signal: options.signal,
-    });
-    const artifact = await options.store.put(
-      evidence.screenshot,
-      'image/png',
-      'cli-agent-design-render.png',
-    );
-    return [
-      {
-        kind: 'design-render',
-        label: `Rendered SVG design at ${options.inspection.bundle.viewport.width}x${options.inspection.bundle.viewport.height}`,
-        mediaType: 'image/png',
-        workspaceRelativePath: relative(
-          options.workspace,
-          resolve(options.evidenceRoot, artifact.relativePath),
-        )
-          .split(/[/\\]/u)
-          .join('/'),
-        hash: artifact.hash,
-        byteLength: artifact.byteLength,
-      },
-    ];
-  } finally {
-    await preview.close();
-  }
-}
-
 async function containedRegularCliFile(
   workspace: string,
   path: string,
@@ -1151,17 +981,6 @@ function parseGenerationTimeout(value: string): number {
   return parsed;
 }
 
-function parseAgentAuthoringTimeout(value: string): number {
-  const parsed = Number(value);
-  if (!Number.isInteger(parsed) || parsed < 1_000 || parsed > 60 * 60 * 1_000) {
-    throw new SmartUiError(
-      'INVALID_INPUT',
-      '--agent-timeout must be from 1000 to 3600000 milliseconds.',
-    );
-  }
-  return parsed;
-}
-
 function parseGenerationViewport(value: string): {
   width: number;
   height: number;
@@ -1210,6 +1029,7 @@ function studioAgentRuntime(): {
   mcpEntryPath: string;
   studioAssetsRoot: string;
   sourcePaths?: string[];
+  studioSourcePaths?: string[];
 } {
   const modulePath = fileURLToPath(import.meta.url);
   const repositoryRoot = resolve(dirname(modulePath), '..', '..', '..');
@@ -1222,6 +1042,11 @@ function studioAgentRuntime(): {
       studioAssetsRoot: join(repositoryRoot, 'apps', 'studio', 'dist', 'public'),
       sourcePaths: [
         join(repositoryRoot, 'apps', 'mcp-server', 'src'),
+        join(repositoryRoot, 'packages', 'core', 'src'),
+        join(repositoryRoot, 'package.json'),
+        join(repositoryRoot, 'pnpm-lock.yaml'),
+      ],
+      studioSourcePaths: [
         join(repositoryRoot, 'apps', 'studio', 'src'),
         join(repositoryRoot, 'packages', 'core', 'src'),
         join(repositoryRoot, 'package.json'),
@@ -1470,7 +1295,6 @@ interface GenerateCliOptions {
   presentationSpec?: PresentationSpec;
   viewport?: { width: number; height: number; deviceScaleFactor: number };
   timeout?: number;
-  agentTimeout?: number;
   maxPasses?: number;
   dryRun?: boolean;
   json?: boolean;
@@ -1481,6 +1305,8 @@ interface StudioCliOptions {
   init?: boolean;
   initOnly?: boolean;
   open?: boolean;
+  target?: string;
+  reviewTask?: string;
   port: number;
   retentionHours: number;
   healthCheck?: boolean;

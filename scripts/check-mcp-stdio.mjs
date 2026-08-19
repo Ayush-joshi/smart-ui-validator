@@ -10,6 +10,13 @@ const requiredGenerationTools = [
   'get_generation_report',
 ];
 const requiredStudioTools = ['list_studio_authoring_requests', 'submit_studio_authored_html'];
+const requiredHandoffTools = [
+  'list_handoff_tasks',
+  'get_handoff_task',
+  'read_handoff_evidence',
+  'submit_handoff_generation',
+  'submit_handoff_implementation',
+];
 const transport = new StdioClientTransport({
   command: process.execPath,
   args: [resolve('apps/mcp-server/dist/index.js')],
@@ -33,6 +40,9 @@ try {
   for (const name of requiredStudioTools) {
     if (!names.has(name)) throw new Error(`Built MCP server is missing ${name}.`);
   }
+  for (const name of requiredHandoffTools) {
+    if (!names.has(name)) throw new Error(`Built MCP server is missing ${name}.`);
+  }
   if (!resources.resources.some((resource) => resource.uri === 'smart-ui://svg-generation-guide')) {
     throw new Error('Built MCP server is missing the SVG generation guide.');
   }
@@ -48,7 +58,7 @@ try {
     throw new Error('Built MCP server is missing the generate-from-svg prompt.');
   }
   process.stdout.write(
-    `${JSON.stringify({ tools: tools.tools.length, generationTools: requiredGenerationTools.length, studioTools: requiredStudioTools.length, stdio: true })}\n`,
+    `${JSON.stringify({ tools: tools.tools.length, generationTools: requiredGenerationTools.length, studioTools: requiredStudioTools.length, handoffTools: requiredHandoffTools.length, stdio: true })}\n`,
   );
 } finally {
   await client.close();

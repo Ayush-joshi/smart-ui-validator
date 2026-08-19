@@ -20,6 +20,10 @@ interface StudioModule {
     workspaceRoot: string;
     port?: number;
     retentionMs?: number;
+    /** Repository root that enables the validate-UI work type; the browser cannot grant a new root. */
+    targetRoot?: string;
+    /** Verified `task.json` imported for review at startup. */
+    reviewTask?: string;
   }): Promise<StudioServer>;
 }
 
