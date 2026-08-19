@@ -184,7 +184,7 @@ interface SessionResponse {
   };
 }
 
-interface HandoffTaskView {
+export interface HandoffTaskView {
   taskId: string;
   taskType: 'generation' | 'validate-ui';
   taskHash: string;
@@ -1378,7 +1378,53 @@ function BoundarySummary({ target }: { target: string | null }): ReactNode {
   );
 }
 
-function TaskHandoff({ task, onReview }: { task: HandoffTaskView; onReview(): void }): ReactNode {
+export function connectedHandoffInstructions(task: HandoffTaskView): string {
+  const files = task.writableFiles.map((file) => `- ${file}`).join('\n');
+  return [
+    `Complete validate-UI task ${task.taskId}.`,
+    '',
+    `Task file: ${task.taskFile}`,
+    `Task hash: ${task.taskHash}`,
+    `Revision: ${task.revision}`,
+    'Exact writable files (target-relative):',
+    files || '- None',
+    '',
+    '1. Call get_handoff_task with the task file above and verify its hash and revision.',
+    '2. Read every declared evidence file needed for the implementation with read_handoff_evidence.',
+    '3. Inspect the current contents of every writable file listed above and implement the task. Do not modify or submit any other path.',
+    '4. Call submit_handoff_implementation with approved=true, the task file, task hash, revision, authoringAgent, and the full UTF-8 content of every writable file listed above.',
+    '5. Report the resulting attempt number, scores, blocking findings, and report path.',
+  ].join('\n');
+}
+
+export function portableHandoffInstructions(task: HandoffTaskView): string {
+  const files = task.writableFiles.map((file) => `- ${file}`).join('\n');
+  return [
+    `Complete validate-UI task ${task.taskId}.`,
+    '',
+    `Task file: ${task.taskFile}`,
+    `Task hash: ${task.taskHash}`,
+    `Revision: ${task.revision}`,
+    ...(task.route ? [`Running route: ${task.route}`] : []),
+    'Exact writable files (target-relative):',
+    files || '- None',
+    '',
+    '1. Open task.json and read its instructions, design evidence, repository summary, matrix, decisions, and uncertainties.',
+    '2. Resolve the target root from task.json, inspect the current contents of every writable file above, and implement the task.',
+    '3. Do not modify or submit any other path.',
+    '4. Run this review command:',
+    task.commands.review,
+    '5. Inspect the reported attempt and resolve blocking findings only within the same writable files.',
+  ].join('\n');
+}
+
+export function TaskHandoff({
+  task,
+  onReview,
+}: {
+  task: HandoffTaskView;
+  onReview(): void;
+}): ReactNode {
   return (
     <section className="panel handoff-panel" aria-labelledby="task-handoff-title">
       <p className="eyebrow">Step 4 · Handoff</p>
@@ -1395,14 +1441,17 @@ function TaskHandoff({ task, onReview }: { task: HandoffTaskView; onReview(): vo
         <article>
           <small>Connected</small>
           <h3>Connected MCP agent</h3>
-          <p>Use the task-backed MCP instructions with the configured agent.</p>
-          <CommandBlock value={task.commands.mcp} label="MCP instructions" />
+          <p>Copy one complete prompt with the task identity, files, and exact MCP calls.</p>
+          <CommandBlock value={connectedHandoffInstructions(task)} label="Agent prompt" />
         </article>
         <article>
           <small>Portable</small>
           <h3>External agent or human</h3>
-          <p>Use the evidence, exact writable paths, and review command outside Studio.</p>
-          <CommandBlock value={task.commands.review} label="Review command" />
+          <p>Copy one complete checklist with the task identity, files, and review command.</p>
+          <CommandBlock
+            value={portableHandoffInstructions(task)}
+            label="Implementation checklist"
+          />
         </article>
       </div>
       <div className="boundary-summary">

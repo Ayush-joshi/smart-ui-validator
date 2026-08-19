@@ -259,7 +259,7 @@ export async function prepareImplementationTask(
     decisions: [`Inspected ${framework.framework} repository without executing project code.`],
     uncertainties: (inspection.ambiguities ?? []).slice(0, 50),
     writableFiles,
-    commands: implementationCommands(taskRoot),
+    commands: implementationCommands(taskRoot, writableFiles),
     ...(options.studioRunId ? { studioRunId: options.studioRunId } : {}),
     route,
     endpointPolicy: endpointPolicy(route, config),
@@ -502,14 +502,24 @@ function endpointPolicy(route: string, config: Config): string[] {
   return [...new Set([origin, ...config.policy.endpointAllowlist])].slice(0, 20);
 }
 
-function implementationCommands(taskRoot: string) {
+function implementationCommands(taskRoot: string, writableFiles: readonly string[]) {
   const task = quote(join(taskRoot, 'task.json'));
+  const files = writableFiles.map((file) => `- ${file}`).join('\n');
   return {
     review: `smart-ui validate-ui review --task ${task}`,
     status: `smart-ui task status --task ${task}`,
     accept: `smart-ui task accept --task ${task} --attempt <number>`,
     cancel: `smart-ui task cancel --task ${task}`,
-    mcp: `List handoff tasks under ${quote(resolve(taskRoot, '..', '..', '..'))}, read this task, then submit only its exact writable files with the recorded task hash and revision.`,
+    mcp: [
+      `Complete the validate-UI handoff task at ${task}.`,
+      `If discovery is required, call list_handoff_tasks with root ${quote(resolve(taskRoot, '..', '..', '..'))} and taskType "validate-ui".`,
+      `Call get_handoff_task with taskFile ${task}, then read its declared evidence and inspect the current contents of every writable file.`,
+      'Exact writable files (target-relative):',
+      files,
+      'Implement the task without changing any other path.',
+      'Call submit_handoff_implementation with approved=true, the taskFile, returned taskHash and revision, authoringAgent, and full UTF-8 content for every file listed above.',
+      'Report the resulting attempt number, scores, blocking findings, and report path.',
+    ].join('\n'),
   };
 }
 

@@ -60,9 +60,11 @@ Use `--review-task /absolute/path/to/task.json` to import a verified existing ta
 shared Review experience. Removing that association in Studio does not delete task or repository
 files.
 
-Connected-agent continuations need the `smart-ui` MCP server running from `.vscode/mcp.json`; after
-rebuilding it, restart it (**MCP: List Servers → smart-ui → Restart**) so task tools and evidence
-load. External agent/human continuation needs no MCP connection.
+Connected-agent continuations need the `smart-ui` MCP server running from `.vscode/mcp.json` at the
+root folder opened in VS Code, not only inside a nested target application. After rebuilding it,
+restart it (**MCP: List Servers → smart-ui → Restart**) so task tools and evidence load. If the server
+is missing from that list, run **Developer: Reload Window** after correcting the workspace-root
+configuration. External agent/human continuation needs no MCP connection.
 
 To refresh the owned SVG pilot evidence deliberately, build first and run
 `pnpm evaluate:svg:measure`, review the observation diff, then run `pnpm evaluate:svg`. The

@@ -106,6 +106,10 @@ describe('validate-UI task preparation', () => {
       'source-fidelity',
       'alternate-reference-fidelity',
     ]);
+    expect(prepared.task.commands.mcp).toContain('get_handoff_task');
+    expect(prepared.task.commands.mcp).toContain('submit_handoff_implementation');
+    expect(prepared.task.commands.mcp).toContain(sourcePath);
+    expect(prepared.task.commands.mcp).toContain('src/Dashboard.css');
     expect(prepared.task.evidence).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ role: 'viewport-reference', provenance: 'presentation:mobile' }),

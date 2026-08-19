@@ -3,16 +3,54 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 import {
   CanvasEditor,
+  connectedHandoffInstructions,
   DesignReferenceInput,
   DesignContextFileEditor,
   hasRecentWork,
   Review,
+  portableHandoffInstructions,
   shouldResetWorkflow,
   StructuredContextEditor,
   StudioApp,
 } from '../apps/studio/src/client.js';
 
 describe('Studio frontend components', () => {
+  it('builds self-contained connected and portable handoff instructions', () => {
+    const task = {
+      taskId: 'task-11111111-1111-1111-1111-111111111111',
+      taskType: 'validate-ui' as const,
+      taskHash: `sha256:${'a'.repeat(64)}`,
+      taskFile: 'C:\\repo\\.smart-ui\\validate-ui-tasks\\task-1\\task.json',
+      status: 'pending',
+      revision: 3,
+      activeAttempt: null,
+      acceptedAttempt: null,
+      writableFiles: ['src/app/dashboard.component.ts', 'src/app/dashboard.component.html'],
+      route: 'http://127.0.0.1:4200/dashboard',
+      attempt: null,
+      commands: {
+        review: 'smart-ui validate-ui review --task "C:\\repo\\task.json"',
+        status: '',
+        accept: '',
+        cancel: '',
+        mcp: '',
+      },
+    };
+    const connected = connectedHandoffInstructions(task);
+    const portable = portableHandoffInstructions(task);
+
+    for (const instructions of [connected, portable]) {
+      expect(instructions).toContain(task.taskFile);
+      expect(instructions).toContain(task.taskHash);
+      expect(instructions).toContain('Revision: 3');
+      expect(instructions).toContain('src/app/dashboard.component.ts');
+      expect(instructions).toContain('src/app/dashboard.component.html');
+      expect(instructions).toContain('Do not modify or submit any other path');
+    }
+    expect(connected).toContain('submit_handoff_implementation');
+    expect(portable).toContain(task.commands.review);
+  });
+
   it('opens with accessible Generate UI and Validate UI work choices', () => {
     const html = renderToStaticMarkup(createElement(StudioApp));
     expect(html).toContain('Smart UI Studio');
