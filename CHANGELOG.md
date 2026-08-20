@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.5.1 - 2026-08-20
+
+- Updated documentation to reflect that Validate UI workflows now include a visual interface via Smart UI Studio.
+
 ## 0.5.0 - 2026-08-20
 
 - Added host-neutral persistent `GenerationTask` and `ImplementationTask` workflows shared by CLI,

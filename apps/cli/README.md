@@ -22,7 +22,7 @@ embedded SQLite support and remains optional.
 ## Installation
 
 ```bash
-npm install --save-dev smart-ui-validator@0.5.0
+npm install --save-dev smart-ui-validator@0.5.1
 npx smart-ui --help
 ```
 

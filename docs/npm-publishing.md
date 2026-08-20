@@ -7,7 +7,7 @@ release completed on 2026-08-09 from source tag `v0.4.1`.
 
 Current release status:
 
-- Feature release `0.5.0` was prepared and fully verified on 2026-08-20. It adds persistent
+- Feature release `0.5.1` was prepared and fully verified on 2026-08-20. It adds persistent
   generation and existing-UI implementation handoff tasks across CLI, MCP, and Studio; immutable
   deterministic review attempts; explicit accept/cancel lifecycle commands; and the shared Generate
   UI/Validate UI Studio workflow. Registry publication remains pending until the npm publisher
@@ -15,7 +15,7 @@ Current release status:
 - The Smart UI repository and Agent Memory package are public.
 - The previous clean-consumer advisory blocker was resolved by `dev-agent-memory@0.4.1`.
 - `smart-ui-validator-core`, `smart-ui-validator`, and `smart-ui-validator-mcp` are public at
-  `0.4.2`, and each `latest` tag resolves to `0.4.2` until the reviewed `0.5.0` candidates are
+  `0.4.2`, and each `latest` tag resolves to `0.4.2` until the reviewed `0.5.1` candidates are
   published.
 - Public metadata, a clean registry installation, Chromium launch, and Agent Memory persistence were
   verified on macOS. Existing-project and Windows verification remain scheduled.
@@ -78,7 +78,7 @@ The public packages use unscoped product names. All three were published on 2026
 - `smart-ui-validator-mcp@0.4.1`
 
 Patch release `0.4.2` was published for all three packages on 2026-08-10.
-Feature release `0.5.0` is the next synchronized release candidate for all three packages.
+Feature release `0.5.1` is the next synchronized release candidate for all three packages.
 
 ## License decision — completed
 
@@ -286,7 +286,7 @@ Do not add the live publish workflow until the scope and license are final, Agen
 from npm, clean-consumer tests pass, and the GitHub environment and npm trusted-publisher records
 exist.
 
-## 0.5.0 release-candidate evidence
+## 0.5.1 release-candidate evidence
 
 The 2026-08-20 candidate passed the frozen workspace install check, formatting, lint, typecheck,
 production build, 189 unit/integration tests, 27 focused Studio tests, 7 real-browser end-to-end

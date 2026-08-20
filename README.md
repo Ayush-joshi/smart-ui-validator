@@ -8,8 +8,9 @@ Smart UI Validator is a host-neutral CLI and engine for two related but separate
 Both workflows use the same safety, artifact, browser, comparison, and reporting foundations. They do
 not have the same inputs or outputs, and you can use either one independently.
 
-The package also includes **Smart UI Studio**, a local browser interface for the SVG/PNG-to-HTML
-workflow. Studio is not a hosted service and is not a separate generation engine.
+The package also includes **Smart UI Studio**, a local browser interface for both SVG/PNG-to-HTML
+generation and Validate UI workflows. Studio is not a hosted service and is not a separate generation
+engine.
 
 > Smart UI Validator is currently intended for a controlled local or internal pilot. Review its
 > evidence and proposed changes before treating an output as production-ready.
@@ -24,7 +25,7 @@ workflow. Studio is not a hosted service and is not a separate generation engine
 | Running application        | Yes, for browser capture                                               | No; Smart UI creates a contained preview                              |
 | Model or MCP host required | No for CLI validation; useful for substantial implementation proposals | No for deterministic mode; required for CLI or Studio agent authoring |
 | Main command               | `smart-ui validate`, `smart-ui validate-matrix`, or `smart-ui fix`     | `smart-ui generate`                                                   |
-| Visual interface           | No dedicated UI                                                        | `smart-ui studio`                                                     |
+| Visual interface           | `smart-ui studio`                                                      | `smart-ui studio`                                                     |
 | Main result                | Findings, screenshots, diffs, overlays, run records, and reports       | HTML/CSS, evidence, report, immutable record, and reproducible ZIP    |
 | Writes application source  | Only during an explicitly bounded repair                               | Never                                                                 |
 
@@ -50,7 +51,7 @@ host agent and require approval for the exact files involved.
 Install the CLI in a project or tooling workspace:
 
 ```bash
-npm install --save-dev smart-ui-validator@0.5.0
+npm install --save-dev smart-ui-validator@0.5.1
 npx smart-ui --help
 ```
 
@@ -58,7 +59,7 @@ The package has no browser-downloading `postinstall` hook. For the SVG CLI or St
 directory, you can invoke the published package explicitly:
 
 ```bash
-npx --package smart-ui-validator@0.5.0 smart-ui --help
+npx --package smart-ui-validator@0.5.1 smart-ui --help
 ```
 
 From this repository checkout, use `pnpm smart-ui` after `pnpm install --frozen-lockfile` and
@@ -102,7 +103,7 @@ Run first-time setup from the target repository. Add `--agent-memory` only if yo
 optional embedded-SQLite memory backend.
 
 ```bash
-npm install --save-dev smart-ui-validator@0.5.0
+npm install --save-dev smart-ui-validator@0.5.1
 npx smart-ui setup --target .
 npx smart-ui doctor --target .
 npx smart-ui inspect --target . --json
@@ -211,7 +212,7 @@ Example `.mcp.json` for Claude Code:
   "mcpServers": {
     "smart-ui": {
       "command": "npx",
-      "args": ["-y", "smart-ui-validator-mcp@0.5.0"],
+      "args": ["-y", "smart-ui-validator-mcp@0.5.1"],
       "cwd": "/absolute/path/to/project",
       "env": {
         "SMART_UI_MCP_ROOT": "/absolute/path/to/project"
