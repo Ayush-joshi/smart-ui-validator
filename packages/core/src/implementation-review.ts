@@ -369,7 +369,7 @@ async function captureRobustness(
       failures,
       passes: [],
       stoppedReason: failures.length > 0 ? 'provider-failure' : 'validation-only',
-      provenance: { tool: 'smart-ui', version: '0.5.0' },
+      provenance: { tool: 'smart-ui', version: '0.5.1' },
     });
   } catch (error) {
     const placeholder = await store.put(
@@ -411,7 +411,7 @@ async function captureRobustness(
       ],
       passes: [],
       stoppedReason: 'provider-failure',
-      provenance: { tool: 'smart-ui', version: '0.5.0' },
+      provenance: { tool: 'smart-ui', version: '0.5.1' },
     });
   }
 }

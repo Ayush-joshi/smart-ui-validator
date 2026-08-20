@@ -57,7 +57,7 @@ const program = new Command()
   .description(
     'Generate, implement, validate, and repair UIs through bounded deterministic evidence',
   )
-  .version('0.5.0')
+  .version('0.5.1')
   .showSuggestionAfterError();
 
 const invocationRoot = process.env['INIT_CWD'] ?? process.cwd();

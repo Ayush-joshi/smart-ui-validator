@@ -446,7 +446,7 @@ export class SmartUiOrchestrator {
       timingsMs: timings,
       warnings: [...options.contract.ambiguities, ...options.contract.sourceEvidence.uncertainties],
       failures,
-      provenance: { tool: 'smart-ui', version: '0.5.0' },
+      provenance: { tool: 'smart-ui', version: '0.5.1' },
       passes,
       ...(finalScore === undefined ? {} : { score: finalScore }),
       stoppedReason,
