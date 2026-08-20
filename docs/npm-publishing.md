@@ -10,13 +10,11 @@ Current release status:
 - Feature release `0.5.1` was prepared and fully verified on 2026-08-20. It adds persistent
   generation and existing-UI implementation handoff tasks across CLI, MCP, and Studio; immutable
   deterministic review attempts; explicit accept/cancel lifecycle commands; and the shared Generate
-  UI/Validate UI Studio workflow. Registry publication remains pending until the npm publisher
-  session is authenticated.
+  UI/Validate UI Studio workflow. Registry publication was completed on 2026-08-20.
 - The Smart UI repository and Agent Memory package are public.
 - The previous clean-consumer advisory blocker was resolved by `dev-agent-memory@0.4.1`.
 - `smart-ui-validator-core`, `smart-ui-validator`, and `smart-ui-validator-mcp` are public at
-  `0.4.2`, and each `latest` tag resolves to `0.4.2` until the reviewed `0.5.1` candidates are
-  published.
+  `0.5.1`, and each `latest` tag resolves to `0.5.1`.
 - Public metadata, a clean registry installation, Chromium launch, and Agent Memory persistence were
   verified on macOS. Existing-project and Windows verification remain scheduled.
 - Repository metadata and provenance-based trusted publishing remain deferred until the source has
@@ -78,7 +76,7 @@ The public packages use unscoped product names. All three were published on 2026
 - `smart-ui-validator-mcp@0.4.1`
 
 Patch release `0.4.2` was published for all three packages on 2026-08-10.
-Feature release `0.5.1` is the next synchronized release candidate for all three packages.
+Feature release `0.5.1` was published for all three packages on 2026-08-20.
 
 ## License decision — completed
 
