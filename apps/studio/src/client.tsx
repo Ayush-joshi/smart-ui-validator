@@ -1627,6 +1627,9 @@ export function DesignContextFileEditor({
   disabled: boolean;
   onFile(file: File): void | Promise<void>;
 }): ReactNode {
+  const [mode, setMode] = useState<ContextMode>('upload');
+  const [text, setText] = useState('');
+
   return (
     <fieldset className="editor-section">
       <legend>
@@ -1636,18 +1639,69 @@ export function DesignContextFileEditor({
         Add the JSX, TSX, HTML, CSS, JSON, Markdown, or other UTF-8 text file supplied with the
         design. The connected agent receives this file together with the SVG or PNG evidence.
       </p>
-      <label>
-        <span>Choose design context</span>
-        <input
-          type="file"
-          disabled={disabled}
-          onChange={(event) => {
-            const file = event.target.files?.[0];
-            if (file) void onFile(file);
+      <div className="segmented" aria-label="Boundaries design context source">
+        <button
+          type="button"
+          className={mode === 'upload' ? 'active' : ''}
+          onClick={() => setMode('upload')}
+        >
+          Upload
+        </button>
+        <button
+          type="button"
+          className={mode === 'paste' ? 'active' : ''}
+          onClick={() => setMode('paste')}
+        >
+          Paste or type
+        </button>
+      </div>
+      {mode === 'upload' ? (
+        <label
+          className="dropzone"
+          onDragOver={(event) => event.preventDefault()}
+          onDrop={(event) => {
+            event.preventDefault();
+            const file = event.dataTransfer.files[0];
+            if (file && !disabled) void onFile(file);
           }}
-        />
-      </label>
-      <small>Maximum {maxBytes ? formatBytes(maxBytes) : 'loading…'} · UTF-8 text only</small>
+        >
+          <input
+            type="file"
+            disabled={disabled}
+            onChange={(event) => {
+              const file = event.target.files?.[0];
+              if (file) void onFile(file);
+            }}
+          />
+          <small>Optional</small>
+          <strong>{context?.filename ?? 'Choose or drop design context'}</strong>
+          <span>UTF-8 text file · maximum {maxBytes ? formatBytes(maxBytes) : 'loading…'}</span>
+        </label>
+      ) : (
+        <div className="field-block">
+          <label htmlFor="boundaries-design-context">
+            Context <small>{text.length} characters</small>
+          </label>
+          <textarea
+            id="boundaries-design-context"
+            value={text}
+            maxLength={maxBytes}
+            disabled={disabled}
+            onChange={(event) => setText(event.target.value)}
+            placeholder="Exact copy, components, interactions, tokens, or implementation constraints"
+          />
+          <button
+            type="button"
+            className="primary"
+            disabled={disabled || !text.trim()}
+            onClick={() =>
+              void onFile(new File([text], 'pasted-design-context.txt', { type: 'text/plain' }))
+            }
+          >
+            Attach pasted context
+          </button>
+        </div>
+      )}
       {context && (
         <div className="context-file-summary" role="status">
           <strong>{context.filename}</strong>

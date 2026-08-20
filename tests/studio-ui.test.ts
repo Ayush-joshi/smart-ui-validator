@@ -108,6 +108,11 @@ describe('Studio frontend components', () => {
       }),
     );
     expect(html).toContain('Design context file');
+    expect(html).toContain('class="dropzone"');
+    expect(html).toContain('Choose or drop design context');
+    expect(html).toContain('UTF-8 text file · maximum 250.0 KB');
+    expect(html).toContain('Boundaries design context source');
+    expect(html).toContain('Paste or type');
     expect(html).toContain('JSX, TSX, HTML, CSS, JSON, Markdown');
     expect(html).toContain(
       'connected agent receives this file together with the SVG or PNG evidence',
