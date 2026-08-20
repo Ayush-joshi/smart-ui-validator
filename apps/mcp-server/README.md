@@ -16,7 +16,7 @@ An MCP host can start the published server with:
 
 ```text
 command: npx
-args: -y smart-ui-validator-mcp@0.5.1
+args: -y smart-ui-validator-mcp@0.5.2
 cwd: <absolute-target-project>
 ```
 

@@ -41,7 +41,7 @@ describe('compact MCP run response', () => {
       timingsMs: { total: 1 },
       warnings: [],
       failures: [],
-      provenance: { tool: 'smart-ui', version: '0.5.1' },
+      provenance: { tool: 'smart-ui', version: '0.5.2' },
       score: 50,
       stoppedReason: 'validation-only',
       passes: [

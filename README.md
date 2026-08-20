@@ -51,7 +51,7 @@ host agent and require approval for the exact files involved.
 Install the CLI in a project or tooling workspace:
 
 ```bash
-npm install --save-dev smart-ui-validator@0.5.1
+npm install --save-dev smart-ui-validator@0.5.2
 npx smart-ui --help
 ```
 
@@ -59,7 +59,7 @@ The package has no browser-downloading `postinstall` hook. For the SVG CLI or St
 directory, you can invoke the published package explicitly:
 
 ```bash
-npx --package smart-ui-validator@0.5.1 smart-ui --help
+npx --package smart-ui-validator@0.5.2 smart-ui --help
 ```
 
 From this repository checkout, use `pnpm smart-ui` after `pnpm install --frozen-lockfile` and
@@ -103,7 +103,7 @@ Run first-time setup from the target repository. Add `--agent-memory` only if yo
 optional embedded-SQLite memory backend.
 
 ```bash
-npm install --save-dev smart-ui-validator@0.5.1
+npm install --save-dev smart-ui-validator@0.5.2
 npx smart-ui setup --target .
 npx smart-ui doctor --target .
 npx smart-ui inspect --target . --json
@@ -212,7 +212,7 @@ Example `.mcp.json` for Claude Code:
   "mcpServers": {
     "smart-ui": {
       "command": "npx",
-      "args": ["-y", "smart-ui-validator-mcp@0.5.1"],
+      "args": ["-y", "smart-ui-validator-mcp@0.5.2"],
       "cwd": "/absolute/path/to/project",
       "env": {
         "SMART_UI_MCP_ROOT": "/absolute/path/to/project"

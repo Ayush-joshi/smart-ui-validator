@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.5.2 - 2026-08-20
+
+- Fixed a version string mismatch where internal scripts and CLI output still reported `0.5.0` after the `0.5.1` patch release.
+
 ## 0.5.1 - 2026-08-20
 
 - Updated documentation to reflect that Validate UI workflows now include a visual interface via Smart UI Studio.
